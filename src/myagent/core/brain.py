@@ -61,6 +61,8 @@ class Brain:
     FAIL_THRESHOLD = 3
     # 请求超时（秒）
     REQUEST_TIMEOUT = 30
+    # 主端点恢复检查间隔（秒）
+    RECOVERY_CHECK_INTERVAL = 60
     
     def __init__(
         self,
@@ -235,10 +237,10 @@ class Brain:
         Agent 中应使用此方法而不是直接调用 client.messages.create。
         
         故障切换逻辑:
-        1. 从当前端点开始尝试
-        2. 失败则尝试下一个端点
-        3. 所有端点都失败才报错
-        4. 成功后如果不是主端点，下次会先尝试主端点（自动恢复）
+        1. 使用当前端点（_current_endpoint_idx）
+        2. 失败则切到下一个端点，并"粘住"
+        3. 定期检测主端点是否恢复（每 RECOVERY_CHECK_INTERVAL 秒）
+        4. 主端点恢复后才切回
         
         Args:
             **kwargs: 传递给 messages.create 的参数
@@ -247,12 +249,24 @@ class Brain:
             LLM 响应
         """
         last_error = None
+        tried_indices = set()
         
-        # 按优先级尝试所有端点
-        for i, endpoint in enumerate(self._endpoints):
+        # 检查是否应该尝试恢复主端点
+        self._maybe_recover_primary()
+        
+        # 从当前端点开始尝试
+        start_idx = self._current_endpoint_idx
+        
+        while len(tried_indices) < len(self._endpoints):
+            idx = (start_idx + len(tried_indices)) % len(self._endpoints)
+            if idx in tried_indices:
+                break
+            tried_indices.add(idx)
+            
+            endpoint = self._endpoints[idx]
             client = self._clients[endpoint.name]
             
-            # 使用端点的模型（覆盖 kwargs 中的 model）
+            # 使用端点的模型
             request_kwargs = kwargs.copy()
             request_kwargs["model"] = endpoint.model
             
@@ -261,13 +275,13 @@ class Brain:
                 
                 response = client.messages.create(**request_kwargs)
                 
-                # 成功
+                # 成功，更新当前端点
                 self._mark_endpoint_success(endpoint)
+                self._current_endpoint_idx = idx
+                self._update_public_attrs()
                 
-                # 如果不是主端点成功，记录一下
-                if i > 0:
-                    logger.info(f"Request succeeded on backup endpoint: {endpoint.name}")
-                    # 下次请求仍会从主端点开始尝试（自动恢复机制）
+                if idx > 0:
+                    logger.info(f"Using backup endpoint: {endpoint.name}")
                 
                 return response
                 
@@ -276,12 +290,51 @@ class Brain:
                 logger.warning(f"Request failed for {endpoint.name}: {e}")
                 self._mark_endpoint_failed(endpoint)
                 
-                # 如果还有更多端点，继续尝试
-                if i < len(self._endpoints) - 1:
-                    logger.info(f"Trying next endpoint...")
-                    continue
+                # 继续尝试下一个端点
+                logger.info(f"Trying next endpoint...")
         
         raise RuntimeError(f"All LLM endpoints failed: {last_error}")
+    
+    def _maybe_recover_primary(self) -> None:
+        """
+        检查是否应该尝试恢复到主端点
+        
+        只有当：
+        1. 当前不是主端点
+        2. 距离上次检查超过 RECOVERY_CHECK_INTERVAL
+        才会尝试恢复
+        """
+        if self._current_endpoint_idx == 0:
+            return  # 已经是主端点
+        
+        primary = self._endpoints[0]
+        now = time.time()
+        
+        # 每 60 秒检查一次主端点是否恢复
+        if now - primary.last_check < self.RECOVERY_CHECK_INTERVAL:
+            return
+        
+        primary.last_check = now
+        logger.info(f"Checking if primary endpoint has recovered...")
+        
+        # 尝试简单请求测试主端点
+        try:
+            client = self._clients[primary.name]
+            client.messages.create(
+                model=primary.model,
+                max_tokens=10,
+                messages=[{"role": "user", "content": "hi"}],
+            )
+            
+            # 主端点恢复了
+            logger.info(f"Primary endpoint recovered! Switching back.")
+            primary.healthy = True
+            primary.fail_count = 0
+            self._current_endpoint_idx = 0
+            self._update_public_attrs()
+            
+        except Exception as e:
+            logger.debug(f"Primary endpoint still down: {e}")
     
     async def think(
         self,
