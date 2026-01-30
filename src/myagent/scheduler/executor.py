@@ -116,11 +116,11 @@ class TaskExecutor:
             Agent._current_im_session = virtual_session
             Agent._current_im_gateway = self.gateway
             
-            logger.debug(f"Set up IM context for task {task.id}: {task.channel_id}/{task.chat_id}")
+            logger.info(f"Set up IM context for task {task.id}: {task.channel_id}/{task.chat_id}")
             return True
             
         except Exception as e:
-            logger.warning(f"Failed to set up IM context: {e}")
+            logger.error(f"Failed to set up IM context: {e}", exc_info=True)
             return False
     
     def _cleanup_im_context(self, agent: Any) -> None:
@@ -133,12 +133,13 @@ class TaskExecutor:
             pass
     
     async def _create_agent(self) -> Any:
-        """创建 Agent 实例"""
+        """创建 Agent 实例（不启动 scheduler，避免重复执行任务）"""
         if not self.agent_factory:
             # 延迟导入，避免循环依赖
             from ..core.agent import Agent
             agent = Agent()
-            await agent.initialize()
+            # 不启动 scheduler，因为这是定时任务执行环境
+            await agent.initialize(start_scheduler=False)
             return agent
         
         return self.agent_factory()

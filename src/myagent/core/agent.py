@@ -432,8 +432,13 @@ class Agent:
         
         logger.info(f"Agent '{self.name}' created")
     
-    async def initialize(self) -> None:
-        """初始化 Agent"""
+    async def initialize(self, start_scheduler: bool = True) -> None:
+        """
+        初始化 Agent
+        
+        Args:
+            start_scheduler: 是否启动定时任务调度器（定时任务执行时应设为 False）
+        """
         if self._initialized:
             return
         
@@ -451,8 +456,9 @@ class Agent:
         self.memory_manager.start_session(session_id)
         self._current_session_id = session_id
         
-        # 启动定时任务调度器
-        await self._start_scheduler()
+        # 启动定时任务调度器（定时任务执行时跳过，避免重复）
+        if start_scheduler:
+            await self._start_scheduler()
         
         # 设置系统提示词 (包含技能清单、MCP 清单和相关记忆)
         base_prompt = self.identity.get_system_prompt()
