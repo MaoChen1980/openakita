@@ -283,6 +283,62 @@ class Agent:
                 }
             }
         },
+        # === 定时任务工具 ===
+        {
+            "name": "schedule_task",
+            "description": "创建定时任务。支持三种类型：once(一次性)、interval(间隔)、cron(cron表达式)。"
+                           "任务会在指定时间自动执行，执行时会创建新的 Agent 会话来处理 prompt。",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "任务名称"},
+                    "description": {"type": "string", "description": "任务描述（用于理解任务目的）"},
+                    "trigger_type": {
+                        "type": "string",
+                        "enum": ["once", "interval", "cron"],
+                        "description": "触发类型：once=一次性，interval=间隔执行，cron=cron表达式"
+                    },
+                    "trigger_config": {
+                        "type": "object",
+                        "description": "触发配置。once: {run_at: '2026-02-01 10:00'}；interval: {interval_minutes: 30}；cron: {cron: '0 9 * * *'}"
+                    },
+                    "prompt": {"type": "string", "description": "执行时发送给 Agent 的提示（任务内容）"}
+                },
+                "required": ["name", "description", "trigger_type", "trigger_config", "prompt"]
+            }
+        },
+        {
+            "name": "list_scheduled_tasks",
+            "description": "列出所有定时任务",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "enabled_only": {"type": "boolean", "description": "是否只列出启用的任务", "default": False}
+                }
+            }
+        },
+        {
+            "name": "cancel_scheduled_task",
+            "description": "取消定时任务",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "任务 ID"}
+                },
+                "required": ["task_id"]
+            }
+        },
+        {
+            "name": "trigger_scheduled_task",
+            "description": "立即触发定时任务（不等待计划时间）",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "任务 ID"}
+                },
+                "required": ["task_id"]
+            }
+        },
     ]
     
     def __init__(
@@ -325,6 +381,9 @@ class Agent:
         self.browser_mcp = None  # 在 _start_builtin_mcp_servers 中启动
         self._builtin_mcp_count = 0
         
+        # 定时任务调度器
+        self.task_scheduler = None  # 在 initialize() 中启动
+        
         # 记忆系统
         self.memory_manager = MemoryManager(
             data_dir=settings.project_root / "data" / "memory",
@@ -363,6 +422,9 @@ class Agent:
         session_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + str(uuid.uuid4())[:8]
         self.memory_manager.start_session(session_id)
         self._current_session_id = session_id
+        
+        # 启动定时任务调度器
+        await self._start_scheduler()
         
         # 设置系统提示词 (包含技能清单、MCP 清单和相关记忆)
         base_prompt = self.identity.get_system_prompt()
@@ -449,6 +511,28 @@ class Agent:
         except Exception as e:
             logger.warning(f"Failed to start browser service: {e}")
     
+    async def _start_scheduler(self) -> None:
+        """启动定时任务调度器"""
+        try:
+            from ..scheduler import TaskScheduler
+            from ..scheduler.executor import create_default_executor
+            
+            # 创建调度器
+            self.task_scheduler = TaskScheduler(
+                storage_path=settings.project_root / "data" / "scheduler",
+                executor=create_default_executor(timeout_seconds=300),
+            )
+            
+            # 启动调度器
+            await self.task_scheduler.start()
+            
+            stats = self.task_scheduler.get_stats()
+            logger.info(f"TaskScheduler started with {stats['total_tasks']} tasks")
+            
+        except Exception as e:
+            logger.warning(f"Failed to start scheduler: {e}")
+            self.task_scheduler = None
+    
     def _build_system_prompt(self, base_prompt: str, task_description: str = "") -> str:
         """
         构建系统提示词 (动态生成，包含技能清单、MCP 清单和相关记忆)
@@ -517,6 +601,7 @@ class Agent:
             "Skills Management": ["list_skills", "get_skill_info", "run_skill_script", "get_skill_reference", "generate_skill", "improve_skill"],
             "Memory Management": ["add_memory", "search_memory", "get_memory_stats"],
             "Browser Automation": ["browser_open", "browser_navigate", "browser_click", "browser_type", "browser_get_content", "browser_screenshot"],
+            "Scheduled Tasks": ["schedule_task", "list_scheduled_tasks", "cancel_scheduled_task", "trigger_scheduled_task"],
         }
         
         # 构建工具名到描述的映射
@@ -1147,6 +1232,72 @@ class Agent:
                     return f"✅ {result.get('result', 'OK')}"
                 else:
                     return f"❌ {result.get('error', '未知错误')}"
+            
+            # === 定时任务工具 ===
+            elif tool_name == "schedule_task":
+                if not hasattr(self, 'task_scheduler') or not self.task_scheduler:
+                    return "❌ 定时任务调度器未启动"
+                
+                from ..scheduler import ScheduledTask, TriggerType
+                
+                trigger_type = TriggerType(tool_input["trigger_type"])
+                task = ScheduledTask.create(
+                    name=tool_input["name"],
+                    description=tool_input["description"],
+                    trigger_type=trigger_type,
+                    trigger_config=tool_input["trigger_config"],
+                    prompt=tool_input["prompt"],
+                    user_id=getattr(self, '_current_session_id', None),
+                )
+                
+                task_id = await self.task_scheduler.add_task(task)
+                next_run = task.next_run.strftime('%Y-%m-%d %H:%M:%S') if task.next_run else '待计算'
+                
+                return f"✅ 定时任务已创建\n- ID: {task_id}\n- 名称: {task.name}\n- 下次执行: {next_run}"
+            
+            elif tool_name == "list_scheduled_tasks":
+                if not hasattr(self, 'task_scheduler') or not self.task_scheduler:
+                    return "❌ 定时任务调度器未启动"
+                
+                enabled_only = tool_input.get("enabled_only", False)
+                tasks = self.task_scheduler.list_tasks(enabled_only=enabled_only)
+                
+                if not tasks:
+                    return "当前没有定时任务"
+                
+                output = f"共 {len(tasks)} 个定时任务:\n\n"
+                for t in tasks:
+                    status = "✓" if t.enabled else "✗"
+                    next_run = t.next_run.strftime('%m-%d %H:%M') if t.next_run else 'N/A'
+                    output += f"[{status}] {t.name} ({t.id})\n"
+                    output += f"    类型: {t.trigger_type.value}, 下次: {next_run}\n"
+                
+                return output
+            
+            elif tool_name == "cancel_scheduled_task":
+                if not hasattr(self, 'task_scheduler') or not self.task_scheduler:
+                    return "❌ 定时任务调度器未启动"
+                
+                task_id = tool_input["task_id"]
+                success = await self.task_scheduler.remove_task(task_id)
+                
+                if success:
+                    return f"✅ 任务 {task_id} 已取消"
+                else:
+                    return f"❌ 任务 {task_id} 不存在"
+            
+            elif tool_name == "trigger_scheduled_task":
+                if not hasattr(self, 'task_scheduler') or not self.task_scheduler:
+                    return "❌ 定时任务调度器未启动"
+                
+                task_id = tool_input["task_id"]
+                execution = await self.task_scheduler.trigger_now(task_id)
+                
+                if execution:
+                    status = "成功" if execution.status == "success" else "失败"
+                    return f"✅ 任务已触发执行，状态: {status}\n结果: {execution.result or execution.error or 'N/A'}"
+                else:
+                    return f"❌ 任务 {task_id} 不存在"
             
             else:
                 return f"未知工具: {tool_name}"

@@ -1,0 +1,355 @@
+"""
+会话管理器
+
+职责:
+- 根据 (channel, chat_id, user_id) 获取或创建会话
+- 管理会话生命周期
+- 隔离不同会话的上下文
+- 会话持久化
+"""
+
+import json
+import asyncio
+import logging
+from pathlib import Path
+from datetime import datetime
+from typing import Optional, Callable, Awaitable, Any
+
+from .session import Session, SessionState, SessionConfig, SessionContext
+from .user import UserManager
+
+logger = logging.getLogger(__name__)
+
+
+class SessionManager:
+    """
+    会话管理器
+    
+    管理所有活跃会话，提供:
+    - 会话的创建和获取
+    - 会话过期清理
+    - 会话持久化
+    """
+    
+    def __init__(
+        self,
+        storage_path: Optional[Path] = None,
+        default_config: Optional[SessionConfig] = None,
+        cleanup_interval_seconds: int = 300,  # 5 分钟清理一次
+    ):
+        """
+        Args:
+            storage_path: 会话存储目录
+            default_config: 默认会话配置
+            cleanup_interval_seconds: 清理间隔（秒）
+        """
+        self.storage_path = Path(storage_path) if storage_path else Path("data/sessions")
+        self.storage_path.mkdir(parents=True, exist_ok=True)
+        
+        self.default_config = default_config or SessionConfig()
+        self.cleanup_interval = cleanup_interval_seconds
+        
+        # 活跃会话缓存 {session_key: Session}
+        self._sessions: dict[str, Session] = {}
+        
+        # 用户管理器
+        self.user_manager = UserManager(self.storage_path / "users")
+        
+        # 清理任务
+        self._cleanup_task: Optional[asyncio.Task] = None
+        self._running = False
+        
+        # 加载持久化的会话
+        self._load_sessions()
+    
+    async def start(self) -> None:
+        """启动会话管理器"""
+        self._running = True
+        self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+        logger.info("SessionManager started")
+    
+    async def stop(self) -> None:
+        """停止会话管理器"""
+        self._running = False
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+        
+        # 保存所有会话
+        self._save_sessions()
+        logger.info("SessionManager stopped")
+    
+    def get_session(
+        self,
+        channel: str,
+        chat_id: str,
+        user_id: str,
+        create_if_missing: bool = True,
+        config: Optional[SessionConfig] = None,
+    ) -> Optional[Session]:
+        """
+        获取或创建会话
+        
+        Args:
+            channel: 来源通道
+            chat_id: 聊天 ID
+            user_id: 用户 ID
+            create_if_missing: 如果不存在是否创建
+            config: 会话配置（创建时使用）
+        
+        Returns:
+            Session 或 None
+        """
+        session_key = f"{channel}:{chat_id}:{user_id}"
+        
+        # 检查缓存
+        if session_key in self._sessions:
+            session = self._sessions[session_key]
+            
+            # 检查是否过期
+            if session.is_expired():
+                logger.info(f"Session expired: {session_key}")
+                session.mark_expired()
+                del self._sessions[session_key]
+            else:
+                session.touch()
+                return session
+        
+        # 创建新会话
+        if create_if_missing:
+            session = self._create_session(channel, chat_id, user_id, config)
+            self._sessions[session_key] = session
+            logger.info(f"Created new session: {session_key}")
+            return session
+        
+        return None
+    
+    def get_session_by_id(self, session_id: str) -> Optional[Session]:
+        """通过 session_id 获取会话"""
+        for session in self._sessions.values():
+            if session.id == session_id:
+                return session
+        return None
+    
+    def _create_session(
+        self,
+        channel: str,
+        chat_id: str,
+        user_id: str,
+        config: Optional[SessionConfig] = None,
+    ) -> Session:
+        """创建新会话"""
+        # 合并配置
+        session_config = config.merge_with_defaults(self.default_config) if config else self.default_config
+        
+        session = Session.create(
+            channel=channel,
+            chat_id=chat_id,
+            user_id=user_id,
+            config=session_config,
+        )
+        
+        # 设置记忆范围
+        session.context.memory_scope = f"session_{session.id}"
+        
+        return session
+    
+    def close_session(self, session_key: str) -> bool:
+        """关闭会话"""
+        if session_key in self._sessions:
+            session = self._sessions[session_key]
+            session.close()
+            del self._sessions[session_key]
+            logger.info(f"Closed session: {session_key}")
+            return True
+        return False
+    
+    def list_sessions(
+        self,
+        channel: Optional[str] = None,
+        user_id: Optional[str] = None,
+        state: Optional[SessionState] = None,
+    ) -> list[Session]:
+        """
+        列出会话
+        
+        Args:
+            channel: 过滤通道
+            user_id: 过滤用户
+            state: 过滤状态
+        """
+        sessions = list(self._sessions.values())
+        
+        if channel:
+            sessions = [s for s in sessions if s.channel == channel]
+        if user_id:
+            sessions = [s for s in sessions if s.user_id == user_id]
+        if state:
+            sessions = [s for s in sessions if s.state == state]
+        
+        return sessions
+    
+    def get_session_count(self) -> dict[str, int]:
+        """获取会话统计"""
+        stats = {
+            "total": len(self._sessions),
+            "active": 0,
+            "idle": 0,
+            "by_channel": {},
+        }
+        
+        for session in self._sessions.values():
+            if session.state == SessionState.ACTIVE:
+                stats["active"] += 1
+            elif session.state == SessionState.IDLE:
+                stats["idle"] += 1
+            
+            channel = session.channel
+            stats["by_channel"][channel] = stats["by_channel"].get(channel, 0) + 1
+        
+        return stats
+    
+    async def cleanup_expired(self) -> int:
+        """清理过期会话"""
+        expired_keys = []
+        
+        for key, session in self._sessions.items():
+            if session.is_expired():
+                expired_keys.append(key)
+        
+        for key in expired_keys:
+            session = self._sessions[key]
+            session.mark_expired()
+            del self._sessions[key]
+            logger.debug(f"Cleaned up expired session: {key}")
+        
+        if expired_keys:
+            logger.info(f"Cleaned up {len(expired_keys)} expired sessions")
+        
+        return len(expired_keys)
+    
+    async def _cleanup_loop(self) -> None:
+        """定期清理循环"""
+        while self._running:
+            try:
+                await asyncio.sleep(self.cleanup_interval)
+                await self.cleanup_expired()
+                self._save_sessions()  # 定期保存
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in cleanup loop: {e}")
+    
+    def _load_sessions(self) -> None:
+        """从文件加载会话"""
+        sessions_file = self.storage_path / "sessions.json"
+        
+        if not sessions_file.exists():
+            return
+        
+        try:
+            with open(sessions_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            for item in data:
+                try:
+                    session = Session.from_dict(item)
+                    # 只加载未过期的会话
+                    if not session.is_expired() and session.state != SessionState.CLOSED:
+                        self._sessions[session.session_key] = session
+                except Exception as e:
+                    logger.warning(f"Failed to load session: {e}")
+            
+            logger.info(f"Loaded {len(self._sessions)} sessions from storage")
+            
+        except Exception as e:
+            logger.error(f"Failed to load sessions: {e}")
+    
+    def _save_sessions(self) -> None:
+        """保存会话到文件"""
+        sessions_file = self.storage_path / "sessions.json"
+        
+        try:
+            data = [session.to_dict() for session in self._sessions.values()]
+            
+            with open(sessions_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            
+            logger.debug(f"Saved {len(data)} sessions to storage")
+            
+        except Exception as e:
+            logger.error(f"Failed to save sessions: {e}")
+    
+    # ==================== 会话操作快捷方法 ====================
+    
+    def add_message(
+        self,
+        channel: str,
+        chat_id: str,
+        user_id: str,
+        role: str,
+        content: str,
+        **metadata,
+    ) -> Session:
+        """添加消息到会话"""
+        session = self.get_session(channel, chat_id, user_id)
+        session.add_message(role, content, **metadata)
+        return session
+    
+    def get_history(
+        self,
+        channel: str,
+        chat_id: str,
+        user_id: str,
+        limit: Optional[int] = None,
+    ) -> list[dict]:
+        """获取会话历史"""
+        session = self.get_session(channel, chat_id, user_id, create_if_missing=False)
+        if session:
+            return session.context.get_messages(limit)
+        return []
+    
+    def clear_history(
+        self,
+        channel: str,
+        chat_id: str,
+        user_id: str,
+    ) -> bool:
+        """清空会话历史"""
+        session = self.get_session(channel, chat_id, user_id, create_if_missing=False)
+        if session:
+            session.context.clear_messages()
+            return True
+        return False
+    
+    def set_variable(
+        self,
+        channel: str,
+        chat_id: str,
+        user_id: str,
+        key: str,
+        value: Any,
+    ) -> bool:
+        """设置会话变量"""
+        session = self.get_session(channel, chat_id, user_id, create_if_missing=False)
+        if session:
+            session.context.set_variable(key, value)
+            return True
+        return False
+    
+    def get_variable(
+        self,
+        channel: str,
+        chat_id: str,
+        user_id: str,
+        key: str,
+        default: Any = None,
+    ) -> Any:
+        """获取会话变量"""
+        session = self.get_session(channel, chat_id, user_id, create_if_missing=False)
+        if session:
+            return session.context.get_variable(key, default)
+        return default

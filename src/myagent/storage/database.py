@@ -116,10 +116,89 @@ class Database:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             
+            -- ========== 新增表 (v0.5.0) ==========
+            
+            -- 定时任务表
+            CREATE TABLE IF NOT EXISTS scheduled_tasks (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                trigger_type TEXT NOT NULL,
+                trigger_config TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                script_path TEXT,
+                channel_id TEXT,
+                chat_id TEXT,
+                user_id TEXT,
+                enabled INTEGER DEFAULT 1,
+                status TEXT DEFAULT 'pending',
+                last_run TIMESTAMP,
+                next_run TIMESTAMP,
+                run_count INTEGER DEFAULT 0,
+                fail_count INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                metadata TEXT DEFAULT '{}'
+            );
+            
+            -- 任务执行日志表
+            CREATE TABLE IF NOT EXISTS task_executions (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                started_at TIMESTAMP NOT NULL,
+                finished_at TIMESTAMP,
+                status TEXT DEFAULT 'running',
+                result TEXT,
+                error TEXT,
+                duration_seconds REAL,
+                FOREIGN KEY (task_id) REFERENCES scheduled_tasks(id)
+            );
+            
+            -- 用户表（跨平台统一用户）
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                display_name TEXT,
+                avatar_url TEXT,
+                preferences TEXT DEFAULT '{}',
+                permissions TEXT DEFAULT '["user"]',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_seen TIMESTAMP,
+                total_messages INTEGER DEFAULT 0
+            );
+            
+            -- 用户通道绑定表
+            CREATE TABLE IF NOT EXISTS user_bindings (
+                user_id TEXT NOT NULL,
+                channel TEXT NOT NULL,
+                channel_user_id TEXT NOT NULL,
+                bound_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, channel),
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            );
+            
+            -- 会话表
+            CREATE TABLE IF NOT EXISTS sessions (
+                id TEXT PRIMARY KEY,
+                channel TEXT NOT NULL,
+                chat_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                state TEXT DEFAULT 'active',
+                context TEXT DEFAULT '{}',
+                config TEXT DEFAULT '{}',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                metadata TEXT DEFAULT '{}'
+            );
+            
             -- 索引
             CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
             CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
             CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+            CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_user ON scheduled_tasks(user_id);
+            CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run);
+            CREATE INDEX IF NOT EXISTS idx_task_executions_task ON task_executions(task_id);
+            CREATE INDEX IF NOT EXISTS idx_user_bindings_channel ON user_bindings(channel, channel_user_id);
+            CREATE INDEX IF NOT EXISTS idx_sessions_channel ON sessions(channel, chat_id);
         """)
         await self._connection.commit()
     

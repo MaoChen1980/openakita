@@ -40,6 +40,42 @@ class Settings(BaseSettings):
     # GitHub
     github_token: str = Field(default="", description="GitHub Token")
     
+    # === 调度器配置 ===
+    scheduler_enabled: bool = Field(default=True, description="是否启用定时任务调度器")
+    scheduler_timezone: str = Field(default="Asia/Shanghai", description="调度器时区")
+    scheduler_max_concurrent: int = Field(default=5, description="最大并发任务数")
+    
+    # === 通道配置 ===
+    # Telegram
+    telegram_enabled: bool = Field(default=False, description="是否启用 Telegram")
+    telegram_bot_token: str = Field(default="", description="Telegram Bot Token")
+    telegram_webhook_url: str = Field(default="", description="Telegram Webhook URL")
+    
+    # 飞书
+    feishu_enabled: bool = Field(default=False, description="是否启用飞书")
+    feishu_app_id: str = Field(default="", description="飞书 App ID")
+    feishu_app_secret: str = Field(default="", description="飞书 App Secret")
+    
+    # 企业微信
+    wework_enabled: bool = Field(default=False, description="是否启用企业微信")
+    wework_corp_id: str = Field(default="", description="企业微信 Corp ID")
+    wework_agent_id: str = Field(default="", description="企业微信 Agent ID")
+    wework_secret: str = Field(default="", description="企业微信 Secret")
+    
+    # 钉钉
+    dingtalk_enabled: bool = Field(default=False, description="是否启用钉钉")
+    dingtalk_app_key: str = Field(default="", description="钉钉 App Key")
+    dingtalk_app_secret: str = Field(default="", description="钉钉 App Secret")
+    
+    # QQ (OneBot)
+    qq_enabled: bool = Field(default=False, description="是否启用 QQ")
+    qq_onebot_url: str = Field(default="ws://127.0.0.1:8080", description="OneBot WebSocket URL")
+    
+    # === 会话配置 ===
+    session_timeout_minutes: int = Field(default=30, description="会话超时时间（分钟）")
+    session_max_history: int = Field(default=50, description="会话最大历史消息数")
+    session_storage_path: str = Field(default="data/sessions", description="会话存储路径")
+    
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
