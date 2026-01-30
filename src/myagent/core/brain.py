@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 from anthropic import Anthropic
 from anthropic.types import Message, MessageParam, ToolParam
+from openai import OpenAI
 
 from ..config import settings
 
@@ -46,6 +47,7 @@ class LLMEndpoint:
     api_key: str
     base_url: str
     model: str
+    client_type: str = "anthropic"  # "anthropic" 或 "openai"
     priority: int = 0  # 优先级，数字越小优先级越高
     healthy: bool = True
     last_check: float = 0
@@ -90,18 +92,34 @@ class Brain:
                 priority=0,
             ))
         
-        # 备用端点（MiniMax）
-        backup_key = getattr(settings, 'backup_api_key', None) or "MINIMAX_KEY_REMOVED"
-        backup_url = getattr(settings, 'backup_base_url', None) or "https://api.minimaxi.com/anthropic"
-        backup_model = getattr(settings, 'backup_model', None) or "MiniMax-M2.1"
+        # 第二备用端点（阿里 DashScope）
+        dashscope_key = "DASHSCOPE_KEY_REMOVED"
+        dashscope_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        dashscope_model = "qwen3-max-2026-01-23"
         
-        if backup_key:
+        if dashscope_key:
             self._endpoints.append(LLMEndpoint(
-                name="backup (MiniMax)",
-                api_key=backup_key,
-                base_url=backup_url,
-                model=backup_model,
+                name="backup-1 (Aliyun DashScope)",
+                api_key=dashscope_key,
+                base_url=dashscope_url,
+                model=dashscope_model,
+                client_type="openai",
                 priority=1,
+            ))
+        
+        # 第三备用端点（MiniMax）
+        minimax_key = "MINIMAX_KEY_REMOVED"
+        minimax_url = "https://api.minimaxi.com/anthropic"
+        minimax_model = "MiniMax-M2.1"
+        
+        if minimax_key:
+            self._endpoints.append(LLMEndpoint(
+                name="backup-2 (MiniMax)",
+                api_key=minimax_key,
+                base_url=minimax_url,
+                model=minimax_model,
+                client_type="anthropic",
+                priority=2,
             ))
         
         if not self._endpoints:
@@ -117,14 +135,27 @@ class Brain:
         self._current_endpoint_idx = 0
         
         # 创建客户端（设置超时和禁用自动重试）
-        self._clients: dict[str, Anthropic] = {}
+        self._anthropic_clients: dict[str, Anthropic] = {}
+        self._openai_clients: dict[str, OpenAI] = {}
+        
         for ep in self._endpoints:
-            self._clients[ep.name] = Anthropic(
-                api_key=ep.api_key,
-                base_url=ep.base_url,
-                timeout=self.REQUEST_TIMEOUT,  # 请求超时
-                max_retries=0,  # 禁用 SDK 自动重试，由我们自己控制故障切换
-            )
+            if ep.client_type == "openai":
+                self._openai_clients[ep.name] = OpenAI(
+                    api_key=ep.api_key,
+                    base_url=ep.base_url,
+                    timeout=self.REQUEST_TIMEOUT,
+                    max_retries=0,
+                )
+            else:
+                self._anthropic_clients[ep.name] = Anthropic(
+                    api_key=ep.api_key,
+                    base_url=ep.base_url,
+                    timeout=self.REQUEST_TIMEOUT,
+                    max_retries=0,
+                )
+        
+        # 兼容旧代码的 _clients 属性
+        self._clients = self._anthropic_clients
         
         # 公开属性（兼容旧代码）
         self._update_public_attrs()
@@ -132,6 +163,40 @@ class Brain:
         logger.info(f"Brain initialized with {len(self._endpoints)} endpoints")
         for ep in self._endpoints:
             logger.info(f"  - {ep.name}: {ep.model} @ {ep.base_url}")
+        
+        # 启动时检测端点健康度
+        self._startup_health_check()
+    
+    def _startup_health_check(self) -> None:
+        """
+        启动时检测所有端点健康度
+        
+        按优先级依次检测，找到第一个可用的端点作为当前端点
+        """
+        logger.info("Performing startup health check...")
+        
+        for i, endpoint in enumerate(self._endpoints):
+            logger.info(f"  Testing {endpoint.name}...")
+            try:
+                self._test_endpoint(endpoint)
+                # 成功
+                endpoint.healthy = True
+                endpoint.fail_count = 0
+                endpoint.last_check = time.time()
+                self._current_endpoint_idx = i
+                self._update_public_attrs()
+                logger.info(f"  ✓ {endpoint.name} is healthy - using as current endpoint")
+                return
+            except Exception as e:
+                # 失败
+                endpoint.healthy = False
+                endpoint.fail_count = self.FAIL_THRESHOLD
+                logger.warning(f"  ✗ {endpoint.name} failed: {e}")
+        
+        # 所有端点都失败，使用第一个
+        logger.error("All endpoints failed health check! Will retry on first request.")
+        self._current_endpoint_idx = 0
+        self._update_public_attrs()
     
     def _update_public_attrs(self) -> None:
         """更新公开属性"""
@@ -139,7 +204,13 @@ class Brain:
         self.api_key = ep.api_key
         self.base_url = ep.base_url
         self.model = ep.model
-        self.client = self._clients[ep.name]
+        # client 属性保持 Anthropic 客户端兼容（如果当前端点是 OpenAI，则使用第一个 Anthropic 客户端）
+        if ep.client_type == "anthropic" and ep.name in self._anthropic_clients:
+            self.client = self._anthropic_clients[ep.name]
+        elif self._anthropic_clients:
+            self.client = list(self._anthropic_clients.values())[0]
+        else:
+            self.client = None
     
     def _get_healthy_endpoint(self) -> Optional[LLMEndpoint]:
         """获取健康的端点"""
@@ -178,17 +249,10 @@ class Brain:
         if endpoint is None:
             endpoint = self._endpoints[self._current_endpoint_idx]
         
-        client = self._clients[endpoint.name]
-        
         try:
             # 发送简单测试请求
-            response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    client.messages.create,
-                    model=endpoint.model,
-                    max_tokens=10,
-                    messages=[{"role": "user", "content": "hi"}],
-                ),
+            await asyncio.wait_for(
+                asyncio.to_thread(self._test_endpoint, endpoint),
                 timeout=10,
             )
             self._mark_endpoint_success(endpoint)
@@ -235,6 +299,7 @@ class Brain:
         
         这是对 client.messages.create 的包装，自动处理故障切换。
         Agent 中应使用此方法而不是直接调用 client.messages.create。
+        支持 Anthropic 和 OpenAI 客户端。
         
         故障切换逻辑:
         1. 使用当前端点（_current_endpoint_idx）
@@ -243,10 +308,10 @@ class Brain:
         4. 主端点恢复后才切回
         
         Args:
-            **kwargs: 传递给 messages.create 的参数
+            **kwargs: 传递给 messages.create 的参数（Anthropic 格式）
         
         Returns:
-            LLM 响应
+            LLM 响应（Anthropic Message 格式）
         """
         last_error = None
         tried_indices = set()
@@ -264,16 +329,14 @@ class Brain:
             tried_indices.add(idx)
             
             endpoint = self._endpoints[idx]
-            client = self._clients[endpoint.name]
-            
-            # 使用端点的模型
-            request_kwargs = kwargs.copy()
-            request_kwargs["model"] = endpoint.model
             
             try:
                 logger.info(f"Sending request to {endpoint.name} ({endpoint.model})")
                 
-                response = client.messages.create(**request_kwargs)
+                if endpoint.client_type == "openai":
+                    response = self._call_openai_endpoint(endpoint, kwargs)
+                else:
+                    response = self._call_anthropic_endpoint(endpoint, kwargs)
                 
                 # 成功，更新当前端点
                 self._mark_endpoint_success(endpoint)
@@ -294,6 +357,94 @@ class Brain:
                 logger.info(f"Trying next endpoint...")
         
         raise RuntimeError(f"All LLM endpoints failed: {last_error}")
+    
+    def _call_anthropic_endpoint(self, endpoint: LLMEndpoint, kwargs: dict) -> Message:
+        """调用 Anthropic 格式的端点"""
+        client = self._anthropic_clients[endpoint.name]
+        request_kwargs = kwargs.copy()
+        request_kwargs["model"] = endpoint.model
+        return client.messages.create(**request_kwargs)
+    
+    def _call_openai_endpoint(self, endpoint: LLMEndpoint, kwargs: dict) -> Message:
+        """
+        调用 OpenAI 格式的端点（如阿里 DashScope）
+        
+        将 Anthropic 格式转换为 OpenAI 格式，然后将响应转回 Anthropic Message 格式
+        """
+        client = self._openai_clients[endpoint.name]
+        
+        # 转换消息格式: Anthropic -> OpenAI
+        openai_messages = []
+        
+        # 系统消息
+        if "system" in kwargs and kwargs["system"]:
+            openai_messages.append({
+                "role": "system",
+                "content": kwargs["system"]
+            })
+        
+        # 用户/助手消息
+        for msg in kwargs.get("messages", []):
+            role = msg["role"]
+            content = msg["content"]
+            
+            # 处理复杂内容（如工具调用结果）
+            if isinstance(content, list):
+                text_parts = []
+                for part in content:
+                    if isinstance(part, dict):
+                        if part.get("type") == "text":
+                            text_parts.append(part.get("text", ""))
+                        elif part.get("type") == "tool_result":
+                            # 工具结果作为普通文本处理
+                            tool_content = part.get("content", "")
+                            if isinstance(tool_content, list):
+                                for tc in tool_content:
+                                    if isinstance(tc, dict) and tc.get("type") == "text":
+                                        text_parts.append(tc.get("text", ""))
+                            else:
+                                text_parts.append(str(tool_content))
+                    else:
+                        text_parts.append(str(part))
+                content = "\n".join(text_parts)
+            
+            openai_messages.append({
+                "role": role,
+                "content": content
+            })
+        
+        # 调用 OpenAI API（启用 thinking 模式）
+        max_tokens = kwargs.get("max_tokens", 4096)
+        
+        response = client.chat.completions.create(
+            model=endpoint.model,
+            messages=openai_messages,
+            max_tokens=max_tokens,
+            # Qwen3 支持 enable_thinking 参数
+            extra_body={"enable_thinking": True}
+        )
+        
+        # 转换响应: OpenAI -> Anthropic Message 格式
+        choice = response.choices[0]
+        content_text = choice.message.content or ""
+        
+        # 构造 Anthropic Message 格式的响应
+        from anthropic.types import Message as AnthropicMessage, TextBlock, Usage
+        
+        # 创建模拟的 Anthropic Message 对象
+        return AnthropicMessage(
+            id=response.id or "msg_openai",
+            type="message",
+            role="assistant",
+            content=[TextBlock(type="text", text=content_text)],
+            model=endpoint.model,
+            stop_reason="end_turn" if choice.finish_reason == "stop" else choice.finish_reason,
+            stop_sequence=None,
+            usage=Usage(
+                input_tokens=response.usage.prompt_tokens if response.usage else 0,
+                output_tokens=response.usage.completion_tokens if response.usage else 0,
+            )
+        )
     
     def _maybe_recover_primary(self) -> None:
         """
@@ -319,12 +470,7 @@ class Brain:
         
         # 尝试简单请求测试主端点
         try:
-            client = self._clients[primary.name]
-            client.messages.create(
-                model=primary.model,
-                max_tokens=10,
-                messages=[{"role": "user", "content": "hi"}],
-            )
+            self._test_endpoint(primary)
             
             # 主端点恢复了
             logger.info(f"Primary endpoint recovered! Switching back.")
@@ -335,6 +481,23 @@ class Brain:
             
         except Exception as e:
             logger.debug(f"Primary endpoint still down: {e}")
+    
+    def _test_endpoint(self, endpoint: LLMEndpoint) -> None:
+        """测试端点是否可用"""
+        if endpoint.client_type == "openai":
+            client = self._openai_clients[endpoint.name]
+            client.chat.completions.create(
+                model=endpoint.model,
+                max_tokens=10,
+                messages=[{"role": "user", "content": "hi"}],
+            )
+        else:
+            client = self._anthropic_clients[endpoint.name]
+            client.messages.create(
+                model=endpoint.model,
+                max_tokens=10,
+                messages=[{"role": "user", "content": "hi"}],
+            )
     
     async def think(
         self,
