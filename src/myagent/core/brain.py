@@ -225,6 +225,52 @@ class Brain:
             "healthy": ep.healthy,
         }
     
+    def messages_create(self, **kwargs) -> Message:
+        """
+        同步调用 LLM API（带故障切换）
+        
+        这是对 client.messages.create 的包装，自动处理故障切换。
+        Agent 中应使用此方法而不是直接调用 client.messages.create。
+        
+        Args:
+            **kwargs: 传递给 messages.create 的参数
+        
+        Returns:
+            LLM 响应
+        """
+        last_error = None
+        tried_endpoints = set()
+        
+        while len(tried_endpoints) < len(self._endpoints):
+            endpoint = self._get_healthy_endpoint()
+            if endpoint is None or endpoint.name in tried_endpoints:
+                break
+            
+            tried_endpoints.add(endpoint.name)
+            client = self._clients[endpoint.name]
+            
+            # 使用端点的模型
+            request_kwargs = kwargs.copy()
+            if "model" not in request_kwargs:
+                request_kwargs["model"] = endpoint.model
+            
+            try:
+                logger.info(f"Sending request to {endpoint.name} ({endpoint.model})")
+                
+                response = client.messages.create(**request_kwargs)
+                
+                # 成功
+                self._mark_endpoint_success(endpoint)
+                return response
+                
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"Request failed for {endpoint.name}: {e}")
+                self._mark_endpoint_failed(endpoint)
+                self.switch_to_backup()
+        
+        raise RuntimeError(f"All LLM endpoints failed: {last_error}")
+    
     async def think(
         self,
         prompt: str,

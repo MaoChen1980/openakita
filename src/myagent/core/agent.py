@@ -809,7 +809,7 @@ class Agent:
         
         try:
             # 使用 LLM 生成摘要
-            response = self.brain.client.messages.create(
+            response = self.brain.messages_create(
                 model=self.brain.model,
                 max_tokens=SUMMARY_TARGET_TOKENS,
                 system="你是一个对话摘要助手。请用简洁的中文摘要以下对话的要点，只保留最重要的信息。",
@@ -1023,7 +1023,7 @@ class Agent:
                 working_messages = await self._compress_context(working_messages)
             
             # 调用 Brain，传递工具列表
-            response = self.brain.client.messages.create(
+            response = self.brain.messages_create(
                 model=self.brain.model,
                 max_tokens=self.brain.max_tokens,
                 system=system_prompt,
@@ -1120,7 +1120,7 @@ class Agent:
                 messages = await self._compress_context(messages)
             
             # 调用 Brain，传递工具列表
-            response = self.brain.client.messages.create(
+            response = self.brain.messages_create(
                 model=self.brain.model,
                 max_tokens=self.brain.max_tokens,
                 system=self._context.system,
@@ -1628,7 +1628,7 @@ class Agent:
                 messages = await self._compress_context(messages)
             
             # 调用 Brain
-            response = self.brain.client.messages.create(
+            response = self.brain.messages_create(
                 model=self.brain.model,
                 max_tokens=self.brain.max_tokens,
                 system=system_prompt,
