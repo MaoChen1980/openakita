@@ -169,31 +169,56 @@ class Brain:
     
     def _startup_health_check(self) -> None:
         """
-        启动时检测所有端点健康度
+        启动时并行检测所有端点健康度
         
-        按优先级依次检测，找到第一个可用的端点作为当前端点
+        同时测试所有端点，选择优先级最高的可用端点
         """
-        logger.info("Performing startup health check...")
+        import concurrent.futures
         
-        for i, endpoint in enumerate(self._endpoints):
+        logger.info("Performing startup health check (parallel)...")
+        
+        results = {}  # endpoint_idx -> (success, error)
+        
+        def test_one(idx: int, endpoint: LLMEndpoint) -> tuple:
             logger.info(f"  Testing {endpoint.name}...")
             try:
-                self._test_endpoint(endpoint)
-                # 成功
+                self._test_endpoint_with_timeout(endpoint, timeout=15)
+                return (idx, True, None)
+            except Exception as e:
+                return (idx, False, str(e))
+        
+        # 并行测试所有端点
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self._endpoints)) as executor:
+            futures = [
+                executor.submit(test_one, i, ep) 
+                for i, ep in enumerate(self._endpoints)
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                idx, success, error = future.result()
+                results[idx] = (success, error)
+        
+        # 处理结果，按优先级选择第一个可用的
+        for i, endpoint in enumerate(self._endpoints):
+            success, error = results.get(i, (False, "No result"))
+            if success:
                 endpoint.healthy = True
                 endpoint.fail_count = 0
                 endpoint.last_check = time.time()
-                self._current_endpoint_idx = i
-                self._update_public_attrs()
-                logger.info(f"  ✓ {endpoint.name} is healthy - using as current endpoint")
-                return
-            except Exception as e:
-                # 失败
+                logger.info(f"  ✓ {endpoint.name} is healthy")
+            else:
                 endpoint.healthy = False
                 endpoint.fail_count = self.FAIL_THRESHOLD
-                logger.warning(f"  ✗ {endpoint.name} failed: {e}")
+                logger.warning(f"  ✗ {endpoint.name} failed: {error}")
         
-        # 所有端点都失败，使用第一个
+        # 选择优先级最高的可用端点
+        for i, endpoint in enumerate(self._endpoints):
+            if endpoint.healthy:
+                self._current_endpoint_idx = i
+                self._update_public_attrs()
+                logger.info(f"  → Using {endpoint.name} as current endpoint")
+                return
+        
+        # 所有端点都失败
         logger.error("All endpoints failed health check! Will retry on first request.")
         self._current_endpoint_idx = 0
         self._update_public_attrs()
