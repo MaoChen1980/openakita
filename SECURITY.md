@@ -133,7 +133,7 @@ Security updates will be released as:
 
 For security concerns, contact: **security@example.com**
 
-For general questions, use [GitHub Discussions](https://github.com/jevisuen/openakita/discussions).
+For general questions, use [GitHub Discussions](https://github.com/openakita/openakita/discussions).
 
 ---
 

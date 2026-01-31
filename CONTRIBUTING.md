@@ -38,7 +38,7 @@ cd openakita
 3. Add the upstream repository:
 
 ```bash
-git remote add upstream https://github.com/jevisuen/openakita.git
+git remote add upstream https://github.com/openakita/openakita.git
 ```
 
 4. Keep your fork synchronized:
@@ -53,7 +53,7 @@ git merge upstream/main
 
 ### Reporting Bugs
 
-Before creating bug reports, please check the [existing issues](https://github.com/jevisuen/openakita/issues) to avoid duplicates.
+Before creating bug reports, please check the [existing issues](https://github.com/openakita/openakita/issues) to avoid duplicates.
 
 When you create a bug report, please include as many details as possible:
 
@@ -302,13 +302,13 @@ Describe the tests you ran.
 ### Getting Help
 
 - 📖 [Documentation](docs/)
-- 💬 [GitHub Discussions](https://github.com/jevisuen/openakita/discussions)
-- 🐛 [Issue Tracker](https://github.com/jevisuen/openakita/issues)
+- 💬 [GitHub Discussions](https://github.com/openakita/openakita/discussions)
+- 🐛 [Issue Tracker](https://github.com/openakita/openakita/issues)
 
 ### Recognition
 
 Contributors are recognized in:
-- The [Contributors](https://github.com/jevisuen/openakita/graphs/contributors) page
+- The [Contributors](https://github.com/openakita/openakita/graphs/contributors) page
 - Release notes for significant contributions
 - Our README (for major contributors)
 

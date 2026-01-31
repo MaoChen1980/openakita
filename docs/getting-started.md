@@ -16,7 +16,7 @@ Before you begin, ensure you have:
 
 ```bash
 # Clone the repository
-git clone https://github.com/jevisuen/openakita.git
+git clone https://github.com/openakita/openakita.git
 cd openakita
 
 # Create and activate virtual environment
@@ -148,5 +148,5 @@ python --version
 
 ### Need More Help?
 
-- Check [GitHub Issues](https://github.com/jevisuen/openakita/issues)
-- Join [GitHub Discussions](https://github.com/jevisuen/openakita/discussions)
+- Check [GitHub Issues](https://github.com/openakita/openakita/issues)
+- Join [GitHub Discussions](https://github.com/openakita/openakita/discussions)

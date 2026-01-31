@@ -9,17 +9,17 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/jevisuen/openakita/blob/main/LICENSE">
+  <a href="https://github.com/openakita/openakita/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" />
   </a>
   <a href="https://www.python.org/downloads/">
     <img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python Version" />
   </a>
-  <a href="https://github.com/jevisuen/openakita/releases">
-    <img src="https://img.shields.io/github/v/release/jevisuen/openakita" alt="Release" />
+  <a href="https://github.com/openakita/openakita/releases">
+    <img src="https://img.shields.io/github/v/release/openakita/openakita" alt="Release" />
   </a>
-  <a href="https://github.com/jevisuen/openakita/actions">
-    <img src="https://img.shields.io/github/actions/workflow/status/jevisuen/openakita/ci.yml?branch=main" alt="Build Status" />
+  <a href="https://github.com/openakita/openakita/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/openakita/openakita/ci.yml?branch=main" alt="Build Status" />
   </a>
 </p>
 
@@ -73,7 +73,7 @@ OpenAkita 是一个基于 [Anthropic Claude](https://www.anthropic.com/claude) �
 
 ```bash
 # 克隆仓库
-git clone https://github.com/jevisuen/openakita.git
+git clone https://github.com/openakita/openakita.git
 cd openakita
 
 # 创建虚拟环境
@@ -349,8 +349,8 @@ ruff check src/
 ## 社区
 
 - 📖 [文档](docs/)
-- 🐛 [问题追踪](https://github.com/jevisuen/openakita/issues)
-- 💬 [讨论区](https://github.com/jevisuen/openakita/discussions)
+- 🐛 [问题追踪](https://github.com/openakita/openakita/issues)
+- 💬 [讨论区](https://github.com/openakita/openakita/discussions)
 - 📧 [邮箱](mailto:contact@example.com)
 
 ## 致谢

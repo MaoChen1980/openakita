@@ -9,13 +9,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/jevisuen/openakita/blob/main/LICENSE">
+  <a href="https://github.com/openakita/openakita/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" />
   </a>
   <a href="https://www.python.org/downloads/">
     <img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python Version" />
   </a>
-  <a href="https://github.com/jevisuen/openakita/releases">
+  <a href="https://github.com/openakita/openakita/releases">
     <img src="https://img.shields.io/badge/version-0.9.0-green.svg" alt="Version" />
   </a>
 </p>
@@ -118,7 +118,7 @@ OpenAkita 能够**自我学习和进化**：
 
 ```bash
 # 克隆项目
-git clone https://github.com/jevisuen/openakita.git
+git clone https://github.com/openakita/openakita.git
 cd openakita
 
 # 创建虚拟环境

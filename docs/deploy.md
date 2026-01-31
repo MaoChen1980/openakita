@@ -521,9 +521,11 @@ playwright install-deps
 
 ### Q: API 连接超时？
 
-检查网络环境，如果在国内，建议使用代理服务：
+检查网络环境，如果在国内，可以：
+1. 使用 VPN/代理
+2. 配置第三方 API 转发服务：
 ```ini
-ANTHROPIC_BASE_URL=https://yunwu.zeabur.app
+ANTHROPIC_BASE_URL=https://your-proxy-service.com
 ```
 
 ### Q: Telegram Bot 无法启动？

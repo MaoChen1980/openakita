@@ -79,6 +79,24 @@ tests/
 test_*.py
 *_test.py
 
+# Identity (only keep examples)
+identity/*
+!identity/*.example
+
+# Media files
+*.mp3
+*.mp4
+*.wav
+*.ogg
+*.oga
+*.webm
+*.m4a
+voice_*.txt
+voice_*.py
+
+# Personal/private folders
+stock_monitor/
+
 # OS
 .DS_Store
 Thumbs.db
