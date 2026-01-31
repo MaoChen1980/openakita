@@ -26,6 +26,17 @@ class FileTool:
             return p
         return self.base_path / p
     
+    # 二进制文件扩展名
+    BINARY_EXTENSIONS = {
+        '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.svg',
+        '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+        '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2',
+        '.exe', '.dll', '.so', '.dylib',
+        '.mp3', '.mp4', '.avi', '.mkv', '.wav', '.flac',
+        '.ttf', '.otf', '.woff', '.woff2',
+        '.pyc', '.pyo', '.class',
+    }
+    
     async def read(self, path: str, encoding: str = "utf-8") -> str:
         """
         读取文件内容
@@ -35,13 +46,27 @@ class FileTool:
             encoding: 编码
         
         Returns:
-            文件内容
+            文件内容（二进制文件返回提示信息）
         """
         file_path = self._resolve_path(path)
         logger.debug(f"Reading file: {file_path}")
         
-        async with aiofiles.open(file_path, mode="r", encoding=encoding) as f:
-            return await f.read()
+        # 检查是否为二进制文件
+        suffix = file_path.suffix.lower()
+        if suffix in self.BINARY_EXTENSIONS:
+            # 获取文件大小
+            stat = await aiofiles.os.stat(file_path)
+            size_kb = stat.st_size / 1024
+            return f"[二进制文件: {file_path.name}, 类型: {suffix}, 大小: {size_kb:.1f}KB - 无法作为文本读取]"
+        
+        try:
+            async with aiofiles.open(file_path, mode="r", encoding=encoding) as f:
+                return await f.read()
+        except UnicodeDecodeError:
+            # 尝试检测编码或返回二进制提示
+            stat = await aiofiles.os.stat(file_path)
+            size_kb = stat.st_size / 1024
+            return f"[无法解码的文件: {file_path.name}, 大小: {size_kb:.1f}KB - 可能是二进制文件或使用了非 {encoding} 编码]"
     
     async def write(
         self,
