@@ -217,23 +217,31 @@ class MessageGateway:
     
     async def _preprocess_media(self, message: UnifiedMessage) -> None:
         """
-        预处理媒体文件（下载语音、图片到本地）
-        
-        注意：语音转文字由 Agent 自主实现，这里只负责下载
+        预处理媒体文件（下载语音、图片到本地，语音自动转文字）
         """
         adapter = self._adapters.get(message.channel)
         if not adapter:
             return
         
-        # 处理语音消息 - 下载到本地
+        # 处理语音消息 - 下载到本地并转文字
         for voice in message.content.voices:
             try:
                 if not voice.local_path:
                     local_path = await adapter.download_media(voice)
                     voice.local_path = str(local_path)
                     logger.info(f"Voice downloaded: {voice.local_path}")
+                
+                # 自动语音转文字（使用本地 Whisper）
+                if voice.local_path and not voice.transcription:
+                    transcription = await self._transcribe_voice_local(voice.local_path)
+                    if transcription:
+                        voice.transcription = transcription
+                        logger.info(f"Voice transcribed: {transcription[:50]}...")
+                    else:
+                        voice.transcription = "[语音识别失败]"
+                        
             except Exception as e:
-                logger.error(f"Failed to download voice: {e}")
+                logger.error(f"Failed to process voice: {e}")
         
         # 处理图片消息 - 下载到本地
         for img in message.content.images:
@@ -244,6 +252,43 @@ class MessageGateway:
                     logger.info(f"Image downloaded: {img.local_path}")
             except Exception as e:
                 logger.error(f"Failed to download image: {e}")
+    
+    async def _transcribe_voice_local(self, audio_path: str) -> Optional[str]:
+        """
+        使用本地 Whisper 进行语音转文字
+        """
+        import asyncio
+        
+        try:
+            # 检查文件是否存在
+            if not Path(audio_path).exists():
+                logger.error(f"Audio file not found: {audio_path}")
+                return None
+            
+            # 尝试导入 whisper
+            try:
+                import whisper
+            except ImportError:
+                logger.warning("Whisper not installed, trying to install...")
+                import subprocess
+                subprocess.check_call(["pip", "install", "openai-whisper", "-q"])
+                import whisper
+            
+            # 在线程池中运行（避免阻塞事件循环）
+            def transcribe():
+                model = whisper.load_model("base")  # 使用 base 模型，平衡速度和质量
+                result = model.transcribe(audio_path, language="zh")  # 默认中文
+                return result["text"].strip()
+            
+            # 异步执行
+            loop = asyncio.get_event_loop()
+            text = await loop.run_in_executor(None, transcribe)
+            
+            return text if text else None
+            
+        except Exception as e:
+            logger.error(f"Voice transcription failed: {e}")
+            return None
 
     async def _send_typing(self, message: UnifiedMessage) -> None:
         """发送正在输入状态"""
@@ -293,24 +338,25 @@ class MessageGateway:
             # 构建输入（文本 + 图片 + 语音）
             input_text = message.plain_text
             
-            # 处理语音文件 - 保存路径到 session metadata
-            voices_data = []
+            # 处理语音文件 - 如果已有转写结果，直接使用
             for voice in message.content.voices:
-                if voice.local_path and Path(voice.local_path).exists():
-                    voices_data.append({
+                if voice.transcription and voice.transcription not in ("[语音识别失败]", ""):
+                    # 语音已转写，用转写文字替换输入
+                    if not input_text.strip() or "[语音:" in input_text:
+                        input_text = voice.transcription
+                        logger.info(f"Using voice transcription as input: {input_text[:50]}...")
+                    else:
+                        # 追加到输入
+                        input_text = f"{input_text}\n\n[语音内容: {voice.transcription}]"
+                elif voice.local_path:
+                    # 语音未转写成功，保存路径供 Agent 手动处理
+                    session.set_metadata("pending_voices", [{
                         "local_path": voice.local_path,
                         "duration": voice.duration,
-                        "mime_type": voice.mime_type,
-                    })
-                    logger.info(f"Voice file ready: {voice.local_path}")
-            
-            if voices_data:
-                session.set_metadata("pending_voices", voices_data)
-                if not input_text.strip() or "[语音:" in input_text:
-                    # 提示 Agent 有语音需要处理
-                    voice_info = ", ".join([f"{v['local_path']} ({v.get('duration', '?')}秒)" for v in voices_data])
-                    input_text = f"[用户发送了语音消息，文件路径: {voice_info}]\n请使用语音识别脚本处理这个语音文件，然后告诉用户识别结果。"
-                logger.info(f"Processing message with {len(voices_data)} voice files")
+                    }])
+                    if not input_text.strip() or "[语音:" in input_text:
+                        input_text = f"[用户发送了语音消息，但自动识别失败。文件路径: {voice.local_path}]"
+                    logger.info(f"Voice transcription failed, file: {voice.local_path}")
             
             # 处理图片文件 - 多模态输入
             images_data = []

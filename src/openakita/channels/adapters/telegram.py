@@ -629,42 +629,49 @@ class TelegramAdapter(ChannelAdapter):
             size=size,
         )
     
-    def _escape_markdown_v2(self, text: str) -> str:
+    def _convert_to_telegram_markdown(self, text: str) -> str:
         """
-        智能转义 Telegram MarkdownV2 特殊字符
+        将标准 Markdown 转换为 Telegram 兼容格式
         
-        策略：检测文本是否包含 Markdown 格式
-        - 如果包含格式（如 **加粗**、| 表格 |），不转义，直接返回
-        - 如果是纯文本，进行完整转义以避免解析错误
+        Telegram 的 Markdown 模式比较宽松，支持：
+        - *bold* 或 **bold**
+        - _italic_
+        - `code`
+        - ```code block```
+        - [link](url)
         
-        注意：如果格式化文本发送失败，send_message 会自动重试用纯文本发送
+        不支持：
+        - 表格（| 格式）
+        - 标题（# 格式）
+        
+        策略：保留基本格式，移除不支持的格式
         """
         import re
         
-        # 检测是否包含 Markdown 格式
-        markdown_patterns = [
-            r'\*\*.*?\*\*',     # **加粗**
-            r'\*[^*]+\*',       # *斜体*
-            r'`[^`]+`',         # `代码`
-            r'```[\s\S]*?```',  # 代码块
-            r'\[.+?\]\(.+?\)',  # [链接](url)
-            r'^\|.*\|$',        # 表格行
-            r'^#{1,6}\s',       # 标题
-            r'^>\s',            # 引用
-        ]
+        # 移除标题符号（Telegram 不支持）
+        text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
         
-        has_markdown = any(re.search(pattern, text, re.MULTILINE) for pattern in markdown_patterns)
-        
-        if has_markdown:
-            # 包含 Markdown 格式，只转义必要的字符（不破坏格式）
-            # 只转义 Telegram 特有的问题字符
-            text = text.replace('{', '\\{').replace('}', '\\}')
-            return text
-        
-        # 纯文本，进行完整转义
-        escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-        for char in escape_chars:
-            text = text.replace(char, '\\' + char)
+        # 将表格转换为简单文本格式
+        # 检测表格行 (| xxx | xxx |)
+        if re.search(r'^\|.*\|.*\|$', text, re.MULTILINE):
+            lines = text.split('\n')
+            new_lines = []
+            in_table = False
+            for line in lines:
+                if re.match(r'^\|.*\|$', line.strip()):
+                    # 这是表格行
+                    if re.match(r'^\|[-:\s|]+\|$', line.strip()):
+                        # 这是分隔行，跳过
+                        continue
+                    # 提取单元格内容
+                    cells = [c.strip() for c in line.strip('|').split('|')]
+                    if not in_table:
+                        in_table = True
+                    new_lines.append(' | '.join(cells))
+                else:
+                    in_table = False
+                    new_lines.append(line)
+            text = '\n'.join(new_lines)
         
         return text
     
@@ -676,21 +683,21 @@ class TelegramAdapter(ChannelAdapter):
         chat_id = int(message.chat_id)
         sent_message = None
         
-        # 确定解析模式（默认使用 MarkdownV2）
-        parse_mode = telegram.constants.ParseMode.MARKDOWN_V2
+        # 确定解析模式（默认使用普通 Markdown，更宽容）
+        parse_mode = telegram.constants.ParseMode.MARKDOWN
         text_to_send = message.content.text
         
         if message.parse_mode:
             if message.parse_mode.lower() == "markdown":
-                parse_mode = telegram.constants.ParseMode.MARKDOWN_V2
+                parse_mode = telegram.constants.ParseMode.MARKDOWN
             elif message.parse_mode.lower() == "html":
                 parse_mode = telegram.constants.ParseMode.HTML
             elif message.parse_mode.lower() == "none":
                 parse_mode = None
         
-        # 如果使用 MarkdownV2，转义特殊字符
-        if parse_mode == telegram.constants.ParseMode.MARKDOWN_V2 and text_to_send:
-            text_to_send = self._escape_markdown_v2(text_to_send)
+        # 转换 Markdown 为 Telegram 兼容格式
+        if parse_mode == telegram.constants.ParseMode.MARKDOWN and text_to_send:
+            text_to_send = self._convert_to_telegram_markdown(text_to_send)
         
         # 发送文本
         if text_to_send and not message.content.has_media:
