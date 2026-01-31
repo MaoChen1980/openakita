@@ -1690,23 +1690,14 @@ class Agent:
             - raw_compiler_output: Prompt Compiler 的原始输出（用于日志）
         """
         try:
-            # 调用 Brain 进行 Prompt 编译（独立上下文）
-            response = await self.brain.client.messages.create(
-                model=settings.fast_model,  # 使用快速模型进行编译
-                max_tokens=1000,
+            # 调用 Brain 进行 Prompt 编译（独立上下文，使用快速模型）
+            response = await self.brain.think(
+                prompt=user_message,
                 system=PROMPT_COMPILER_SYSTEM,
-                messages=[{
-                    "role": "user",
-                    "content": user_message
-                }]
             )
             
-            compiler_output = ""
-            for block in response.content:
-                if block.type == "text":
-                    compiler_output += block.text
-            
-            compiler_output = compiler_output.strip()
+            # 移除 thinking 标签
+            compiler_output = strip_thinking_tags(response.content).strip() if response.content else ""
             
             # 构建增强后的提示词
             enhanced_prompt = f"""## 用户原始请求
