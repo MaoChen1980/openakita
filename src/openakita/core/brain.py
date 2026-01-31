@@ -96,32 +96,24 @@ class Brain:
                 priority=0,
             ))
         
-        # 第二备用端点（阿里 DashScope）
-        dashscope_key = "DASHSCOPE_KEY_REMOVED"
-        dashscope_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        dashscope_model = "qwen3-max-2026-01-23"
-        
-        if dashscope_key:
+        # 第二备用端点（阿里 DashScope）- 从环境变量读取
+        if settings.dashscope_api_key:
             self._endpoints.append(LLMEndpoint(
                 name="backup-1 (Aliyun DashScope)",
-                api_key=dashscope_key,
-                base_url=dashscope_url,
-                model=dashscope_model,
+                api_key=settings.dashscope_api_key,
+                base_url=settings.dashscope_base_url,
+                model=settings.dashscope_model,
                 client_type="openai",
                 priority=1,
             ))
         
-        # 第三备用端点（MiniMax）
-        minimax_key = "MINIMAX_KEY_REMOVED"
-        minimax_url = "https://api.minimaxi.com/anthropic"
-        minimax_model = "MiniMax-M2.1"
-        
-        if minimax_key:
+        # 第三备用端点（MiniMax）- 从环境变量读取
+        if settings.minimax_api_key:
             self._endpoints.append(LLMEndpoint(
                 name="backup-2 (MiniMax)",
-                api_key=minimax_key,
-                base_url=minimax_url,
-                model=minimax_model,
+                api_key=settings.minimax_api_key,
+                base_url=settings.minimax_base_url,
+                model=settings.minimax_model,
                 client_type="anthropic",
                 priority=2,
             ))

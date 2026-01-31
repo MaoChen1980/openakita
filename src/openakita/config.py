@@ -58,6 +58,16 @@ class Settings(BaseSettings):
     # GitHub
     github_token: str = Field(default="", description="GitHub Token")
     
+    # === 备用 LLM 端点配置 ===
+    # DashScope (阿里云)
+    dashscope_api_key: str = Field(default="", description="DashScope API Key")
+    dashscope_base_url: str = Field(default="https://dashscope.aliyuncs.com/compatible-mode/v1", description="DashScope API URL")
+    dashscope_model: str = Field(default="qwen3-max", description="DashScope 模型")
+    
+    # MiniMax
+    minimax_api_key: str = Field(default="", description="MiniMax API Key")
+    minimax_base_url: str = Field(default="https://api.minimaxi.com/anthropic", description="MiniMax API URL")
+    minimax_model: str = Field(default="MiniMax-M2.1", description="MiniMax 模型")
     
     # === 调度器配置 ===
     scheduler_enabled: bool = Field(default=True, description="是否启用定时任务调度器")
