@@ -5,7 +5,7 @@
 <h1 align="center">OpenAkita</h1>
 
 <p align="center">
-  <strong>永不放弃的自进化 AI 智能体</strong>
+  <strong>像秋田犬一样忠诚的 AI 助手</strong>
 </p>
 
 <p align="center">
