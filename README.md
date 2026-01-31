@@ -1,213 +1,376 @@
-# MyAgent - 全能自进化AI Agent
+<p align="center">
+  <img src="docs/assets/logo.png" alt="MyAgent Logo" width="200" />
+</p>
 
-一个基于 **Ralph Wiggum 模式** 的全能AI助手，具备自我进化能力，永不放弃，直到任务完成。
+<h1 align="center">MyAgent</h1>
 
-## 核心特性
+<p align="center">
+  <strong>A Self-Evolving AI Agent that Never Gives Up</strong>
+</p>
 
-| 特性 | 描述 |
-|------|------|
-| **永不放弃** | Ralph Wiggum模式 - 任务未完成绝不终止，遇到困难自己解决 |
-| **自我进化** | 自动搜索GitHub安装新技能，没有就自己生成代码 |
-| **工具调用** | 自动执行Shell命令、文件操作、Web请求 |
-| **多轮对话** | 记住上下文，支持连续交互 |
-| **MCP集成** | 支持调用浏览器、数据库等MCP服务器 |
-| **自动测试** | 300+测试用例，自动验证功能，失败自动修复 |
+<p align="center">
+  <a href="https://github.com/jevisuen/myagent/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" />
+  </a>
+  <a href="https://www.python.org/downloads/">
+    <img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python Version" />
+  </a>
+  <a href="https://github.com/jevisuen/myagent/releases">
+    <img src="https://img.shields.io/github/v/release/jevisuen/myagent" alt="Release" />
+  </a>
+  <a href="https://github.com/jevisuen/myagent/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/jevisuen/myagent/ci.yml?branch=main" alt="Build Status" />
+  </a>
+</p>
 
-## 架构设计
+<p align="center">
+  <a href="#features">Features</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#documentation">Documentation</a> •
+  <a href="#architecture">Architecture</a> •
+  <a href="#contributing">Contributing</a>
+</p>
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                      MyAgent                            │
-├─────────────────────────────────────────────────────────┤
-│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐    │
-│  │ SOUL.md │  │AGENT.md │  │ USER.md │  │MEMORY.md│    │
-│  │ (哲学)   │  │ (行为)   │  │ (用户)   │  │ (记忆)   │    │
-│  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘    │
-│       └────────────┴────────────┴────────────┘         │
-│                         ↓                               │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │                   Agent Core                     │   │
-│  │  ┌─────────┐  ┌─────────┐  ┌─────────────────┐  │   │
-│  │  │  Brain  │  │Identity │  │   Ralph Loop    │  │   │
-│  │  │ (Claude)│  │ (身份)   │  │ (永不放弃循环)   │  │   │
-│  │  └─────────┘  └─────────┘  └─────────────────┘  │   │
-│  └─────────────────────────────────────────────────┘   │
-│                         ↓                               │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │                    Tools                         │   │
-│  │  ┌───────┐  ┌───────┐  ┌───────┐  ┌───────┐    │   │
-│  │  │ Shell │  │ File  │  │  Web  │  │  MCP  │    │   │
-│  │  └───────┘  └───────┘  └───────┘  └───────┘    │   │
-│  └─────────────────────────────────────────────────┘   │
-│                         ↓                               │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │              Evolution Engine                    │   │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────────┐   │   │
-│  │  │ Analyzer │  │Installer │  │SkillGenerator│   │   │
-│  │  │(需求分析) │  │(自动安装) │  │ (技能生成)    │   │   │
-│  │  └──────────┘  └──────────┘  └──────────────┘   │   │
-│  └─────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────┘
-```
+<p align="center">
+  <a href="./README_CN.md">📖 中文文档</a>
+</p>
 
-## 核心文档
+---
 
-| 文档 | 作用 | 来源 |
-|------|------|------|
-| `AGENT.md` | Agent行为规范、工作流程、操作指令 | [AGENTS.md Standard](https://agentsmd.io/) |
-| `SOUL.md` | Agent灵魂、核心哲学、价值观 | [Claude Soul Document](https://gist.github.com/Richard-Weiss/efe157692991535403bd7e7fb20b6695) |
-| `USER.md` | 用户档案、偏好、技术栈 | GitHub Copilot Memory |
-| `MEMORY.md` | 工作记忆、任务进度、经验教训 | [Ralph Playbook](https://claytonfarr.github.io/ralph-playbook/) |
+## What is MyAgent?
 
-## 快速开始
+MyAgent is a **self-evolving AI agent** built on [Anthropic Claude](https://www.anthropic.com/claude) that embodies the **Ralph Wiggum Mode** philosophy: **never give up until the task is done**. When faced with obstacles, it doesn't just fail gracefully—it actively searches for solutions, installs new capabilities from GitHub, or generates its own code to solve problems.
 
-### 安装
+### Why MyAgent?
+
+- **🔄 Self-Evolving**: Automatically acquires new skills by searching GitHub or generating code
+- **💪 Never Gives Up**: Implements Ralph Wiggum Mode for persistent task completion
+- **🛠️ Tool Execution**: Native support for shell commands, file operations, and web requests
+- **🔌 MCP Integration**: Connect to browsers, databases, and external services via Model Context Protocol
+- **💬 Multi-Platform**: Deploy as CLI, Telegram bot, or integrate with DingTalk, Feishu, WeCom
+- **🧪 Self-Testing**: 300+ test cases with automatic failure detection and self-repair
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| **Ralph Wiggum Mode** | Persistent execution loop - tasks are not complete until verified |
+| **Self-Evolution** | Searches GitHub for skills, installs packages, or generates code on-the-fly |
+| **Tool Calling** | Execute shell commands, file operations, HTTP requests with built-in safety |
+| **MCP Support** | Integrate with Model Context Protocol servers for browser automation, databases |
+| **Multi-Turn Chat** | Context-aware conversations with persistent memory |
+| **Auto Testing** | 300+ test cases with automatic verification and self-repair |
+| **Multi-Platform** | CLI, Telegram, DingTalk, Feishu, WeCom, QQ support |
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.11 or higher
+- An [Anthropic API key](https://console.anthropic.com/)
+
+### Installation
 
 ```bash
-# 克隆仓库
-git clone git@github.com:jevisuen/jevisuenbot.git
-cd jevisuenbot
+# Clone the repository
+git clone https://github.com/jevisuen/myagent.git
+cd myagent
 
-# 安装依赖
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install the package
 pip install -e .
 
-# 配置环境变量
+# Configure environment
 cp .env.example .env
-# 编辑 .env 填入你的 API Key
+# Edit .env and add your ANTHROPIC_API_KEY
 ```
 
-### 环境变量
+### Configuration
+
+Create a `.env` file with at minimum:
 
 ```bash
-# 必需
-ANTHROPIC_API_KEY=your-api-key
+# Required
+ANTHROPIC_API_KEY=your-api-key-here
 
-# 可选 (使用转发服务)
+# Optional: Custom API endpoint
 ANTHROPIC_BASE_URL=https://api.anthropic.com
 
-# 模型配置
+# Optional: Model selection
 DEFAULT_MODEL=claude-sonnet-4-20250514
 ```
 
-### 启动
+### Run
 
 ```bash
-# 交互模式
+# Interactive CLI mode
 myagent
 
-# 查看帮助
-myagent --help
+# Run a single task
+myagent run "Create a Python calculator with tests"
 
-# 查看状态
+# Check agent status
 myagent status
+
+# Run self-check
+myagent selfcheck
 ```
 
-## 使用示例
+## Documentation
 
-### 多轮对话
+| Document | Description |
+|----------|-------------|
+| [📖 Quick Start](docs/getting-started.md) | Installation and first steps |
+| [🏗️ Architecture](docs/architecture.md) | System design and components |
+| [🔧 Configuration](docs/configuration.md) | All configuration options |
+| [🚀 Deployment](DEPLOY.md) | Production deployment guide |
+| [🔌 MCP Integration](docs/mcp-integration.md) | Connect external services |
+| [📱 IM Channels](docs/im-channels.md) | Telegram, DingTalk, Feishu setup |
+| [🎯 Skills System](docs/skills.md) | Creating and using skills |
+| [🧪 Testing](docs/testing.md) | Test framework and coverage |
 
-```
-> 我叫张三，今年25岁
-Agent: 你好，张三！很高兴认识你。
-
-> 我叫什么名字？
-Agent: 你叫张三，今年25岁。
-```
-
-### 复杂任务执行
-
-```
-> 在 /tmp/calc 目录创建一个Python计算器项目，包含加减乘除函数和测试
-
-Agent: 正在执行任务...
-  [工具调用] 创建目录...
-  [工具调用] 写入 calculator.py...
-  [工具调用] 写入 test_calc.py...
-  [工具调用] 运行测试...
-
-✅ 任务完成！16个测试全部通过。
-```
-
-### 自我进化
+## Architecture
 
 ```
-> 帮我分析一个Excel文件
-
-Agent: 检测到需要Excel处理能力...
-Agent: 搜索GitHub找到 openpyxl...
-Agent: 正在安装...
-Agent: 安装完成，开始分析...
+┌─────────────────────────────────────────────────────────────┐
+│                         MyAgent                              │
+├─────────────────────────────────────────────────────────────┤
+│   ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐       │
+│   │ SOUL.md │  │AGENT.md │  │ USER.md │  │MEMORY.md│       │
+│   │(Values) │  │(Behavior)│ │ (User)  │  │(Memory) │       │
+│   └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘       │
+│        └────────────┴────────────┴────────────┘            │
+│                           ↓                                 │
+│   ┌─────────────────────────────────────────────────────┐  │
+│   │                    Agent Core                        │  │
+│   │  ┌─────────┐  ┌──────────┐  ┌─────────────────────┐ │  │
+│   │  │  Brain  │  │ Identity │  │   Ralph Loop        │ │  │
+│   │  │(Claude) │  │ (Self)   │  │ (Never Give Up)     │ │  │
+│   │  └─────────┘  └──────────┘  └─────────────────────┘ │  │
+│   └─────────────────────────────────────────────────────┘  │
+│                           ↓                                 │
+│   ┌─────────────────────────────────────────────────────┐  │
+│   │                      Tools                           │  │
+│   │  ┌───────┐  ┌───────┐  ┌───────┐  ┌───────┐        │  │
+│   │  │ Shell │  │ File  │  │  Web  │  │  MCP  │        │  │
+│   │  └───────┘  └───────┘  └───────┘  └───────┘        │  │
+│   └─────────────────────────────────────────────────────┘  │
+│                           ↓                                 │
+│   ┌─────────────────────────────────────────────────────┐  │
+│   │               Evolution Engine                       │  │
+│   │  ┌──────────┐  ┌───────────┐  ┌────────────────┐   │  │
+│   │  │ Analyzer │  │ Installer │  │ SkillGenerator │   │  │
+│   │  │(Analyze) │  │ (Install) │  │  (Generate)    │   │  │
+│   │  └──────────┘  └───────────┘  └────────────────┘   │  │
+│   └─────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## 项目结构
+### Core Documents
+
+MyAgent uses a unique document-based identity and memory system:
+
+| Document | Purpose |
+|----------|---------|
+| `SOUL.md` | Core philosophy and values - the agent's "soul" |
+| `AGENT.md` | Behavioral specifications and workflows |
+| `USER.md` | User profile, preferences, and context |
+| `MEMORY.md` | Working memory, task progress, lessons learned |
+
+### Ralph Wiggum Mode
+
+The agent operates in a persistent loop:
+
+```
+Task Received → Analyze → Execute → Verify → Repeat until Complete
+                   ↓
+            On Failure:
+            1. Analyze error
+            2. Search GitHub for solutions
+            3. Install or generate fix
+            4. Retry task
+```
+
+## Usage Examples
+
+### Multi-Turn Conversation
+
+```
+You: My name is John, I'm 25 years old
+Agent: Nice to meet you, John!
+
+You: What's my name?
+Agent: Your name is John, and you're 25 years old.
+```
+
+### Complex Task Execution
+
+```
+You: Create a Python calculator project with add, subtract, multiply, divide functions and tests
+
+Agent: Working on your task...
+  [Tool] Creating directory structure...
+  [Tool] Writing calculator.py...
+  [Tool] Writing test_calculator.py...
+  [Tool] Running tests...
+
+✅ Task complete! All 16 tests passed.
+```
+
+### Self-Evolution
+
+```
+You: Analyze this Excel file
+
+Agent: Detecting Excel processing capability needed...
+Agent: Searching GitHub for openpyxl...
+Agent: Installing openpyxl...
+Agent: Installation complete, analyzing file...
+```
+
+## Project Structure
 
 ```
 myagent/
-├── AGENT.md                # Agent行为规范
-├── SOUL.md                 # Agent灵魂文件
-├── USER.md                 # 用户档案
-├── MEMORY.md               # 关键记忆
-├── PROMPT_plan.md          # Ralph计划模式提示词
-├── PROMPT_build.md         # Ralph构建模式提示词
+├── SOUL.md                 # Agent's core philosophy
+├── AGENT.md                # Behavioral specifications
+├── USER.md                 # User profile
+├── MEMORY.md               # Working memory
 ├── src/myagent/
-│   ├── main.py             # CLI入口
-│   ├── config.py           # 配置管理
-│   ├── core/               # 核心模块
-│   │   ├── agent.py        # Agent主类 (工具调用)
-│   │   ├── brain.py        # LLM交互 (Claude API)
-│   │   ├── ralph.py        # Ralph循环引擎
-│   │   ├── identity.py     # 身份系统
-│   │   └── memory.py       # 记忆管理
-│   ├── skills/             # 技能系统
-│   │   ├── base.py         # 技能基类
-│   │   ├── registry.py     # 技能注册表
-│   │   ├── loader.py       # 动态加载器
-│   │   └── market.py       # GitHub技能市场
-│   ├── tools/              # 工具层
-│   │   ├── shell.py        # Shell命令执行
-│   │   ├── file.py         # 文件操作
-│   │   ├── web.py          # HTTP请求
-│   │   └── mcp.py          # MCP桥接
-│   ├── storage/            # 持久化
-│   │   ├── database.py     # SQLite存储
-│   │   └── models.py       # 数据模型
-│   ├── evolution/          # 自我进化
-│   │   ├── analyzer.py     # 需求分析
-│   │   ├── installer.py    # 自动安装
-│   │   ├── generator.py    # 技能生成
-│   │   └── self_check.py   # 自我检查
-│   └── testing/            # 测试系统
-│       ├── runner.py       # 测试运行器
-│       ├── judge.py        # 结果评判
-│       ├── fixer.py        # 自动修复
-│       └── cases/          # 300+测试用例
-├── skills/                 # 本地技能目录
-├── plugins/                # 插件目录
-└── data/                   # 数据存储
+│   ├── core/               # Core modules
+│   │   ├── agent.py        # Main agent class
+│   │   ├── brain.py        # Claude API integration
+│   │   ├── ralph.py        # Ralph loop engine
+│   │   ├── identity.py     # Identity system
+│   │   └── memory.py       # Memory management
+│   ├── tools/              # Tool implementations
+│   │   ├── shell.py        # Shell execution
+│   │   ├── file.py         # File operations
+│   │   ├── web.py          # HTTP requests
+│   │   └── mcp.py          # MCP bridge
+│   ├── evolution/          # Self-evolution
+│   │   ├── analyzer.py     # Requirement analysis
+│   │   ├── installer.py    # Auto-installation
+│   │   └── generator.py    # Skill generation
+│   ├── channels/           # IM integrations
+│   │   └── adapters/       # Platform adapters
+│   ├── skills/             # Skill system
+│   ├── storage/            # Persistence layer
+│   └── testing/            # Test framework
+├── skills/                 # Local skills directory
+├── plugins/                # Plugin directory
+├── data/                   # Data storage
+└── docs/                   # Documentation
 ```
 
-## 测试覆盖
+## Test Coverage
 
-| 类别 | 数量 | 说明 |
-|------|------|------|
-| QA/基础问答 | 30 | 数学、编程知识、常识 |
-| QA/推理 | 35 | 逻辑推理、代码理解 |
-| QA/多轮对话 | 35 | 上下文记忆、指令跟随 |
-| 工具/Shell | 40 | 命令执行、文件操作 |
-| 工具/文件 | 30 | 读写、搜索、目录操作 |
-| 工具/API | 30 | HTTP请求、状态码 |
-| 搜索/Web | 40 | HTTP、GitHub搜索 |
-| 搜索/代码 | 30 | 本地代码搜索 |
-| 搜索/文档 | 30 | 项目文档搜索 |
-| **总计** | **300** | |
+| Category | Count | Description |
+|----------|-------|-------------|
+| QA/Basic | 30 | Math, programming knowledge |
+| QA/Reasoning | 35 | Logic, code comprehension |
+| QA/Multi-turn | 35 | Context memory, instruction following |
+| Tools/Shell | 40 | Command execution, file operations |
+| Tools/File | 30 | Read, write, search operations |
+| Tools/API | 30 | HTTP requests, status codes |
+| Search/Web | 40 | HTTP, GitHub search |
+| Search/Code | 30 | Local code search |
+| Search/Docs | 30 | Documentation search |
+| **Total** | **300** | |
 
-## 参考项目
+## Deployment Options
 
-- [Claude Soul Document](https://gist.github.com/Richard-Weiss/efe157692991535403bd7e7fb20b6695) - Claude 灵魂文档
-- [Ralph Playbook](https://claytonfarr.github.io/ralph-playbook/) - Ralph Wiggum 模式指南
-- [AGENTS.md Standard](https://agentsmd.io/) - Agent行为规范标准
-- [Anthropic Claude Code](https://github.com/anthropics/claude-code) - Claude Code 参考实现
+### CLI Mode (Default)
+
+```bash
+myagent
+```
+
+### Telegram Bot
+
+```bash
+# Enable in .env
+TELEGRAM_ENABLED=true
+TELEGRAM_BOT_TOKEN=your-token
+
+# Run
+python run_telegram_bot.py
+```
+
+### Docker
+
+```bash
+docker build -t myagent .
+docker run -d --name myagent -v $(pwd)/.env:/app/.env myagent
+```
+
+### Systemd Service
+
+```bash
+sudo cp myagent.service /etc/systemd/system/
+sudo systemctl enable myagent
+sudo systemctl start myagent
+```
+
+See [DEPLOY.md](DEPLOY.md) for detailed deployment instructions.
+
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+### Quick Contribution Guide
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Development Setup
+
+```bash
+# Install development dependencies
+pip install -e ".[dev]"
+
+# Run tests
+pytest tests/ -v
+
+# Type checking
+mypy src/
+
+# Linting
+ruff check src/
+```
+
+## Community
+
+- 📖 [Documentation](docs/)
+- 🐛 [Issue Tracker](https://github.com/jevisuen/myagent/issues)
+- 💬 [Discussions](https://github.com/jevisuen/myagent/discussions)
+- 📧 [Email](mailto:contact@example.com)
+
+## Acknowledgments
+
+MyAgent is built on the shoulders of giants:
+
+- [Anthropic Claude](https://www.anthropic.com/claude) - Core LLM engine
+- [Claude Soul Document](https://gist.github.com/Richard-Weiss/efe157692991535403bd7e7fb20b6695) - Soul document inspiration
+- [Ralph Playbook](https://claytonfarr.github.io/ralph-playbook/) - Ralph Wiggum Mode philosophy
+- [AGENTS.md Standard](https://agentsmd.io/) - Agent behavior specification
 
 ## License
 
-MIT
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+<p align="center">
+  Made with ❤️ by the MyAgent Team
+</p>
+
+<p align="center">
+  <a href="#myagent">Back to Top ↑</a>
+</p>
