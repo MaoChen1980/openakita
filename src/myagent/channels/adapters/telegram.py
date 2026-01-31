@@ -342,6 +342,63 @@ class TelegramAdapter(ChannelAdapter):
             size=size,
         )
     
+    def _escape_markdown_v2(self, text: str) -> str:
+        """
+        转义 Telegram MarkdownV2 特殊字符
+        
+        保留常见 markdown 格式（粗体、斜体、代码），转义其他特殊字符
+        """
+        import re
+        
+        # 先保护代码块和行内代码
+        code_blocks = []
+        def save_code_block(m):
+            code_blocks.append(m.group(0))
+            return f"\x00CODE{len(code_blocks)-1}\x00"
+        
+        # 保护 ```...``` 代码块
+        text = re.sub(r'```[\s\S]*?```', save_code_block, text)
+        # 保护 `...` 行内代码
+        text = re.sub(r'`[^`]+`', save_code_block, text)
+        
+        # 保护粗体 **text** 和 __text__
+        bold_patterns = []
+        def save_bold(m):
+            bold_patterns.append(m.group(0))
+            return f"\x00BOLD{len(bold_patterns)-1}\x00"
+        text = re.sub(r'\*\*[^*]+\*\*', save_bold, text)
+        text = re.sub(r'__[^_]+__', save_bold, text)
+        
+        # 保护斜体 *text* 和 _text_（单个）
+        italic_patterns = []
+        def save_italic(m):
+            italic_patterns.append(m.group(0))
+            return f"\x00ITALIC{len(italic_patterns)-1}\x00"
+        text = re.sub(r'(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)', save_italic, text)
+        text = re.sub(r'(?<!_)_(?!_)([^_]+)(?<!_)_(?!_)', save_italic, text)
+        
+        # 转义其他特殊字符
+        escape_chars = r'[\[\]()~>#+=|{}.!-]'
+        text = re.sub(escape_chars, lambda m: '\\' + m.group(0), text)
+        
+        # 恢复斜体（转换为 MarkdownV2 格式）
+        for i, pattern in enumerate(italic_patterns):
+            inner = pattern[1:-1]  # 去掉 * 或 _
+            inner = re.sub(escape_chars, lambda m: '\\' + m.group(0), inner)
+            text = text.replace(f"\x00ITALIC{i}\x00", f"_{inner}_")
+        
+        # 恢复粗体
+        for i, pattern in enumerate(bold_patterns):
+            inner = pattern[2:-2]  # 去掉 ** 或 __
+            inner = re.sub(escape_chars, lambda m: '\\' + m.group(0), inner)
+            text = text.replace(f"\x00BOLD{i}\x00", f"*{inner}*")
+        
+        # 恢复代码块
+        for i, code in enumerate(code_blocks):
+            text = text.replace(f"\x00CODE{i}\x00", code)
+        
+        return text
+    
     async def send_message(self, message: OutgoingMessage) -> str:
         """发送消息"""
         if not self._bot:
@@ -350,19 +407,27 @@ class TelegramAdapter(ChannelAdapter):
         chat_id = int(message.chat_id)
         sent_message = None
         
-        # 确定解析模式
-        parse_mode = None
+        # 确定解析模式（默认使用 MarkdownV2）
+        parse_mode = telegram.constants.ParseMode.MARKDOWN_V2
+        text_to_send = message.content.text
+        
         if message.parse_mode:
             if message.parse_mode.lower() == "markdown":
                 parse_mode = telegram.constants.ParseMode.MARKDOWN_V2
             elif message.parse_mode.lower() == "html":
                 parse_mode = telegram.constants.ParseMode.HTML
+            elif message.parse_mode.lower() == "none":
+                parse_mode = None
+        
+        # 如果使用 MarkdownV2，转义特殊字符
+        if parse_mode == telegram.constants.ParseMode.MARKDOWN_V2 and text_to_send:
+            text_to_send = self._escape_markdown_v2(text_to_send)
         
         # 发送文本
-        if message.content.text and not message.content.has_media:
+        if text_to_send and not message.content.has_media:
             sent_message = await self._bot.send_message(
                 chat_id=chat_id,
-                text=message.content.text,
+                text=text_to_send,
                 parse_mode=parse_mode,
                 reply_to_message_id=int(message.reply_to) if message.reply_to else None,
                 disable_web_page_preview=message.disable_preview,
