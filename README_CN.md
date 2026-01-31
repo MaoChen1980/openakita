@@ -81,8 +81,8 @@ OpenAkita 不只是一个工具 — 它是一个记住你、理解你、与你�
 
 | 模型 | 厂商 | 说明 |
 |------|------|------|
-| `claude-sonnet-4-*` | Anthropic | 默认，性能均衡 |
-| `claude-opus-4-*` | Anthropic | 能力最强 |
+| `claude-sonnet-4-5-*` | Anthropic | 默认，性能均衡 |
+| `claude-opus-4-5-*` | Anthropic | 能力最强 |
 | `qwen3-max` | 阿里通义 | 中文能力强 |
 | `minimax-2.1` | MiniMax | 对话创作出色 |
 | `kimi-2.5` | 月之暗面 | 超长上下文 |

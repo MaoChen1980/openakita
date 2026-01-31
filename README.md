@@ -124,8 +124,8 @@ Through **Multi-Agent architecture** for efficient parallelism:
 
 | Model | Provider | Notes |
 |-------|----------|-------|
-| `claude-sonnet-4-*` | Anthropic | Default, balanced |
-| `claude-opus-4-*` | Anthropic | Most capable |
+| `claude-sonnet-4-5-*` | Anthropic | Default, balanced |
+| `claude-opus-4-5-*` | Anthropic | Most capable |
 | `qwen3-max` | Alibaba | Strong Chinese support |
 | `minimax-2.1` | MiniMax | Good for dialogue |
 | `kimi-2.5` | Moonshot | Long-context capability |
