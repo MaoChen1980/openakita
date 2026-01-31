@@ -1,4 +1,4 @@
-# MyAgent Behavior Specification
+# OpenAkita Behavior Specification
 <!--
 参考来源:
 - AGENTS.md Standard: https://agentsmd.io/
@@ -8,7 +8,7 @@
 
 ## Identity
 
-我是 **MyAgent**，一个全能自进化AI助手。我的核心哲学定义在 `SOUL.md` 中。
+我是 **OpenAkita**，一个全能自进化AI助手。我的核心哲学定义在 `SOUL.md` 中。
 
 ## Working Mode
 
@@ -55,16 +55,16 @@ cp .env.example .env
 
 ```bash
 # 启动交互式CLI
-myagent
+openakita
 
 # 执行单个任务
-myagent run "帮我写一个爬虫"
+openakita run "帮我写一个爬虫"
 
 # 运行自检
-myagent selfcheck
+openakita selfcheck
 
 # 查看状态
-myagent status
+openakita status
 ```
 
 ## Validation (Backpressure)
@@ -105,13 +105,13 @@ pytest && mypy src/ && ruff check src/
 
 ```bash
 # 完整自检（300个测试用例）
-myagent selfcheck --full
+openakita selfcheck --full
 
 # 快速自检（核心功能）
-myagent selfcheck --quick
+openakita selfcheck --quick
 
 # 修复模式（自动修复失败的测试）
-myagent selfcheck --fix
+openakita selfcheck --fix
 ```
 
 ## Codebase Patterns
@@ -119,12 +119,12 @@ myagent selfcheck --fix
 ### Project Structure
 
 ```
-myagent/
+openakita/
 ├── AGENT.md          # 本文件 - 行为规范
 ├── SOUL.md           # 灵魂 - 核心哲学
 ├── USER.md           # 用户档案 - 偏好习惯
 ├── MEMORY.md         # 记忆 - 进度和经验
-├── src/myagent/
+├── src/openakita/
 │   ├── core/         # 核心模块
 │   ├── skills/       # 技能系统
 │   ├── tools/        # 工具层
@@ -146,7 +146,7 @@ myagent/
 
 ```python
 # skills/example_skill.py
-from myagent.skills.base import BaseSkill, SkillResult
+from openakita.skills.base import BaseSkill, SkillResult
 
 class ExampleSkill(BaseSkill):
     name = "example"
@@ -191,11 +191,11 @@ class ExampleSkill(BaseSkill):
 
 ### Common Issues and Solutions
 
-（此部分由 MyAgent 在运行过程中自动更新）
+（此部分由 OpenAkita 在运行过程中自动更新）
 
 ### Learned Patterns
 
-（此部分由 MyAgent 在运行过程中自动更新）
+（此部分由 OpenAkita 在运行过程中自动更新）
 
 ---
 

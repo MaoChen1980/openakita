@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# MyAgent 一键部署脚本 (Linux/macOS)
+# OpenAkita 一键部署脚本 (Linux/macOS)
 #
 # 使用方式:
 #   chmod +x deploy.sh
@@ -19,7 +19,7 @@ set -e  # 遇错退出
 # 配置区域
 # =====================================================
 PYTHON_MIN_VERSION="3.11"
-PROJECT_NAME="myagent"
+PROJECT_NAME="openakita"
 
 # 颜色定义
 RED='\033[0;31m'
@@ -331,7 +331,7 @@ DEFAULT_MODEL=claude-opus-4-5-20251101-thinking
 MAX_TOKENS=8192
 
 # Agent配置
-AGENT_NAME=MyAgent
+AGENT_NAME=OpenAkita
 MAX_ITERATIONS=100
 AUTO_CONFIRM=false
 
@@ -411,7 +411,7 @@ create_systemd_service() {
     fi
     
     local service_content="[Unit]
-Description=MyAgent Telegram Bot
+Description=OpenAkita Telegram Bot
 After=network.target
 
 [Service]
@@ -426,15 +426,15 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target"
     
-    local service_file="myagent.service"
+    local service_file="openakita.service"
     echo "$service_content" > "$service_file"
     print_success "服务文件已创建: $service_file"
     
     print_info "安装服务的命令:"
     echo "  sudo cp $service_file /etc/systemd/system/"
     echo "  sudo systemctl daemon-reload"
-    echo "  sudo systemctl enable myagent"
-    echo "  sudo systemctl start myagent"
+    echo "  sudo systemctl enable openakita"
+    echo "  sudo systemctl start openakita"
 }
 
 # 显示完成信息
@@ -453,7 +453,7 @@ show_completion() {
     echo -e "     ${CYAN}source venv/bin/activate${NC}"
     echo ""
     echo -e "  3. 启动 Agent:"
-    echo -e "     ${CYAN}myagent${NC}"
+    echo -e "     ${CYAN}openakita${NC}"
     echo ""
     echo -e "  4. 启动 Telegram Bot (可选):"
     echo -e "     ${CYAN}python run_telegram_bot.py${NC}"
@@ -468,7 +468,7 @@ show_completion() {
 main() {
     echo ""
     echo -e "${MAGENTA}╔════════════════════════════════════════╗"
-    echo -e "║   MyAgent 一键部署脚本 (Linux/macOS)   ║"
+    echo -e "║   OpenAkita 一键部署脚本 (Linux/macOS)   ║"
     echo -e "╚════════════════════════════════════════╝${NC}"
     echo ""
     

@@ -1,10 +1,10 @@
 # Architecture
 
-This document describes the architecture and design principles of MyAgent.
+This document describes the architecture and design principles of OpenAkita.
 
 ## Overview
 
-MyAgent is a self-evolving AI agent built on three core principles:
+OpenAkita is a self-evolving AI agent built on three core principles:
 
 1. **Never Give Up** - Ralph Wiggum Mode ensures task completion
 2. **Self-Evolution** - Automatically acquires new capabilities
@@ -60,7 +60,7 @@ MyAgent is a self-evolving AI agent built on three core principles:
 
 ### 1. Identity System
 
-MyAgent uses a document-based identity system:
+OpenAkita uses a document-based identity system:
 
 | Document | Purpose | Update Frequency |
 |----------|---------|------------------|
@@ -210,7 +210,7 @@ async def run_shell_command(cmd: str) -> str:
 ## File Structure
 
 ```
-src/myagent/
+src/openakita/
 ├── core/           # Core agent logic
 │   ├── agent.py    # Main Agent class
 │   ├── brain.py    # LLM interaction

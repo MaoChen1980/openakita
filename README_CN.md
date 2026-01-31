@@ -1,25 +1,25 @@
 <p align="center">
-  <img src="docs/assets/logo.png" alt="MyAgent Logo" width="200" />
+  <img src="docs/assets/logo.png" alt="OpenAkita Logo" width="200" />
 </p>
 
-<h1 align="center">MyAgent</h1>
+<h1 align="center">OpenAkita</h1>
 
 <p align="center">
   <strong>永不放弃的自进化 AI 智能体</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/jevisuen/myagent/blob/main/LICENSE">
+  <a href="https://github.com/jevisuen/openakita/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" />
   </a>
   <a href="https://www.python.org/downloads/">
     <img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python Version" />
   </a>
-  <a href="https://github.com/jevisuen/myagent/releases">
-    <img src="https://img.shields.io/github/v/release/jevisuen/myagent" alt="Release" />
+  <a href="https://github.com/jevisuen/openakita/releases">
+    <img src="https://img.shields.io/github/v/release/jevisuen/openakita" alt="Release" />
   </a>
-  <a href="https://github.com/jevisuen/myagent/actions">
-    <img src="https://img.shields.io/github/actions/workflow/status/jevisuen/myagent/ci.yml?branch=main" alt="Build Status" />
+  <a href="https://github.com/jevisuen/openakita/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/jevisuen/openakita/ci.yml?branch=main" alt="Build Status" />
   </a>
 </p>
 
@@ -37,11 +37,11 @@
 
 ---
 
-## 什么是 MyAgent？
+## 什么是 OpenAkita？
 
-MyAgent 是一个基于 [Anthropic Claude](https://www.anthropic.com/claude) 的**自进化 AI 智能体**，采用 **Ralph Wiggum 模式**的核心哲学：**任务未完成，绝不放弃**。当遇到障碍时，它不会简单地失败——而是主动搜索解决方案、从 GitHub 安装新能力，或者自己生成代码来解决问题。
+OpenAkita 是一个基于 [Anthropic Claude](https://www.anthropic.com/claude) 的**自进化 AI 智能体**，采用 **Ralph Wiggum 模式**的核心哲学：**任务未完成，绝不放弃**。当遇到障碍时，它不会简单地失败——而是主动搜索解决方案、从 GitHub 安装新能力，或者自己生成代码来解决问题。
 
-### 为什么选择 MyAgent？
+### 为什么选择 OpenAkita？
 
 - **🔄 自我进化**：自动从 GitHub 搜索技能或生成代码获取新能力
 - **💪 永不放弃**：实现 Ralph Wiggum 模式，持续执行直到任务完成
@@ -73,8 +73,8 @@ MyAgent 是一个基于 [Anthropic Claude](https://www.anthropic.com/claude) 的
 
 ```bash
 # 克隆仓库
-git clone https://github.com/jevisuen/myagent.git
-cd myagent
+git clone https://github.com/jevisuen/openakita.git
+cd openakita
 
 # 创建虚拟环境
 python -m venv venv
@@ -107,16 +107,16 @@ DEFAULT_MODEL=claude-sonnet-4-20250514
 
 ```bash
 # 交互式 CLI 模式
-myagent
+openakita
 
 # 执行单个任务
-myagent run "创建一个带测试的 Python 计算器"
+openakita run "创建一个带测试的 Python 计算器"
 
 # 查看状态
-myagent status
+openakita status
 
 # 运行自检
-myagent selfcheck
+openakita selfcheck
 ```
 
 ## 文档
@@ -136,7 +136,7 @@ myagent selfcheck
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                         MyAgent                              │
+│                         OpenAkita                              │
 ├─────────────────────────────────────────────────────────────┤
 │   ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐       │
 │   │ SOUL.md │  │AGENT.md │  │ USER.md │  │MEMORY.md│       │
@@ -171,7 +171,7 @@ myagent selfcheck
 
 ### 核心文档
 
-MyAgent 使用独特的基于文档的身份和记忆系统：
+OpenAkita 使用独特的基于文档的身份和记忆系统：
 
 | 文档 | 用途 |
 |------|------|
@@ -234,12 +234,12 @@ Agent: 安装完成，开始分析文件...
 ## 项目结构
 
 ```
-myagent/
+openakita/
 ├── SOUL.md                 # Agent 核心哲学
 ├── AGENT.md                # 行为规范
 ├── USER.md                 # 用户档案
 ├── MEMORY.md               # 工作记忆
-├── src/myagent/
+├── src/openakita/
 │   ├── core/               # 核心模块
 │   │   ├── agent.py        # Agent 主类
 │   │   ├── brain.py        # Claude API 集成
@@ -286,7 +286,7 @@ myagent/
 ### CLI 模式（默认）
 
 ```bash
-myagent
+openakita
 ```
 
 ### Telegram 机器人
@@ -303,16 +303,16 @@ python run_telegram_bot.py
 ### Docker
 
 ```bash
-docker build -t myagent .
-docker run -d --name myagent -v $(pwd)/.env:/app/.env myagent
+docker build -t openakita .
+docker run -d --name openakita -v $(pwd)/.env:/app/.env openakita
 ```
 
 ### Systemd 服务
 
 ```bash
-sudo cp myagent.service /etc/systemd/system/
-sudo systemctl enable myagent
-sudo systemctl start myagent
+sudo cp openakita.service /etc/systemd/system/
+sudo systemctl enable openakita
+sudo systemctl start openakita
 ```
 
 详细部署说明请参阅 [DEPLOY.md](DEPLOY.md)。
@@ -348,13 +348,13 @@ ruff check src/
 ## 社区
 
 - 📖 [文档](docs/)
-- 🐛 [问题追踪](https://github.com/jevisuen/myagent/issues)
-- 💬 [讨论区](https://github.com/jevisuen/myagent/discussions)
+- 🐛 [问题追踪](https://github.com/jevisuen/openakita/issues)
+- 💬 [讨论区](https://github.com/jevisuen/openakita/discussions)
 - 📧 [邮箱](mailto:contact@example.com)
 
 ## 致谢
 
-MyAgent 站在巨人的肩膀上：
+OpenAkita 站在巨人的肩膀上：
 
 - [Anthropic Claude](https://www.anthropic.com/claude) - 核心 LLM 引擎
 - [Claude Soul Document](https://gist.github.com/Richard-Weiss/efe157692991535403bd7e7fb20b6695) - 灵魂文档灵感来源
@@ -368,9 +368,9 @@ MyAgent 站在巨人的肩膀上：
 ---
 
 <p align="center">
-  用 ❤️ 打造，来自 MyAgent 团队
+  用 ❤️ 打造，来自 OpenAkita 团队
 </p>
 
 <p align="center">
-  <a href="#myagent">返回顶部 ↑</a>
+  <a href="#openakita">返回顶部 ↑</a>
 </p>

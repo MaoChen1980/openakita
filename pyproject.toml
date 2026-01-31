@@ -1,12 +1,12 @@
 [project]
-name = "myagent"
+name = "openakita"
 version = "0.5.9"
 description = "全能自进化AI Agent - 基于Ralph Wiggum模式，永不放弃"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
 authors = [
-    { name = "MyAgent", email = "agent@example.com" }
+    { name = "OpenAkita", email = "contact@openakita.ai" }
 ]
 keywords = ["ai", "agent", "claude", "autonomous", "self-evolving"]
 classifiers = [
@@ -64,14 +64,14 @@ dev = [
 ]
 
 [project.scripts]
-myagent = "myagent.main:app"
+openakita = "openakita.main:app"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/myagent"]
+packages = ["src/openakita"]
 
 [tool.ruff]
 line-length = 100

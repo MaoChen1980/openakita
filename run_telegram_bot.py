@@ -17,9 +17,9 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from telegram import Bot, Update
 from telegram.ext import Application, MessageHandler, CommandHandler, filters
 
-from myagent.config import settings
-from myagent.channels.types import UnifiedMessage, MessageContent, MediaFile
-from myagent.sessions import SessionManager, Session
+from openakita.config import settings
+from openakita.channels.types import UnifiedMessage, MessageContent, MediaFile
+from openakita.sessions import SessionManager, Session
 
 # 配置
 BOT_TOKEN = "TELEGRAM_TOKEN_REMOVED"
@@ -43,7 +43,7 @@ async def init_components():
     # 1. 初始化 Agent
     if agent is None:
         logger.info("正在初始化 Agent...")
-        from myagent.core.agent import Agent
+        from openakita.core.agent import Agent
         agent = Agent()
         await agent.initialize()
         logger.info(f"Agent 初始化完成 (技能: {agent.skill_registry.count})")
@@ -71,7 +71,7 @@ async def handle_start(update: Update, context):
     
     welcome_text = f"""👋 你好 {user.first_name}！
 
-我是 **MyAgent**，一个全能 AI 助手。
+我是 **OpenAkita**，一个全能 AI 助手。
 
 🔧 **功能：**
 - 智能对话
@@ -155,7 +155,7 @@ async def post_init(application):
     await init_components()
     
     print("=" * 50)
-    print("🚀 MyAgent Telegram Bot 已启动!")
+    print("🚀 OpenAkita Telegram Bot 已启动!")
     print(f"   Bot: @Jarvisuen_bot")
     print(f"   Agent 技能: {agent.skill_registry.count}")
     print("   按 Ctrl+C 停止")
@@ -165,7 +165,7 @@ async def post_init(application):
 def main():
     """主函数"""
     print("=" * 50)
-    print("MyAgent Telegram Bot")
+    print("OpenAkita Telegram Bot")
     print("=" * 50)
     
     # 创建 Application

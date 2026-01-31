@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    MyAgent 一键部署脚本 (Windows PowerShell)
+    OpenAkita 一键部署脚本 (Windows PowerShell)
 .DESCRIPTION
     自动完成 Python 安装、环境配置、依赖安装等全部部署流程
 .NOTES
@@ -17,7 +17,7 @@ Set-StrictMode -Version Latest
 # =====================================================
 $PYTHON_MIN_VERSION = "3.11"
 $PYTHON_DOWNLOAD_URL = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
-$PROJECT_NAME = "myagent"
+$PROJECT_NAME = "openakita"
 
 # =====================================================
 # 辅助函数
@@ -306,7 +306,7 @@ DEFAULT_MODEL=claude-opus-4-5-20251101-thinking
 MAX_TOKENS=8192
 
 # Agent配置
-AGENT_NAME=MyAgent
+AGENT_NAME=OpenAkita
 MAX_ITERATIONS=100
 AUTO_CONFIRM=false
 
@@ -397,7 +397,7 @@ function Show-Completion {
     Write-Host "     .\venv\Scripts\Activate.ps1" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "  3. 启动 Agent:" -ForegroundColor White
-    Write-Host "     myagent" -ForegroundColor Cyan
+    Write-Host "     openakita" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "  4. 启动 Telegram Bot (可选):" -ForegroundColor White
     Write-Host "     python run_telegram_bot.py" -ForegroundColor Cyan
@@ -412,7 +412,7 @@ function Show-Completion {
 function Main {
     Write-Host ""
     Write-Host "╔════════════════════════════════════════╗" -ForegroundColor Magenta
-    Write-Host "║     MyAgent 一键部署脚本 (Windows)     ║" -ForegroundColor Magenta
+    Write-Host "║     OpenAkita 一键部署脚本 (Windows)     ║" -ForegroundColor Magenta
     Write-Host "╚════════════════════════════════════════╝" -ForegroundColor Magenta
     Write-Host ""
     

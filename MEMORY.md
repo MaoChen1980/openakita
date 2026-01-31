@@ -1,9 +1,9 @@
-# MyAgent Memory
+# OpenAkita Memory
 <!--
 参考来源:
 - Ralph Playbook IMPLEMENTATION_PLAN.md: https://claytonfarr.github.io/ralph-playbook/
 
-此文件是 MyAgent 的工作记忆，用于跨会话保持状态。
+此文件是 OpenAkita 的工作记忆，用于跨会话保持状态。
 遵循 Ralph Wiggum 模式: 状态持久化到文件，而不是依赖上下文窗口。
 
 核心原则:
@@ -18,7 +18,7 @@
 ### Active Task
 
 - **ID**: eab5cf49
-- **描述**: 帮我创建项目结构：在 /tmp/myagent_task_test 目录下创建一个简单的Python计算器项目，包含：
+- **描述**: 帮我创建项目结构：在 /tmp/openakita_task_test 目录下创建一个简单的Python计算器项目，包含：
 1. 创建目录结构
 2. 写一个 calculator.py 文件，包含加减乘除函数
 3. 写一个 test_calculator.py 测试文件
@@ -309,6 +309,6 @@
 
 ---
 
-*此文件由 MyAgent 自动维护。*
+*此文件由 OpenAkita 自动维护。*
 *Plan is disposable: 如果状态混乱，可以删除此文件重新开始。*
 *最后更新: 初始版本*

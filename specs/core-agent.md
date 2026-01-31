@@ -2,7 +2,7 @@
 
 ## Overview
 
-MyAgent 的核心模块，负责协调所有其他模块，提供统一的对外接口。
+OpenAkita 的核心模块，负责协调所有其他模块，提供统一的对外接口。
 
 ## Jobs to Be Done
 

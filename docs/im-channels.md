@@ -1,6 +1,6 @@
 # IM Channel Integration
 
-MyAgent supports multiple instant messaging platforms.
+OpenAkita supports multiple instant messaging platforms.
 
 ## Supported Platforms
 
@@ -57,7 +57,7 @@ MyAgent supports multiple instant messaging platforms.
 
 ```
 User: /start
-Bot: Hello! I'm MyAgent. How can I help you?
+Bot: Hello! I'm OpenAkita. How can I help you?
 
 User: Create a Python script to sort a list
 Bot: I'll create that for you...
@@ -161,7 +161,7 @@ Bot: I'll create that for you...
 
 2. **Configure OneBot** to connect via WebSocket
 
-3. **Configure MyAgent**:
+3. **Configure OpenAkita**:
    ```bash
    QQ_ENABLED=true
    QQ_ONEBOT_URL=ws://127.0.0.1:8080
@@ -237,7 +237,7 @@ DINGTALK_ENABLED=true
 FEISHU_ENABLED=true
 
 # Run unified gateway
-python -m myagent.channels.gateway
+python -m openakita.channels.gateway
 ```
 
 ### With Reverse Proxy (nginx)

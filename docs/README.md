@@ -1,6 +1,6 @@
-# MyAgent Documentation
+# OpenAkita Documentation
 
-Welcome to the MyAgent documentation.
+Welcome to the OpenAkita documentation.
 
 ## Quick Links
 

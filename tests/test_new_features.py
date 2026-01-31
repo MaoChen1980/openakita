@@ -33,7 +33,7 @@ class TestSession:
     
     def test_session_creation(self):
         """测试会话创建"""
-        from myagent.sessions import Session, SessionConfig
+        from openakita.sessions import Session, SessionConfig
         
         session = Session.create(
             channel="telegram",
@@ -50,7 +50,7 @@ class TestSession:
     
     def test_session_context(self):
         """测试会话上下文"""
-        from myagent.sessions import Session, SessionContext
+        from openakita.sessions import Session, SessionContext
         
         session = Session.create(
             channel="telegram",
@@ -74,7 +74,7 @@ class TestSession:
     
     def test_session_expiry(self):
         """测试会话过期"""
-        from myagent.sessions import Session, SessionConfig
+        from openakita.sessions import Session, SessionConfig
         
         # 创建一个超时时间很短的会话
         config = SessionConfig(timeout_minutes=0)  # 立即过期
@@ -93,7 +93,7 @@ class TestSession:
     
     def test_session_serialization(self):
         """测试会话序列化"""
-        from myagent.sessions import Session
+        from openakita.sessions import Session
         
         session = Session.create(
             channel="telegram",
@@ -125,7 +125,7 @@ class TestSessionManager:
     
     def test_get_or_create_session(self, temp_storage):
         """测试获取或创建会话"""
-        from myagent.sessions import SessionManager
+        from openakita.sessions import SessionManager
         
         manager = SessionManager(storage_path=temp_storage)
         
@@ -145,7 +145,7 @@ class TestSessionManager:
     
     def test_session_persistence(self, temp_storage):
         """测试会话持久化"""
-        from myagent.sessions import SessionManager
+        from openakita.sessions import SessionManager
         
         # 创建会话并保存
         manager1 = SessionManager(storage_path=temp_storage)
@@ -174,7 +174,7 @@ class TestUserManager:
     
     def test_user_creation(self, temp_storage):
         """测试用户创建"""
-        from myagent.sessions import UserManager
+        from openakita.sessions import UserManager
         
         manager = UserManager(storage_path=temp_storage)
         
@@ -188,7 +188,7 @@ class TestUserManager:
     
     def test_user_binding(self, temp_storage):
         """测试用户绑定"""
-        from myagent.sessions import UserManager
+        from openakita.sessions import UserManager
         
         manager = UserManager(storage_path=temp_storage)
         
@@ -208,7 +208,7 @@ class TestUserManager:
     
     def test_user_permissions(self, temp_storage):
         """测试用户权限"""
-        from myagent.sessions import UserManager
+        from openakita.sessions import UserManager
         
         manager = UserManager(storage_path=temp_storage)
         user = manager.get_or_create("telegram", "tg_admin")
@@ -234,7 +234,7 @@ class TestTriggers:
     
     def test_once_trigger(self):
         """测试一次性触发器"""
-        from myagent.scheduler import OnceTrigger
+        from openakita.scheduler import OnceTrigger
         
         # 过去的时间
         past_time = datetime.now() - timedelta(hours=1)
@@ -253,7 +253,7 @@ class TestTriggers:
     
     def test_interval_trigger(self):
         """测试间隔触发器"""
-        from myagent.scheduler import IntervalTrigger
+        from openakita.scheduler import IntervalTrigger
         
         trigger = IntervalTrigger(interval_minutes=30)
         
@@ -272,7 +272,7 @@ class TestTriggers:
     
     def test_cron_trigger(self):
         """测试 Cron 触发器"""
-        from myagent.scheduler import CronTrigger
+        from openakita.scheduler import CronTrigger
         
         # 每分钟
         trigger = CronTrigger("* * * * *")
@@ -290,7 +290,7 @@ class TestTriggers:
     
     def test_cron_expressions(self):
         """测试各种 Cron 表达式"""
-        from myagent.scheduler import CronTrigger
+        from openakita.scheduler import CronTrigger
         
         test_cases = [
             ("0 * * * *", "每小时"),
@@ -316,7 +316,7 @@ class TestScheduledTask:
     
     def test_task_creation(self):
         """测试任务创建"""
-        from myagent.scheduler import ScheduledTask, TriggerType
+        from openakita.scheduler import ScheduledTask, TriggerType
         
         # 一次性任务
         task = ScheduledTask.create_once(
@@ -343,7 +343,7 @@ class TestScheduledTask:
     
     def test_task_lifecycle(self):
         """测试任务生命周期"""
-        from myagent.scheduler import ScheduledTask, TaskStatus
+        from openakita.scheduler import ScheduledTask, TaskStatus
         
         task = ScheduledTask.create_interval(
             name="定期任务",
@@ -382,7 +382,7 @@ class TestTaskScheduler:
     @pytest.mark.asyncio
     async def test_scheduler_basic(self, temp_storage):
         """测试调度器基本功能"""
-        from myagent.scheduler import TaskScheduler, ScheduledTask
+        from openakita.scheduler import TaskScheduler, ScheduledTask
         
         scheduler = TaskScheduler(storage_path=temp_storage)
         await scheduler.start()
@@ -420,7 +420,7 @@ class TestTaskScheduler:
     @pytest.mark.asyncio
     async def test_scheduler_immediate_trigger(self, temp_storage):
         """测试立即触发任务"""
-        from myagent.scheduler import TaskScheduler, ScheduledTask
+        from openakita.scheduler import TaskScheduler, ScheduledTask
         
         # 记录执行
         executed = {"count": 0, "result": None}
@@ -461,7 +461,7 @@ class TestTaskScheduler:
     @pytest.mark.asyncio
     async def test_scheduler_persistence(self, temp_storage):
         """测试任务持久化"""
-        from myagent.scheduler import TaskScheduler, ScheduledTask
+        from openakita.scheduler import TaskScheduler, ScheduledTask
         
         # 第一次：创建并保存
         scheduler1 = TaskScheduler(storage_path=temp_storage)
@@ -501,7 +501,7 @@ class TestMessageTypes:
     
     def test_media_file(self):
         """测试媒体文件"""
-        from myagent.channels import MediaFile
+        from openakita.channels import MediaFile
         
         media = MediaFile.create(
             filename="test.jpg",
@@ -518,7 +518,7 @@ class TestMessageTypes:
     
     def test_message_content(self):
         """测试消息内容"""
-        from myagent.channels import MessageContent, MediaFile, MessageType
+        from openakita.channels import MessageContent, MediaFile, MessageType
         
         # 纯文本
         content1 = MessageContent.text_only("Hello World")
@@ -539,7 +539,7 @@ class TestMessageTypes:
     
     def test_unified_message(self):
         """测试统一消息"""
-        from myagent.channels import UnifiedMessage, MessageContent
+        from openakita.channels import UnifiedMessage, MessageContent
         
         content = MessageContent.text_only("/start 参数")
         
@@ -561,7 +561,7 @@ class TestMessageTypes:
     
     def test_message_plain_text(self):
         """测试消息转纯文本"""
-        from myagent.channels import MessageContent, MediaFile
+        from openakita.channels import MessageContent, MediaFile
         
         media = MediaFile.create(
             filename="voice.ogg",
@@ -642,7 +642,7 @@ class TestTelegramAdapter:
     async def test_telegram_adapter_init(self):
         """测试 TelegramAdapter 初始化"""
         try:
-            from myagent.channels.adapters import TelegramAdapter
+            from openakita.channels.adapters import TelegramAdapter
             
             adapter = TelegramAdapter(
                 bot_token=self.BOT_TOKEN,
@@ -662,7 +662,7 @@ class TestTelegramAdapter:
     async def test_telegram_adapter_start(self):
         """测试 TelegramAdapter 启动"""
         try:
-            from myagent.channels.adapters import TelegramAdapter
+            from openakita.channels.adapters import TelegramAdapter
             
             adapter = TelegramAdapter(
                 bot_token=self.BOT_TOKEN,
@@ -703,8 +703,8 @@ class TestTelegramIntegration:
     async def test_telegram_full_flow(self):
         """完整流程测试 (需要手动给 Bot 发消息)"""
         try:
-            from myagent.channels.adapters import TelegramAdapter
-            from myagent.channels import UnifiedMessage
+            from openakita.channels.adapters import TelegramAdapter
+            from openakita.channels import UnifiedMessage
             
             received_messages = []
             
@@ -757,7 +757,7 @@ class TestMediaHandler:
     
     def test_media_handler_init(self):
         """测试媒体处理器初始化"""
-        from myagent.channels.media import MediaHandler
+        from openakita.channels.media import MediaHandler
         
         handler = MediaHandler()
         assert handler is not None
@@ -767,8 +767,8 @@ class TestMediaHandler:
     @pytest.mark.asyncio
     async def test_text_extraction(self, tmp_path):
         """测试文本提取"""
-        from myagent.channels.media import MediaHandler
-        from myagent.channels import MediaFile
+        from openakita.channels.media import MediaHandler
+        from openakita.channels import MediaFile
         
         handler = MediaHandler()
         
@@ -798,8 +798,8 @@ class TestMediaStorage:
     @pytest.mark.asyncio
     async def test_storage_basic(self, temp_storage):
         """测试基本存储功能"""
-        from myagent.channels.media import MediaStorage
-        from myagent.channels import MediaFile
+        from openakita.channels.media import MediaStorage
+        from openakita.channels import MediaFile
         
         storage = MediaStorage(base_path=temp_storage)
         
@@ -827,8 +827,8 @@ class TestMediaStorage:
     @pytest.mark.asyncio
     async def test_storage_dedup(self, temp_storage):
         """测试文件去重"""
-        from myagent.channels.media import MediaStorage
-        from myagent.channels import MediaFile
+        from openakita.channels.media import MediaStorage
+        from openakita.channels import MediaFile
         
         storage = MediaStorage(base_path=temp_storage)
         
@@ -857,9 +857,9 @@ class TestIntegration:
     @pytest.mark.asyncio
     async def test_full_message_flow(self, tmp_path):
         """完整消息流程测试"""
-        from myagent.sessions import SessionManager
-        from myagent.channels import MessageGateway, MessageContent, UnifiedMessage
-        from myagent.channels.base import CLIAdapter
+        from openakita.sessions import SessionManager
+        from openakita.channels import MessageGateway, MessageContent, UnifiedMessage
+        from openakita.channels.base import CLIAdapter
         
         # 创建组件
         session_manager = SessionManager(storage_path=tmp_path / "sessions")
@@ -912,7 +912,7 @@ class TestIntegration:
 async def run_all_tests():
     """运行所有测试"""
     print("\n" + "=" * 60)
-    print("MyAgent v0.5.0 新功能测试")
+    print("OpenAkita v0.5.0 新功能测试")
     print("=" * 60 + "\n")
     
     results = {"passed": 0, "failed": 0, "skipped": 0}
@@ -1091,7 +1091,7 @@ async def run_telegram_interactive_test():
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description="MyAgent 新功能测试")
+    parser = argparse.ArgumentParser(description="OpenAkita 新功能测试")
     parser.add_argument("--telegram-interactive", action="store_true", help="运行 Telegram 交互测试")
     parser.add_argument("--all", action="store_true", help="运行所有测试")
     

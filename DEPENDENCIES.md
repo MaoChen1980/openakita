@@ -1,4 +1,4 @@
-# MyAgent 完整依赖清单
+# OpenAkita 完整依赖清单
 
 > 自动扫描生成于 2026-01-31
 
@@ -207,7 +207,7 @@ pip install -e ".[dev]"
 ## 📁 文件结构
 
 ```
-myagent/
+openakita/
 ├── requirements.txt     # 依赖列表 (pip 格式)
 ├── pyproject.toml      # 项目配置 (标准格式)
 ├── DEPENDENCIES.md     # 本文档

@@ -71,8 +71,8 @@ async def test_send_message_to_user(bot, chat_id: int):
     try:
         message = await bot.send_message(
             chat_id=chat_id,
-            text="🤖 *MyAgent 测试消息*\n\n"
-                 "这是来自 MyAgent v0.5.0 的测试消息。\n"
+            text="🤖 *OpenAkita 测试消息*\n\n"
+                 "这是来自 OpenAkita v0.5.0 的测试消息。\n"
                  "如果你看到这条消息，说明 Telegram 适配器工作正常！",
             parse_mode="Markdown",
         )
@@ -112,7 +112,7 @@ async def test_adapter_message_conversion():
     print("-" * 40)
     
     try:
-        from myagent.channels import MessageContent, UnifiedMessage, MessageType, MediaFile
+        from openakita.channels import MessageContent, UnifiedMessage, MessageType, MediaFile
         
         # 测试纯文本
         content1 = MessageContent.text_only("Hello World")
@@ -189,7 +189,7 @@ async def interactive_test(bot):
                         print(f"      内容: {text[:100]}")
                         
                         # 回复消息
-                        reply = f"✅ 收到你的消息: \"{text[:50]}...\"\n\n[MyAgent 测试回复]"
+                        reply = f"✅ 收到你的消息: \"{text[:50]}...\"\n\n[OpenAkita 测试回复]"
                         await bot.send_message(
                             chat_id=msg.chat.id,
                             text=reply,

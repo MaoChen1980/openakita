@@ -1,6 +1,6 @@
 # MCP Integration
 
-MyAgent supports the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) for connecting to external services.
+OpenAkita supports the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) for connecting to external services.
 
 ## What is MCP?
 
@@ -131,7 +131,7 @@ if __name__ == "__main__":
     server.run()
 ```
 
-### Register with MyAgent
+### Register with OpenAkita
 
 ```yaml
 # config/mcp_servers.yaml
@@ -147,7 +147,7 @@ servers:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        MyAgent                               │
+│                        OpenAkita                               │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │                    MCP Bridge                          │  │
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │  │
@@ -199,7 +199,7 @@ except MCPError as e:
 python mcp_server/my_server.py
 
 # Check logs
-LOG_LEVEL=DEBUG myagent
+LOG_LEVEL=DEBUG openakita
 ```
 
 ### Connection Timeout

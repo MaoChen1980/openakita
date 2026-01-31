@@ -1,25 +1,25 @@
 <p align="center">
-  <img src="docs/assets/logo.png" alt="MyAgent Logo" width="200" />
+  <img src="docs/assets/logo.png" alt="OpenAkita Logo" width="200" />
 </p>
 
-<h1 align="center">MyAgent</h1>
+<h1 align="center">OpenAkita</h1>
 
 <p align="center">
   <strong>A Self-Evolving AI Agent that Never Gives Up</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/jevisuen/myagent/blob/main/LICENSE">
+  <a href="https://github.com/jevisuen/openakita/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" />
   </a>
   <a href="https://www.python.org/downloads/">
     <img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python Version" />
   </a>
-  <a href="https://github.com/jevisuen/myagent/releases">
-    <img src="https://img.shields.io/github/v/release/jevisuen/myagent" alt="Release" />
+  <a href="https://github.com/jevisuen/openakita/releases">
+    <img src="https://img.shields.io/github/v/release/jevisuen/openakita" alt="Release" />
   </a>
-  <a href="https://github.com/jevisuen/myagent/actions">
-    <img src="https://img.shields.io/github/actions/workflow/status/jevisuen/myagent/ci.yml?branch=main" alt="Build Status" />
+  <a href="https://github.com/jevisuen/openakita/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/jevisuen/openakita/ci.yml?branch=main" alt="Build Status" />
   </a>
 </p>
 
@@ -37,11 +37,11 @@
 
 ---
 
-## What is MyAgent?
+## What is OpenAkita?
 
-MyAgent is a **self-evolving AI agent** built on [Anthropic Claude](https://www.anthropic.com/claude) that embodies the **Ralph Wiggum Mode** philosophy: **never give up until the task is done**. When faced with obstacles, it doesn't just fail gracefully—it actively searches for solutions, installs new capabilities from GitHub, or generates its own code to solve problems.
+OpenAkita is a **self-evolving AI agent** built on [Anthropic Claude](https://www.anthropic.com/claude) that embodies the **Ralph Wiggum Mode** philosophy: **never give up until the task is done**. When faced with obstacles, it doesn't just fail gracefully—it actively searches for solutions, installs new capabilities from GitHub, or generates its own code to solve problems.
 
-### Why MyAgent?
+### Why OpenAkita?
 
 - **🔄 Self-Evolving**: Automatically acquires new skills by searching GitHub or generating code
 - **💪 Never Gives Up**: Implements Ralph Wiggum Mode for persistent task completion
@@ -73,8 +73,8 @@ MyAgent is a **self-evolving AI agent** built on [Anthropic Claude](https://www.
 
 ```bash
 # Clone the repository
-git clone https://github.com/jevisuen/myagent.git
-cd myagent
+git clone https://github.com/jevisuen/openakita.git
+cd openakita
 
 # Create virtual environment
 python -m venv venv
@@ -107,16 +107,16 @@ DEFAULT_MODEL=claude-sonnet-4-20250514
 
 ```bash
 # Interactive CLI mode
-myagent
+openakita
 
 # Run a single task
-myagent run "Create a Python calculator with tests"
+openakita run "Create a Python calculator with tests"
 
 # Check agent status
-myagent status
+openakita status
 
 # Run self-check
-myagent selfcheck
+openakita selfcheck
 ```
 
 ## Documentation
@@ -136,7 +136,7 @@ myagent selfcheck
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                         MyAgent                              │
+│                         OpenAkita                              │
 ├─────────────────────────────────────────────────────────────┤
 │   ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐       │
 │   │ SOUL.md │  │AGENT.md │  │ USER.md │  │MEMORY.md│       │
@@ -171,7 +171,7 @@ myagent selfcheck
 
 ### Core Documents
 
-MyAgent uses a unique document-based identity and memory system:
+OpenAkita uses a unique document-based identity and memory system:
 
 | Document | Purpose |
 |----------|---------|
@@ -234,12 +234,12 @@ Agent: Installation complete, analyzing file...
 ## Project Structure
 
 ```
-myagent/
+openakita/
 ├── SOUL.md                 # Agent's core philosophy
 ├── AGENT.md                # Behavioral specifications
 ├── USER.md                 # User profile
 ├── MEMORY.md               # Working memory
-├── src/myagent/
+├── src/openakita/
 │   ├── core/               # Core modules
 │   │   ├── agent.py        # Main agent class
 │   │   ├── brain.py        # Claude API integration
@@ -286,7 +286,7 @@ myagent/
 ### CLI Mode (Default)
 
 ```bash
-myagent
+openakita
 ```
 
 ### Telegram Bot
@@ -303,16 +303,16 @@ python run_telegram_bot.py
 ### Docker
 
 ```bash
-docker build -t myagent .
-docker run -d --name myagent -v $(pwd)/.env:/app/.env myagent
+docker build -t openakita .
+docker run -d --name openakita -v $(pwd)/.env:/app/.env openakita
 ```
 
 ### Systemd Service
 
 ```bash
-sudo cp myagent.service /etc/systemd/system/
-sudo systemctl enable myagent
-sudo systemctl start myagent
+sudo cp openakita.service /etc/systemd/system/
+sudo systemctl enable openakita
+sudo systemctl start openakita
 ```
 
 See [DEPLOY.md](DEPLOY.md) for detailed deployment instructions.
@@ -348,13 +348,13 @@ ruff check src/
 ## Community
 
 - 📖 [Documentation](docs/)
-- 🐛 [Issue Tracker](https://github.com/jevisuen/myagent/issues)
-- 💬 [Discussions](https://github.com/jevisuen/myagent/discussions)
+- 🐛 [Issue Tracker](https://github.com/jevisuen/openakita/issues)
+- 💬 [Discussions](https://github.com/jevisuen/openakita/discussions)
 - 📧 [Email](mailto:contact@example.com)
 
 ## Acknowledgments
 
-MyAgent is built on the shoulders of giants:
+OpenAkita is built on the shoulders of giants:
 
 - [Anthropic Claude](https://www.anthropic.com/claude) - Core LLM engine
 - [Claude Soul Document](https://gist.github.com/Richard-Weiss/efe157692991535403bd7e7fb20b6695) - Soul document inspiration
@@ -368,9 +368,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 <p align="center">
-  Made with ❤️ by the MyAgent Team
+  Made with ❤️ by the OpenAkita Team
 </p>
 
 <p align="center">
-  <a href="#myagent">Back to Top ↑</a>
+  <a href="#openakita">Back to Top ↑</a>
 </p>

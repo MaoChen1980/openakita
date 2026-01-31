@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide will help you get MyAgent up and running quickly.
+This guide will help you get OpenAkita up and running quickly.
 
 ## Prerequisites
 
@@ -16,8 +16,8 @@ Before you begin, ensure you have:
 
 ```bash
 # Clone the repository
-git clone https://github.com/jevisuen/myagent.git
-cd myagent
+git clone https://github.com/jevisuen/openakita.git
+cd openakita
 
 # Create and activate virtual environment
 python -m venv venv
@@ -35,7 +35,7 @@ pip install -e .
 ### Option 2: Install from PyPI (Coming Soon)
 
 ```bash
-pip install myagent
+pip install openakita
 ```
 
 ## Configuration
@@ -73,14 +73,14 @@ AUTO_CONFIRM=false
 ### Start the CLI
 
 ```bash
-myagent
+openakita
 ```
 
 You should see:
 
 ```
 ╭─────────────────────────────────────────╮
-│           MyAgent v0.5.9                │
+│           OpenAkita v0.5.9                │
 │   A Self-Evolving AI Agent              │
 ╰─────────────────────────────────────────╯
 
@@ -93,7 +93,7 @@ You>
 You> Hello, what can you do?
 ```
 
-MyAgent will introduce itself and explain its capabilities.
+OpenAkita will introduce itself and explain its capabilities.
 
 ### Try a Complex Task
 
@@ -101,7 +101,7 @@ MyAgent will introduce itself and explain its capabilities.
 You> Create a Python script that calculates prime numbers up to 100
 ```
 
-Watch as MyAgent:
+Watch as OpenAkita:
 1. Analyzes the task
 2. Writes the code
 3. Tests it
@@ -111,15 +111,15 @@ Watch as MyAgent:
 
 | Command | Description |
 |---------|-------------|
-| `myagent` | Start interactive mode |
-| `myagent run "task"` | Execute a single task |
-| `myagent status` | Show agent status |
-| `myagent selfcheck` | Run self-diagnostics |
-| `myagent --help` | Show all commands |
+| `openakita` | Start interactive mode |
+| `openakita run "task"` | Execute a single task |
+| `openakita status` | Show agent status |
+| `openakita selfcheck` | Run self-diagnostics |
+| `openakita --help` | Show all commands |
 
 ## Next Steps
 
-- [Architecture Overview](architecture.md) - Understand how MyAgent works
+- [Architecture Overview](architecture.md) - Understand how OpenAkita works
 - [Configuration Guide](configuration.md) - All configuration options
 - [Skills System](skills.md) - Create custom skills
 - [IM Channels](im-channels.md) - Set up Telegram, etc.
@@ -140,7 +140,7 @@ ANTHROPIC_BASE_URL=https://your-proxy-url
 
 ### "Python version error"
 
-MyAgent requires Python 3.11+. Check your version:
+OpenAkita requires Python 3.11+. Check your version:
 
 ```bash
 python --version
@@ -148,5 +148,5 @@ python --version
 
 ### Need More Help?
 
-- Check [GitHub Issues](https://github.com/jevisuen/myagent/issues)
-- Join [GitHub Discussions](https://github.com/jevisuen/myagent/discussions)
+- Check [GitHub Issues](https://github.com/jevisuen/openakita/issues)
+- Join [GitHub Discussions](https://github.com/jevisuen/openakita/discussions)

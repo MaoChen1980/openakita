@@ -1,4 +1,4 @@
-# MyAgent 部署文档
+# OpenAkita 部署文档
 
 > 完整的从零开始部署指南
 
@@ -134,7 +134,7 @@ argparse         # 命令行解析
 **Windows (PowerShell):**
 ```powershell
 # 下载并运行部署脚本
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/your-repo/myagent/main/deploy.ps1" -OutFile "deploy.ps1"
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/your-repo/openakita/main/deploy.ps1" -OutFile "deploy.ps1"
 .\deploy.ps1
 ```
 
@@ -146,7 +146,7 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/your-repo/myagent/main
 **Linux/macOS (Bash):**
 ```bash
 # 下载并运行部署脚本
-curl -O https://raw.githubusercontent.com/your-repo/myagent/main/deploy.sh
+curl -O https://raw.githubusercontent.com/your-repo/openakita/main/deploy.sh
 chmod +x deploy.sh
 ./deploy.sh
 ```
@@ -249,8 +249,8 @@ brew install git
 ### 3. 克隆项目
 
 ```bash
-git clone https://github.com/your-username/myagent.git
-cd myagent
+git clone https://github.com/your-username/openakita.git
+cd openakita
 ```
 
 ### 4. 创建虚拟环境
@@ -328,10 +328,10 @@ mkdir -p data/media
 
 ```bash
 # 运行 Agent
-myagent
+openakita
 
 # 或直接运行模块
-python -m myagent
+python -m openakita
 ```
 
 ---
@@ -346,7 +346,7 @@ python -m myagent
 | `ANTHROPIC_BASE_URL` | ❌ | `https://api.anthropic.com` | API 端点 |
 | `DEFAULT_MODEL` | ❌ | `claude-opus-4-5-20251101-thinking` | 模型名称 |
 | `MAX_TOKENS` | ❌ | `8192` | 最大输出 token |
-| `AGENT_NAME` | ❌ | `MyAgent` | Agent 名称 |
+| `AGENT_NAME` | ❌ | `OpenAkita` | Agent 名称 |
 | `MAX_ITERATIONS` | ❌ | `100` | Ralph 循环最大迭代 |
 | `AUTO_CONFIRM` | ❌ | `false` | 自动确认危险操作 |
 | `DATABASE_PATH` | ❌ | `data/agent.db` | 数据库路径 |
@@ -380,10 +380,10 @@ python -m myagent
 
 ```bash
 # 启动交互式 CLI
-myagent
+openakita
 
 # 或
-python -m myagent
+python -m openakita
 ```
 
 ### Telegram Bot 服务
@@ -398,19 +398,19 @@ nohup python run_telegram_bot.py > telegram.log 2>&1 &
 
 ### 使用 systemd (Linux 推荐)
 
-创建服务文件 `/etc/systemd/system/myagent.service`:
+创建服务文件 `/etc/systemd/system/openakita.service`:
 
 ```ini
 [Unit]
-Description=MyAgent Telegram Bot
+Description=OpenAkita Telegram Bot
 After=network.target
 
 [Service]
 Type=simple
 User=your-user
-WorkingDirectory=/path/to/myagent
-Environment="PATH=/path/to/myagent/venv/bin"
-ExecStart=/path/to/myagent/venv/bin/python run_telegram_bot.py
+WorkingDirectory=/path/to/openakita
+Environment="PATH=/path/to/openakita/venv/bin"
+ExecStart=/path/to/openakita/venv/bin/python run_telegram_bot.py
 Restart=always
 RestartSec=10
 
@@ -421,23 +421,23 @@ WantedBy=multi-user.target
 启动服务：
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable myagent
-sudo systemctl start myagent
-sudo systemctl status myagent
+sudo systemctl enable openakita
+sudo systemctl start openakita
+sudo systemctl status openakita
 ```
 
 ### 使用 Docker (可选)
 
 ```bash
 # 构建镜像
-docker build -t myagent .
+docker build -t openakita .
 
 # 运行容器
 docker run -d \
-  --name myagent \
+  --name openakita \
   -v $(pwd)/.env:/app/.env \
   -v $(pwd)/data:/app/data \
-  myagent
+  openakita
 ```
 
 ---
@@ -507,7 +507,7 @@ MemoryLimit=2G
 
 ```bash
 # 进入项目目录
-cd myagent
+cd openakita
 
 # 拉取最新代码
 git pull
@@ -516,7 +516,7 @@ git pull
 pip install -e .
 
 # 重启服务
-sudo systemctl restart myagent
+sudo systemctl restart openakita
 ```
 
 ---
@@ -525,17 +525,17 @@ sudo systemctl restart myagent
 
 ```bash
 # 停止服务
-sudo systemctl stop myagent
-sudo systemctl disable myagent
+sudo systemctl stop openakita
+sudo systemctl disable openakita
 
 # 删除服务文件
-sudo rm /etc/systemd/system/myagent.service
+sudo rm /etc/systemd/system/openakita.service
 
 # 删除虚拟环境
 rm -rf venv
 
 # 删除项目目录
-cd .. && rm -rf myagent
+cd .. && rm -rf openakita
 ```
 
 ---

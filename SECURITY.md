@@ -11,7 +11,7 @@ We release patches for security issues in the following versions:
 
 ## Reporting a Vulnerability
 
-We take security seriously. If you discover a security vulnerability within MyAgent, please follow these steps:
+We take security seriously. If you discover a security vulnerability within OpenAkita, please follow these steps:
 
 ### 1. Do NOT Create a Public Issue
 
@@ -58,15 +58,15 @@ export ANTHROPIC_API_KEY=your-key
 
 ### File System Access
 
-MyAgent has file system access. To limit exposure:
+OpenAkita has file system access. To limit exposure:
 
 ```bash
 # Run in a dedicated directory
-mkdir ~/myagent-workspace
-cd ~/myagent-workspace
+mkdir ~/openakita-workspace
+cd ~/openakita-workspace
 
 # Consider using Docker for isolation
-docker run --rm -it myagent
+docker run --rm -it openakita
 ```
 
 ### Network Security
@@ -77,7 +77,7 @@ docker run --rm -it myagent
 
 ### Shell Command Execution
 
-MyAgent can execute shell commands. Recommendations:
+OpenAkita can execute shell commands. Recommendations:
 
 - Review commands before execution (disable AUTO_CONFIRM)
 - Run with minimal required permissions
@@ -109,7 +109,7 @@ LOG_LEVEL=DEBUG
 
 ### LLM Prompt Injection
 
-As with any LLM-based system, MyAgent may be susceptible to prompt injection. Mitigations:
+As with any LLM-based system, OpenAkita may be susceptible to prompt injection. Mitigations:
 
 - Validate and sanitize user inputs
 - Use the agent in controlled environments
@@ -133,8 +133,8 @@ Security updates will be released as:
 
 For security concerns, contact: **security@example.com**
 
-For general questions, use [GitHub Discussions](https://github.com/jevisuen/myagent/discussions).
+For general questions, use [GitHub Discussions](https://github.com/jevisuen/openakita/discussions).
 
 ---
 
-Thank you for helping keep MyAgent and its users safe!
+Thank you for helping keep OpenAkita and its users safe!

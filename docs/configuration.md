@@ -1,10 +1,10 @@
 # Configuration Guide
 
-This document covers all configuration options for MyAgent.
+This document covers all configuration options for OpenAkita.
 
 ## Environment Variables
 
-MyAgent is configured primarily through environment variables, typically stored in a `.env` file.
+OpenAkita is configured primarily through environment variables, typically stored in a `.env` file.
 
 ### Required Settings
 
@@ -24,7 +24,7 @@ MyAgent is configured primarily through environment variables, typically stored 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AGENT_NAME` | `MyAgent` | Display name |
+| `AGENT_NAME` | `OpenAkita` | Display name |
 | `MAX_ITERATIONS` | `100` | Max Ralph loop iterations |
 | `AUTO_CONFIRM` | `false` | Auto-confirm dangerous operations |
 
@@ -95,7 +95,7 @@ You can also use a YAML configuration file at `config/agent.yaml`:
 ```yaml
 # Agent settings
 agent:
-  name: MyAgent
+  name: OpenAkita
   max_iterations: 100
   auto_confirm: false
 
@@ -138,7 +138,7 @@ The soul document defines core values. Generally should not be modified:
 ```markdown
 # Soul Overview
 
-MyAgent is a self-evolving AI assistant...
+OpenAkita is a self-evolving AI assistant...
 
 ## Core Values
 1. Safety and human oversight
@@ -193,19 +193,19 @@ Working memory (auto-managed):
 
 ```bash
 # Override config file
-myagent --config /path/to/config.yaml
+openakita --config /path/to/config.yaml
 
 # Override log level
-myagent --log-level DEBUG
+openakita --log-level DEBUG
 
 # Override model
-myagent --model claude-opus-4-0-20250514
+openakita --model claude-opus-4-0-20250514
 
 # Disable confirmation prompts
-myagent --auto-confirm
+openakita --auto-confirm
 
 # Run in specific mode
-myagent --mode chat|task|test
+openakita --mode chat|task|test
 ```
 
 ## Advanced Configuration
@@ -251,13 +251,13 @@ DISK_LIMIT=10240
 To validate your configuration:
 
 ```bash
-myagent config validate
+openakita config validate
 ```
 
 To show current configuration:
 
 ```bash
-myagent config show
+openakita config show
 ```
 
 ## Best Practices

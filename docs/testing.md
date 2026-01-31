@@ -1,6 +1,6 @@
 # Testing Guide
 
-MyAgent includes a comprehensive testing framework with 300+ test cases.
+OpenAkita includes a comprehensive testing framework with 300+ test cases.
 
 ## Test Categories
 
@@ -26,7 +26,7 @@ MyAgent includes a comprehensive testing framework with 300+ test cases.
 pytest tests/ -v
 
 # With coverage report
-pytest tests/ --cov=src/myagent --cov-report=html
+pytest tests/ --cov=src/openakita --cov-report=html
 ```
 
 ### Specific Categories
@@ -46,13 +46,13 @@ pytest tests/test_search.py -v
 
 ```bash
 # Quick check (core functionality)
-myagent selfcheck --quick
+openakita selfcheck --quick
 
 # Full check (all 300 tests)
-myagent selfcheck --full
+openakita selfcheck --full
 
 # With auto-fix on failure
-myagent selfcheck --fix
+openakita selfcheck --fix
 ```
 
 ## Test Structure
@@ -75,7 +75,7 @@ tests/
 ```python
 # tests/test_qa.py
 import pytest
-from myagent.testing.runner import TestRunner
+from openakita.testing.runner import TestRunner
 
 class TestBasicQA:
     """Basic question-answering tests."""
@@ -98,7 +98,7 @@ class TestBasicQA:
 ### TestRunner Class
 
 ```python
-from myagent.testing.runner import TestRunner, TestCase
+from openakita.testing.runner import TestRunner, TestCase
 
 runner = TestRunner()
 
@@ -137,7 +137,7 @@ class TestCase:
 The judge evaluates test results:
 
 ```python
-from myagent.testing.judge import Judge
+from openakita.testing.judge import Judge
 
 judge = Judge()
 
@@ -166,10 +166,10 @@ print(verdict.reason)  # "Contains expected value"
 
 ## Auto-Fix System
 
-When tests fail, MyAgent can attempt automatic fixes:
+When tests fail, OpenAkita can attempt automatic fixes:
 
 ```python
-from myagent.testing.fixer import Fixer
+from openakita.testing.fixer import Fixer
 
 fixer = Fixer()
 
@@ -268,7 +268,7 @@ jobs:
         run: pip install -e ".[dev]"
       
       - name: Run tests
-        run: pytest tests/ -v --cov=src/myagent
+        run: pytest tests/ -v --cov=src/openakita
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       

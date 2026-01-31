@@ -50,7 +50,7 @@ jobs:
           pip install -e ".[dev]"
       
       - name: Run tests
-        run: pytest tests/ -v --cov=src/myagent --cov-report=xml
+        run: pytest tests/ -v --cov=src/openakita --cov-report=xml
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       
