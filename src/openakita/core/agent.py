@@ -469,8 +469,8 @@ class Agent:
         {
             "name": "send_to_chat",
             "description": "发送消息到当前 IM 聊天（仅在 IM 会话中可用）。"
-                           "支持发送文本、图片、文件。"
-                           "当你完成了生成文件（如截图、文档）的任务时，使用此工具将文件发送给用户。",
+                           "支持发送文本、图片、语音、文件。"
+                           "当你完成了生成文件（如截图、文档、语音）的任务时，使用此工具将文件发送给用户。",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -482,11 +482,35 @@ class Agent:
                         "type": "string",
                         "description": "要发送的文件路径（图片、文档等）"
                     },
+                    "voice_path": {
+                        "type": "string",
+                        "description": "要发送的语音文件路径（.ogg, .mp3, .wav 等）"
+                    },
                     "caption": {
                         "type": "string",
                         "description": "文件的说明文字（可选）"
                     }
                 }
+            }
+        },
+        {
+            "name": "get_voice_file",
+            "description": "获取用户发送的语音消息的本地文件路径。"
+                           "当用户发送语音消息时，系统会自动下载到本地。"
+                           "使用此工具获取语音文件路径，然后你可以用语音识别脚本处理它。",
+            "input_schema": {
+                "type": "object",
+                "properties": {}
+            }
+        },
+        {
+            "name": "get_image_file",
+            "description": "获取用户发送的图片的本地文件路径。"
+                           "当用户发送图片时，系统会自动下载到本地。"
+                           "使用此工具获取图片文件路径。",
+            "input_schema": {
+                "type": "object",
+                "properties": {}
             }
         },
         # === Thinking 模式控制 ===
@@ -2392,21 +2416,46 @@ class Agent:
                 
                 text = tool_input.get("text", "")
                 file_path = tool_input.get("file_path", "")
+                voice_path = tool_input.get("voice_path", "")
                 caption = tool_input.get("caption", "")
                 
                 try:
                     from pathlib import Path
                     
-                    # 发送文件
+                    # 获取适配器
+                    adapter = gateway.get_adapter(session.channel)
+                    if not adapter:
+                        return f"❌ 找不到适配器: {session.channel}"
+                    
+                    # 发送语音
+                    if voice_path:
+                        voice_path_obj = Path(voice_path)
+                        if not voice_path_obj.exists():
+                            return f"❌ 语音文件不存在: {voice_path}"
+                        
+                        if hasattr(adapter, 'send_voice'):
+                            await adapter.send_voice(
+                                chat_id=session.chat_id,
+                                voice_path=str(voice_path_obj),
+                                caption=caption or text,
+                            )
+                            self._task_message_sent = True
+                            return f"✅ 语音已发送: {voice_path}"
+                        else:
+                            # 适配器不支持语音，改为发送文件
+                            await adapter.send_file(
+                                chat_id=session.chat_id,
+                                file_path=str(voice_path_obj),
+                                caption=caption or text,
+                            )
+                            self._task_message_sent = True
+                            return f"✅ 语音文件已发送（作为文件）: {voice_path}"
+                    
+                    # 发送文件/图片
                     if file_path:
                         file_path_obj = Path(file_path)
                         if not file_path_obj.exists():
                             return f"❌ 文件不存在: {file_path}"
-                        
-                        # 获取适配器
-                        adapter = gateway.get_adapter(session.channel)
-                        if not adapter:
-                            return f"❌ 找不到适配器: {session.channel}"
                         
                         # 根据文件类型发送
                         suffix = file_path_obj.suffix.lower()
@@ -2418,7 +2467,7 @@ class Agent:
                                 photo_path=str(file_path_obj),
                                 caption=caption or text,
                             )
-                            self._task_message_sent = True  # 标记已发送，避免重复通知
+                            self._task_message_sent = True
                             return f"✅ 图片已发送: {file_path}"
                         else:
                             # 发送文件
@@ -2427,21 +2476,83 @@ class Agent:
                                 file_path=str(file_path_obj),
                                 caption=caption or text,
                             )
-                            self._task_message_sent = True  # 标记已发送，避免重复通知
+                            self._task_message_sent = True
                             return f"✅ 文件已发送: {file_path}"
                     
                     # 只发送文本
                     elif text:
                         await gateway.send_to_session(session, text)
-                        self._task_message_sent = True  # 标记已发送，避免重复通知
+                        self._task_message_sent = True
                         return f"✅ 消息已发送"
                     
                     else:
-                        return "❌ 请提供要发送的内容（text 或 file_path）"
+                        return "❌ 请提供要发送的内容（text, file_path 或 voice_path）"
                         
                 except Exception as e:
                     logger.error(f"send_to_chat error: {e}", exc_info=True)
                     return f"❌ 发送失败: {str(e)}"
+            
+            elif tool_name == "get_voice_file":
+                # 检查是否在 IM 会话中
+                if not Agent._current_im_session:
+                    return "❌ 此工具仅在 IM 会话中可用"
+                
+                session = Agent._current_im_session
+                
+                # 从 session metadata 获取语音文件信息
+                pending_voices = session.get_metadata("pending_voices")
+                if pending_voices and len(pending_voices) > 0:
+                    voice_paths = [v.get("local_path", "") for v in pending_voices if v.get("local_path")]
+                    if voice_paths:
+                        return f"✅ 用户发送的语音文件路径:\n" + "\n".join(voice_paths)
+                
+                # 尝试从最近的消息中查找语音
+                # 检查 session 的 messages
+                for msg in reversed(session.messages[-10:]):
+                    content = msg.get("content", "")
+                    if isinstance(content, str) and "[语音:" in content:
+                        # 尝试找到对应的本地文件
+                        # 语音文件通常保存在 data/telegram/media/ 目录
+                        media_dir = Path("data/telegram/media")
+                        if media_dir.exists():
+                            voice_files = list(media_dir.glob("*.ogg")) + list(media_dir.glob("*.oga")) + list(media_dir.glob("*.opus"))
+                            if voice_files:
+                                # 返回最新的语音文件
+                                latest = max(voice_files, key=lambda f: f.stat().st_mtime)
+                                return f"✅ 最近的语音文件: {latest}"
+                
+                return "❌ 没有找到用户发送的语音文件。请让用户先发送一条语音消息。"
+            
+            elif tool_name == "get_image_file":
+                # 检查是否在 IM 会话中
+                if not Agent._current_im_session:
+                    return "❌ 此工具仅在 IM 会话中可用"
+                
+                session = Agent._current_im_session
+                
+                # 从 session metadata 获取图片文件信息
+                pending_images = session.get_metadata("pending_images")
+                if pending_images and len(pending_images) > 0:
+                    # pending_images 是 multimodal 格式，找 local_path
+                    image_paths = []
+                    for img in pending_images:
+                        if isinstance(img, dict):
+                            # 尝试从元数据中获取路径
+                            local_path = img.get("local_path", "")
+                            if local_path:
+                                image_paths.append(local_path)
+                    if image_paths:
+                        return f"✅ 用户发送的图片文件路径:\n" + "\n".join(image_paths)
+                
+                # 尝试从 media 目录查找
+                media_dir = Path("data/telegram/media")
+                if media_dir.exists():
+                    image_files = list(media_dir.glob("*.jpg")) + list(media_dir.glob("*.png")) + list(media_dir.glob("*.webp"))
+                    if image_files:
+                        latest = max(image_files, key=lambda f: f.stat().st_mtime)
+                        return f"✅ 最近的图片文件: {latest}"
+                
+                return "❌ 没有找到用户发送的图片文件。请让用户先发送一张图片。"
             
             else:
                 return f"未知工具: {tool_name}"

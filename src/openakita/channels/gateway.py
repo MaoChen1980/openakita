@@ -284,16 +284,35 @@ class MessageGateway:
     
     async def _call_agent(self, session: Session, message: UnifiedMessage) -> str:
         """
-        调用 Agent 处理消息（支持多模态）
+        调用 Agent 处理消息（支持多模态：图片、语音）
         """
         if not self.agent_handler:
             return "Agent handler not configured"
         
         try:
-            # 构建输入（文本 + 图片）
+            # 构建输入（文本 + 图片 + 语音）
             input_text = message.plain_text
             
-            # 检查是否有图片需要多模态处理
+            # 处理语音文件 - 保存路径到 session metadata
+            voices_data = []
+            for voice in message.content.voices:
+                if voice.local_path and Path(voice.local_path).exists():
+                    voices_data.append({
+                        "local_path": voice.local_path,
+                        "duration": voice.duration,
+                        "mime_type": voice.mime_type,
+                    })
+                    logger.info(f"Voice file ready: {voice.local_path}")
+            
+            if voices_data:
+                session.set_metadata("pending_voices", voices_data)
+                if not input_text.strip() or "[语音:" in input_text:
+                    # 提示 Agent 有语音需要处理
+                    voice_info = ", ".join([f"{v['local_path']} ({v.get('duration', '?')}秒)" for v in voices_data])
+                    input_text = f"[用户发送了语音消息，文件路径: {voice_info}]\n请使用语音识别脚本处理这个语音文件，然后告诉用户识别结果。"
+                logger.info(f"Processing message with {len(voices_data)} voice files")
+            
+            # 处理图片文件 - 多模态输入
             images_data = []
             for img in message.content.images:
                 if img.local_path and Path(img.local_path).exists():
@@ -306,7 +325,8 @@ class MessageGateway:
                                     "type": "base64",
                                     "media_type": img.mime_type or "image/jpeg",
                                     "data": image_data,
-                                }
+                                },
+                                "local_path": img.local_path,  # 也保存路径
                             })
                     except Exception as e:
                         logger.error(f"Failed to read image: {e}")
@@ -322,8 +342,9 @@ class MessageGateway:
             # 调用 Agent
             response = await self.agent_handler(session, input_text)
             
-            # 清除图片数据
+            # 清除临时数据
             session.set_metadata("pending_images", None)
+            session.set_metadata("pending_voices", None)
             
             return response
             
