@@ -70,10 +70,20 @@ OpenAkita 不只是一个工具 — 它是一个记住你、理解你、与你�
 
 ## 快速开始
 
+> ⚠️ **早期阶段项目**：本项目仍在早期开发阶段，部分功能可能不完善。建议使用 AI 编程助手如 [Cursor](https://cursor.sh/)、[Claude](https://claude.ai/) 或 [GitHub Copilot](https://github.com/features/copilot) 来协助部署和排查问题。
+
 ### 前置要求
 
 - Python 3.11 或更高版本
 - [Anthropic API 密钥](https://console.anthropic.com/)
+
+### 推荐模型
+
+| 模型 | 适用场景 | 说明 |
+|------|----------|------|
+| `claude-sonnet-4-20250514` | 日常使用 | 性能与成本平衡 |
+| `claude-opus-4-20250514` | 复杂任务 | 能力最强，成本较高 |
+| `claude-opus-4-5-20251101-thinking` | 深度推理 | 扩展思考，适合复杂问题 |
 
 ### 安装
 

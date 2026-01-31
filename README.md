@@ -113,10 +113,20 @@ Through **Multi-Agent architecture** for efficient parallelism:
 
 ## Quick Start
 
+> ⚠️ **Early Stage Project**: This project is in early development. For faster deployment, we recommend using AI coding assistants like [Cursor](https://cursor.sh/), [Claude](https://claude.ai/), or [GitHub Copilot](https://github.com/features/copilot) to help with setup and troubleshooting.
+
 ### Requirements
 
 - Python 3.11+
 - [Anthropic API Key](https://console.anthropic.com/)
+
+### Recommended Models
+
+| Model | Best For | Notes |
+|-------|----------|-------|
+| `claude-sonnet-4-20250514` | Daily use | Balanced performance and cost |
+| `claude-opus-4-20250514` | Complex tasks | Most capable, higher cost |
+| `claude-opus-4-5-20251101-thinking` | Deep reasoning | Extended thinking for complex problems |
 
 ### Installation
 
