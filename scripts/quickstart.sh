@@ -54,28 +54,47 @@ if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" 
 fi
 echo -e "${GREEN}✓ Python $PYTHON_VERSION${NC}\n"
 
-# Check venv module availability
-echo -e "${YELLOW}Checking venv module...${NC}"
-if ! $PYTHON_CMD -m venv --help &> /dev/null; then
-    echo -e "${YELLOW}venv module not available. Trying to install python3-venv...${NC}"
+# Function to install venv package for Debian/Ubuntu
+install_venv_package() {
     if command -v apt &> /dev/null; then
-        sudo apt update && sudo apt install -y python3-venv python3-pip
+        echo -e "${YELLOW}Installing python${PYTHON_VERSION}-venv...${NC}"
+        sudo apt update
+        # Try version-specific package first, then generic
+        if sudo apt install -y python${PYTHON_VERSION}-venv 2>/dev/null; then
+            return 0
+        elif sudo apt install -y python3-venv 2>/dev/null; then
+            return 0
+        fi
     elif command -v dnf &> /dev/null; then
-        sudo dnf install -y python3-pip
+        sudo dnf install -y python3-pip python3-devel
+        return 0
     elif command -v yum &> /dev/null; then
-        sudo yum install -y python3-pip
-    else
-        echo -e "${RED}Error: Cannot install venv module automatically.${NC}"
-        echo "Please install python3-venv manually for your distribution."
-        exit 1
+        sudo yum install -y python3-pip python3-devel
+        return 0
     fi
-fi
-echo -e "${GREEN}✓ venv module is available${NC}\n"
+    return 1
+}
 
-# Create virtual environment first (this avoids PEP 668 issues)
+# Create virtual environment (with auto-install of venv package if needed)
 echo -e "${YELLOW}Creating virtual environment...${NC}"
 if [ ! -d ".venv" ]; then
-    $PYTHON_CMD -m venv .venv
+    # Try to create venv, install package if it fails
+    if ! $PYTHON_CMD -m venv .venv 2>/dev/null; then
+        echo -e "${YELLOW}venv creation failed. Installing required packages...${NC}"
+        if install_venv_package; then
+            # Retry venv creation after installing package
+            if ! $PYTHON_CMD -m venv .venv; then
+                echo -e "${RED}Error: Failed to create virtual environment.${NC}"
+                echo "Please install python${PYTHON_VERSION}-venv manually:"
+                echo "  sudo apt install python${PYTHON_VERSION}-venv"
+                exit 1
+            fi
+        else
+            echo -e "${RED}Error: Cannot install venv package automatically.${NC}"
+            echo "Please install python${PYTHON_VERSION}-venv manually for your distribution."
+            exit 1
+        fi
+    fi
     echo -e "${GREEN}✓ Virtual environment created${NC}"
 else
     echo -e "${GREEN}✓ Virtual environment already exists${NC}"
