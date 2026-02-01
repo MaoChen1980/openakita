@@ -100,6 +100,60 @@ Through **Multi-Agent architecture** for efficient parallelism:
 | **Scheduled Tasks** | Set reminders, periodic tasks |
 | **User Profile** | Learn your preferences, personalized service |
 
+### Self-Maintenance System
+
+OpenAkita includes a comprehensive self-maintenance system that runs automatically:
+
+| Feature | Schedule | Description |
+|---------|----------|-------------|
+| **Daily Memory Consolidation** | 03:00 AM | Analyzes daily conversations, extracts key memories, refreshes MEMORY.md |
+| **Daily Self-Check** | 04:00 AM | Scans ERROR logs, attempts auto-fix for tool issues, generates reports |
+| **Task Retrospection** | After long tasks | Reviews task execution, identifies issues, records lessons learned |
+| **Loop Detection** | Real-time | Detects and stops repetitive tool calls (prevents infinite loops) |
+
+#### How It Works
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   Self-Maintenance System                    │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌─────────────────┐    ┌─────────────────┐                 │
+│  │  Log System     │    │  Memory System  │                 │
+│  │  • File rotation│    │  • Consolidation│                 │
+│  │  • Auto cleanup │    │  • Deduplication│                 │
+│  │  • Error filter │    │  • Vector search│                 │
+│  └────────┬────────┘    └────────┬────────┘                 │
+│           │                      │                           │
+│           └──────────┬───────────┘                           │
+│                      ▼                                       │
+│           ┌─────────────────────┐                            │
+│           │   Daily Self-Check  │                            │
+│           │   • Analyze errors  │                            │
+│           │   • LLM diagnosis   │                            │
+│           │   • Auto-fix tools  │                            │
+│           │   • Generate report │                            │
+│           └─────────────────────┘                            │
+│                                                              │
+│  Error Types:                                                │
+│  • Core (Brain/Memory/Scheduler) → Report only, no auto-fix │
+│  • Tool (Shell/File/Web/MCP)     → Auto-fix, self-test      │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Configuration
+
+```bash
+# Log settings
+LOG_LEVEL=INFO
+LOG_DIR=logs
+LOG_RETENTION_DAYS=30
+
+# Self-check (system tasks, cannot be deleted, can be disabled)
+# Runs at 03:00 (memory) and 04:00 (self-check) daily
+```
+
 ### Multi-Platform Support
 
 | Platform | Status |
