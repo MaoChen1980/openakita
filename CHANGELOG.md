@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-02-02
+
+### Added
+- **Scheduled Task Management Enhancement**
+  - New `update_scheduled_task` tool for modifying task settings without deletion
+  - `notify_on_start` / `notify_on_complete` notification switches
+  - Clear distinction between "cancel task" vs "disable notification" vs "pause task"
+  - Detailed tool descriptions with usage examples
+- **ToolCatalog Progressive Disclosure**
+  - `get_tool_info` tool for querying detailed tool parameters
+  - `list_available_tools` for discovering system capabilities
+  - Level-based tool disclosure (basic → advanced)
+- **Telegram Proxy Configuration**
+  - `TELEGRAM_PROXY` environment variable support
+  - HTTP/HTTPS/SOCKS5 proxy support for restricted networks
+
+### Fixed
+- **IM Session Tool Usage** - Fixed Telegram sessions missing tool definitions, causing bot to only respond with "I understand" without taking action
+- **Task Notification Format** - Removed over-escaping in scheduled task notifications that caused garbled Markdown
+- **System Prompt Tool Guidelines** - Strengthened tool usage requirements: "Must use tools immediately upon receiving tasks"
+
+### Changed
+- Enhanced shell tool security checks
+- Improved scheduled task tool descriptions with clear concept differentiation
+
 ## [1.1.0] - 2026-02-02
 
 ### Added
@@ -246,6 +271,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 1.2.0 | 2026-02-02 | Scheduled task management, IM session fix |
+| 1.1.0 | 2026-02-02 | MiniMax thinking, Unified LLM client |
 | 0.5.9 | 2026-01-31 | Multi-platform IM support |
 | 0.5.0 | 2026-01-15 | Ralph Mode, Self-evolution |
 | 0.4.0 | 2026-01-01 | Testing framework |
@@ -253,7 +280,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | 0.2.0 | 2025-12-01 | Multi-turn chat |
 | 0.1.0 | 2025-11-15 | Initial release |
 
-[Unreleased]: https://github.com/openakita/openakita/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/openakita/openakita/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/openakita/openakita/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/openakita/openakita/compare/v1.0.2...v1.1.0
 [0.5.9]: https://github.com/openakita/openakita/compare/v0.5.0...v0.5.9
 [0.5.0]: https://github.com/openakita/openakita/compare/v0.4.0...v0.5.0
