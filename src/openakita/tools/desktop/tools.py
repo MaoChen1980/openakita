@@ -26,11 +26,10 @@ logger = logging.getLogger(__name__)
 DESKTOP_TOOLS = [
     {
         "name": "desktop_screenshot",
-        "description": """截取 Windows 桌面屏幕截图并保存到文件。
-⚠️ **用户要求截图时，必须实际调用此工具！禁止不调用就说"截图完成"！**
+        "description": """⚠️ 截取桌面截图 - 必须调用此工具才能截图，禁止不调用就说"截图完成"！
 返回保存的文件路径，可直接用于 send_to_chat 发送给用户。
-注意：如果任务只涉及浏览器内的网页操作，请使用 browser_* 工具而不是此工具。
-此工具适用于：操作桌面应用程序、需要查看整个桌面状态、与桌面和浏览器混合操作的场景。""",
+注意：如果只涉及浏览器内的网页操作，请使用 browser_screenshot。
+此工具适用于：桌面应用、查看整个桌面状态、桌面和浏览器混合操作。""",
         "input_schema": {
             "type": "object",
             "properties": {
