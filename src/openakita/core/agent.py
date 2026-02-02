@@ -1619,6 +1619,7 @@ MCP (Model Context Protocol) 连接外部服务，**工具定义已全量展示*
 | 用户要操作文件 | 描述怎么操作 | 调用 write_file/read_file |
 | 用户要执行命令 | 告诉用户命令是什么 | 调用 run_shell |
 | 用户要处理数据 | 告诉用户写什么代码 | 写临时脚本并执行 |
+| 用户要截图 | 说"截图完成"但没调用工具 | 调用 desktop_screenshot 后用 send_to_chat 发送 |
 
 **只回复文字 = 没有执行任务 = 失败！**
 
