@@ -132,17 +132,16 @@ The following system tools are available. Use `get_tool_info(tool_name)` to get 
             description: 完整描述
         
         Returns:
-            简短描述（第一行或前80字符）
+            简短描述（第一行，不截断以保留完整警告信息）
         """
         if not description:
             return ""
         
-        # 取第一行
+        # 取第一行，不再截断
+        # 原因：完整工具定义已通过 tools 参数传给 LLM API，
+        # 清单中截断会丢失重要警告（如 ⚠️ 必须先检查状态），
+        # 导致 LLM 行为异常（如不调用工具就说"完成"）
         first_line = description.split('\n')[0].strip()
-        
-        # 截断到80字符
-        if len(first_line) > 80:
-            first_line = first_line[:77] + "..."
         
         return first_line
     
