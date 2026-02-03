@@ -2113,10 +2113,17 @@ search_github → install_skill → 使用
             
             # 如果没有工具调用，检查是否需要强制要求调用工具
             if not tool_calls:
-                # 如果本轮任务已经执行过工具，允许 LLM 用文本确认结果
+                # 如果本轮任务已经执行过工具
                 if tools_executed_in_task:
-                    logger.info("[ForceToolCall] Skipped - tools already executed in this task, allowing text confirmation")
-                    return strip_thinking_tags(text_content) or "任务已完成。"
+                    # 只有当 LLM 返回了有意义的文本确认时才结束任务
+                    cleaned_text = strip_thinking_tags(text_content)
+                    if cleaned_text and len(cleaned_text.strip()) > 0:
+                        logger.info("[ForceToolCall] Skipped - tools executed and LLM provided confirmation")
+                        return cleaned_text
+                    else:
+                        # LLM 没有返回文本，可能还需要继续操作，让它继续
+                        logger.info("[ForceToolCall] Tools executed but no confirmation text, continuing...")
+                        # 不直接返回，继续下面的 ForceToolCall 逻辑
                 
                 no_tool_call_count += 1
                 

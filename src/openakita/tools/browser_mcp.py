@@ -1,12 +1,13 @@
 """
-Browser Use MCP - 基于 Playwright 的浏览器自动化
+Browser Use MCP - 浏览器自动化模块
+
+基于 browser-use 库实现智能浏览器自动化
+https://github.com/browser-use/browser-use
+Licensed under MIT License
 
 功能:
-- 打开网页
-- 点击元素
-- 输入文本
-- 截图
-- 提取内容
+- browser_task: 智能任务执行（推荐优先使用）
+- 细粒度工具: 打开网页、点击、输入、截图、提取内容等
 
 随 OpenAkita 系统一起启动
 """
@@ -14,8 +15,10 @@ Browser Use MCP - 基于 Playwright 的浏览器自动化
 import asyncio
 import logging
 import base64
+import platform
+import os
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional, Any, Tuple
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -24,6 +27,138 @@ logger = logging.getLogger(__name__)
 playwright = None
 Browser = None
 Page = None
+
+
+def detect_chrome_installation() -> Tuple[Optional[str], Optional[str]]:
+    """
+    检测系统上的 Chrome 安装
+    
+    Returns:
+        (executable_path, user_data_dir) - 如果找到 Chrome
+        (None, None) - 如果未找到
+    """
+    system = platform.system()
+    
+    if system == "Windows":
+        # Windows Chrome 路径
+        chrome_paths = [
+            Path(os.environ.get("PROGRAMFILES", "C:\\Program Files")) / "Google" / "Chrome" / "Application" / "chrome.exe",
+            Path(os.environ.get("PROGRAMFILES(X86)", "C:\\Program Files (x86)")) / "Google" / "Chrome" / "Application" / "chrome.exe",
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Google" / "Chrome" / "Application" / "chrome.exe",
+        ]
+        user_data_dir = Path(os.environ.get("LOCALAPPDATA", "")) / "Google" / "Chrome" / "User Data"
+        
+    elif system == "Darwin":  # macOS
+        chrome_paths = [
+            Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        ]
+        user_data_dir = Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
+        
+    elif system == "Linux":
+        chrome_paths = [
+            Path("/usr/bin/google-chrome"),
+            Path("/usr/bin/google-chrome-stable"),
+            Path("/opt/google/chrome/chrome"),
+        ]
+        user_data_dir = Path.home() / ".config" / "google-chrome"
+        
+    else:
+        return None, None
+    
+    # 检查 Chrome 是否存在
+    for chrome_path in chrome_paths:
+        if chrome_path.exists():
+            if user_data_dir.exists():
+                logger.info(f"[BrowserDetect] Found Chrome: {chrome_path}")
+                logger.info(f"[BrowserDetect] User data dir: {user_data_dir}")
+                return str(chrome_path), str(user_data_dir)
+            else:
+                logger.warning(f"[BrowserDetect] Chrome found but user data dir missing: {user_data_dir}")
+                return str(chrome_path), None
+    
+    logger.info("[BrowserDetect] Chrome not found, will use Chromium")
+    return None, None
+
+
+def get_openakita_chrome_profile() -> str:
+    """
+    获取 OpenAkita 专用的 Chrome profile 目录
+    
+    这个目录独立于用户的 Chrome，可以在用户 Chrome 打开时使用。
+    """
+    import tempfile
+    
+    # 使用固定的目录（不是每次都创建临时目录）
+    # 这样可以保持登录状态
+    if platform.system() == "Windows":
+        base_dir = Path(os.environ.get("LOCALAPPDATA", tempfile.gettempdir()))
+    else:
+        base_dir = Path.home() / ".local" / "share"
+    
+    profile_dir = base_dir / "OpenAkita" / "ChromeProfile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    
+    return str(profile_dir)
+
+
+def sync_chrome_cookies(src_user_data: str, dst_profile: str) -> bool:
+    """
+    同步用户 Chrome 的 cookies 到 OpenAkita profile
+    
+    只复制关键文件，保持登录状态。
+    
+    Args:
+        src_user_data: 用户 Chrome 的 User Data 目录
+        dst_profile: OpenAkita profile 目录
+    
+    Returns:
+        是否成功
+    """
+    import shutil
+    
+    src_default = Path(src_user_data) / "Default"
+    dst_default = Path(dst_profile) / "Default"
+    
+    if not src_default.exists():
+        logger.warning(f"[CookieSync] Source Default profile not found: {src_default}")
+        return False
+    
+    dst_default.mkdir(parents=True, exist_ok=True)
+    
+    # 需要复制的关键文件
+    important_files = [
+        "Cookies",           # 网站 cookies
+        "Login Data",        # 保存的密码
+        "Web Data",          # 表单自动填充
+        "Preferences",       # 偏好设置
+        "Secure Preferences",
+        "Local State",       # 本地状态
+    ]
+    
+    copied = 0
+    for filename in important_files:
+        src_file = src_default / filename
+        if src_file.exists():
+            try:
+                # 复制文件（如果目标文件较旧或不存在）
+                dst_file = dst_default / filename
+                if not dst_file.exists() or src_file.stat().st_mtime > dst_file.stat().st_mtime:
+                    shutil.copy2(src_file, dst_file)
+                    copied += 1
+            except Exception as e:
+                logger.warning(f"[CookieSync] Failed to copy {filename}: {e}")
+    
+    # 也复制根目录的 Local State
+    src_local_state = Path(src_user_data) / "Local State"
+    dst_local_state = Path(dst_profile) / "Local State"
+    if src_local_state.exists():
+        try:
+            shutil.copy2(src_local_state, dst_local_state)
+        except Exception as e:
+            logger.warning(f"[CookieSync] Failed to copy Local State: {e}")
+    
+    logger.info(f"[CookieSync] Synced {copied} files from user Chrome")
+    return copied > 0
 
 
 @dataclass
@@ -198,20 +333,51 @@ class BrowserMCP:
                 "required": ["url"]
             }
         ),
+        BrowserTool(
+            name="browser_task",
+            description="【推荐优先使用】智能浏览器任务 - 描述你想完成的任务，browser-use Agent 会自动规划和执行所有步骤。适用于多步骤操作、复杂网页交互、不确定具体步骤的场景。",
+            arguments={
+                "type": "object",
+                "properties": {
+                    "task": {
+                        "type": "string", 
+                        "description": "要完成的任务描述，例如：'打开百度搜索福建福州并截图'"
+                    },
+                    "max_steps": {
+                        "type": "integer",
+                        "description": "最大执行步骤数",
+                        "default": 15
+                    }
+                },
+                "required": ["task"]
+            }
+        ),
     ]
     
-    def __init__(self, headless: bool = False):
+    def __init__(self, headless: bool = False, cdp_port: int = 9222, use_user_chrome: bool = True):
         """
         Args:
             headless: 是否无头模式 (默认 False，即可见模式)
+            cdp_port: Chrome DevTools Protocol 端口，用于 browser-use 连接
+            use_user_chrome: 是否优先使用用户安装的 Chrome（保留登录状态）
         """
         self.headless = headless
+        self.cdp_port = cdp_port
+        self.use_user_chrome = use_user_chrome
         self._playwright = None
         self._browser = None
         self._context = None  # 显式管理 context
         self._page: Optional[Any] = None
         self._started = False
         self._visible = True  # 当前是否可见模式（默认可见）
+        self._cdp_url: Optional[str] = None  # CDP 连接地址
+        self._using_user_chrome = False  # 标记是否正在使用用户 Chrome
+        
+        # 外部注入的 LLM 配置（由 Agent 设置）
+        self._llm_config: Optional[dict] = None
+        
+        # 检测用户 Chrome
+        self._chrome_path, self._chrome_user_data = detect_chrome_installation()
     
     async def start(self, visible: bool = None) -> bool:
         """
@@ -239,13 +405,142 @@ class BrowserMCP:
             from playwright.async_api import async_playwright
             
             self._playwright = await async_playwright().start()
+            
+            # 尝试 0：连接已运行的 Chrome（如果以调试模式启动）
+            # 用户可以用以下命令启动 Chrome：
+            # chrome.exe --remote-debugging-port=9222
+            try:
+                import httpx
+                # 检查是否有 Chrome 在监听调试端口
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(f"http://localhost:{self.cdp_port}/json/version", timeout=2.0)
+                    if response.status_code == 200:
+                        logger.info(f"[Browser] Found Chrome with debugging port at localhost:{self.cdp_port}")
+                        
+                        # 连接到已运行的 Chrome
+                        self._browser = await self._playwright.chromium.connect_over_cdp(
+                            f"http://localhost:{self.cdp_port}"
+                        )
+                        
+                        # 获取默认 context 和 page
+                        contexts = self._browser.contexts
+                        if contexts:
+                            self._context = contexts[0]
+                            pages = self._context.pages
+                            if pages:
+                                self._page = pages[0]
+                            else:
+                                self._page = await self._context.new_page()
+                        else:
+                            self._context = await self._browser.new_context()
+                            self._page = await self._context.new_page()
+                        
+                        self._cdp_url = f"http://localhost:{self.cdp_port}"
+                        self._using_user_chrome = True
+                        self._started = True
+                        self._visible = True  # 已运行的 Chrome 肯定是可见的
+                        
+                        logger.info(f"[Browser] Connected to running Chrome (tabs: {len(self._context.pages)})")
+                        return True
+                        
+            except Exception as cdp_error:
+                logger.debug(f"[Browser] No Chrome with debugging port: {cdp_error}")
+            
+            # 优先使用用户的 Chrome（保留登录状态）
+            if self.use_user_chrome and self._chrome_path and self._chrome_user_data:
+                # 尝试 1：直接使用用户数据目录
+                try:
+                    logger.info(f"[Browser] Launching user's Chrome: {self._chrome_path}")
+                    
+                    self._context = await self._playwright.chromium.launch_persistent_context(
+                        user_data_dir=self._chrome_user_data,
+                        headless=headless,
+                        executable_path=self._chrome_path,
+                        args=[
+                            '--disable-blink-features=AutomationControlled',
+                            '--no-sandbox',
+                            f'--remote-debugging-port={self.cdp_port}',
+                        ],
+                        channel="chrome",
+                    )
+                    
+                    self._browser = None
+                    self._using_user_chrome = True
+                    
+                    pages = self._context.pages
+                    if pages:
+                        self._page = pages[0]
+                    else:
+                        self._page = await self._context.new_page()
+                    
+                    self._cdp_url = f"http://localhost:{self.cdp_port}"
+                    self._started = True
+                    self._visible = not headless
+                    logger.info(f"Browser MCP started with user's Chrome (visible={self._visible}, cdp={self._cdp_url})")
+                    return True
+                    
+                except Exception as chrome_error:
+                    error_str = str(chrome_error)
+                    logger.warning(f"[Browser] Failed to launch user's Chrome: {chrome_error}")
+                    
+                    # 尝试 2：如果是目录被占用（exitCode=21），使用 OpenAkita 专用 profile
+                    if "exitCode=21" in error_str or "already in use" in error_str.lower():
+                        logger.info("[Browser] User data dir locked (Chrome is running). Using OpenAkita profile...")
+                        
+                        try:
+                            # 获取/创建 OpenAkita 专用 profile
+                            openakita_profile = get_openakita_chrome_profile()
+                            
+                            # 同步 cookies（如果用户 Chrome 没锁定关键文件）
+                            sync_chrome_cookies(self._chrome_user_data, openakita_profile)
+                            
+                            # 使用 OpenAkita profile 启动
+                            self._context = await self._playwright.chromium.launch_persistent_context(
+                                user_data_dir=openakita_profile,
+                                headless=headless,
+                                executable_path=self._chrome_path,
+                                args=[
+                                    '--disable-blink-features=AutomationControlled',
+                                    '--no-sandbox',
+                                    f'--remote-debugging-port={self.cdp_port}',
+                                ],
+                                channel="chrome",
+                            )
+                            
+                            self._browser = None
+                            self._using_user_chrome = True  # 还是使用 Chrome，只是不同 profile
+                            
+                            pages = self._context.pages
+                            if pages:
+                                self._page = pages[0]
+                            else:
+                                self._page = await self._context.new_page()
+                            
+                            self._cdp_url = f"http://localhost:{self.cdp_port}"
+                            self._started = True
+                            self._visible = not headless
+                            logger.info(f"Browser MCP started with OpenAkita Chrome profile (visible={self._visible}, cdp={self._cdp_url})")
+                            return True
+                            
+                        except Exception as profile_error:
+                            logger.warning(f"[Browser] OpenAkita profile also failed: {profile_error}")
+                    
+                    logger.info("[Browser] Falling back to Chromium...")
+            
+            # 回退：使用 Playwright 内置的 Chromium
+            logger.info("[Browser] Launching Playwright Chromium")
             self._browser = await self._playwright.chromium.launch(
                 headless=headless,
                 args=[
                     '--disable-blink-features=AutomationControlled',
                     '--no-sandbox',
+                    f'--remote-debugging-port={self.cdp_port}',
                 ]
             )
+            
+            # 保存 CDP URL 供 browser-use 使用
+            self._cdp_url = f"http://localhost:{self.cdp_port}"
+            self._using_user_chrome = False
             
             # 显式创建 context（支持多 tab）
             self._context = await self._browser.new_context()
@@ -256,7 +551,7 @@ class BrowserMCP:
             
             self._started = True
             self._visible = not headless
-            logger.info(f"Browser MCP started (visible={self._visible})")
+            logger.info(f"Browser MCP started with Chromium (visible={self._visible}, cdp={self._cdp_url})")
             return True
             
         except ImportError:
@@ -268,20 +563,31 @@ class BrowserMCP:
     
     async def stop(self) -> None:
         """停止浏览器"""
-        if self._page:
-            await self._page.close()
-        if self._context:
-            await self._context.close()
-        if self._browser:
-            await self._browser.close()
-        if self._playwright:
-            await self._playwright.stop()
+        try:
+            if self._using_user_chrome:
+                # persistent context 模式：直接关闭 context
+                if self._context:
+                    await self._context.close()
+            else:
+                # 普通模式：按顺序关闭
+                if self._page:
+                    await self._page.close()
+                if self._context:
+                    await self._context.close()
+                if self._browser:
+                    await self._browser.close()
+            
+            if self._playwright:
+                await self._playwright.stop()
+        except Exception as e:
+            logger.warning(f"Error stopping browser: {e}")
         
         self._page = None
         self._context = None
         self._browser = None
         self._playwright = None
         self._started = False
+        self._using_user_chrome = False
         logger.info("Browser MCP stopped")
     
     def get_tools(self) -> list[dict]:
@@ -380,6 +686,12 @@ class BrowserMCP:
             
             elif tool_name == "browser_new_tab":
                 return await self._new_tab(arguments.get("url"))
+            
+            elif tool_name == "browser_task":
+                return await self._browser_task(
+                    arguments.get("task"),
+                    arguments.get("max_steps", 15)
+                )
             
             else:
                 return {"success": False, "error": f"Unknown tool: {tool_name}"}
@@ -497,9 +809,21 @@ class BrowserMCP:
         }
     
     async def _type(self, selector: str, text: str, clear: bool) -> dict:
-        """输入文本（带智能重试）"""
+        """输入文本（带智能重试和遮挡处理）"""
         if not selector or not text:
             return {"success": False, "error": "selector and text are required"}
+        
+        # 常见搜索引擎的备用选择器映射
+        SEARCH_BOX_ALTERNATIVES = {
+            # 百度
+            '#kw': ['input[name="wd"]', 'input.s_ipt', '#kw'],
+            'input[name="wd"]': ['#kw', 'input.s_ipt'],
+            # Google
+            'input[name="q"]': ['textarea[name="q"]', 'input.gLFyf', 'input[type="text"]'],
+            '#q': ['input[name="q"]', 'textarea[name="q"]'],
+            # Bing
+            '#sb_form_q': ['input[name="q"]', 'input.sb_form_q'],
+        }
         
         # 智能重试策略
         max_retries = 3
@@ -507,9 +831,17 @@ class BrowserMCP:
         
         for attempt in range(max_retries):
             try:
-                # 等待元素可见
-                await self._page.wait_for_selector(selector, state="visible", timeout=10000)
+                # 第一步：尝试等待元素可见
+                try:
+                    await self._page.wait_for_selector(selector, state="visible", timeout=5000)
+                except Exception:
+                    # 元素可能被遮挡，尝试处理
+                    logger.info(f"[BrowserType] Element {selector} not visible, trying to handle overlay...")
+                    await self._handle_page_overlays()
+                    # 再等一次
+                    await self._page.wait_for_selector(selector, state="visible", timeout=5000)
                 
+                # 第二步：执行输入
                 if clear:
                     await self._page.fill(selector, text)
                 else:
@@ -525,27 +857,44 @@ class BrowserMCP:
                 logger.warning(f"Type attempt {attempt + 1} failed: {e}")
                 
                 if attempt < max_retries - 1:
-                    # 尝试备用选择器（针对常见情况）
-                    if selector == 'input[name="q"]':
-                        # Google 搜索框的备用选择器
-                        alt_selectors = [
-                            'textarea[name="q"]',  # 新版 Google
-                            'input[type="text"]',
-                            'input.gLFyf',  # Google 特定 class
-                        ]
-                        for alt in alt_selectors:
-                            try:
-                                await self._page.wait_for_selector(alt, state="visible", timeout=3000)
-                                if clear:
-                                    await self._page.fill(alt, text)
-                                else:
-                                    await self._page.type(alt, text)
-                                return {
-                                    "success": True,
-                                    "result": f"Typed into {alt} (alt selector): {text}"
-                                }
-                            except:
-                                continue
+                    # 尝试备用选择器
+                    alt_selectors = SEARCH_BOX_ALTERNATIVES.get(selector, [])
+                    for alt in alt_selectors:
+                        if alt == selector:
+                            continue
+                        try:
+                            logger.info(f"[BrowserType] Trying alternative selector: {alt}")
+                            # 先处理可能的遮挡
+                            await self._handle_page_overlays()
+                            await self._page.wait_for_selector(alt, state="visible", timeout=3000)
+                            if clear:
+                                await self._page.fill(alt, text)
+                            else:
+                                await self._page.type(alt, text)
+                            return {
+                                "success": True,
+                                "result": f"Typed into {alt} (alt selector): {text}"
+                            }
+                        except:
+                            continue
+                    
+                    # 最后尝试：强制点击元素位置后输入（适用于被透明层遮挡的情况）
+                    if attempt == max_retries - 2:
+                        try:
+                            logger.info(f"[BrowserType] Trying force click then type...")
+                            element = self._page.locator(selector).first
+                            # 滚动到元素
+                            await element.scroll_into_view_if_needed()
+                            # 强制点击
+                            await element.click(force=True, timeout=3000)
+                            # 输入文本
+                            await element.fill(text) if clear else await element.type(text)
+                            return {
+                                "success": True,
+                                "result": f"Typed into {selector} (force mode): {text}"
+                            }
+                        except Exception as force_error:
+                            logger.warning(f"Force type also failed: {force_error}")
                     
                     # 等待后重试
                     await asyncio.sleep(1)
@@ -554,11 +903,60 @@ class BrowserMCP:
             "success": False,
             "error": f"输入失败（重试 {max_retries} 次）: {last_error}\n"
                      f"建议: 1) 先用 browser_screenshot 截图查看当前页面状态 "
-                     f"2) 使用 browser_get_content 获取页面内容确认元素选择器"
+                     f"2) 使用 browser_click 点击页面空白处关闭可能的弹窗 "
+                     f"3) 使用 browser_get_content 获取页面内容确认元素选择器"
         }
     
+    async def _handle_page_overlays(self):
+        """处理常见的页面遮挡元素（弹窗、广告、登录提示等）"""
+        # 常见的关闭按钮选择器
+        close_selectors = [
+            # 通用关闭按钮
+            'button[aria-label="Close"]',
+            'button[aria-label="关闭"]',
+            '.close-btn', '.close-button', '.btn-close',
+            '[class*="close"]', '[class*="dismiss"]',
+            # 百度特定
+            '.c-tips-container .close',
+            '.login-guide-close',
+            '#s-top-loginbtn',  # 不点登录，跳过
+            # 各种弹窗
+            '.modal-close', '.popup-close',
+            'button:has-text("我知道了")',
+            'button:has-text("关闭")',
+            'button:has-text("跳过")',
+            'button:has-text("Skip")',
+        ]
+        
+        for selector in close_selectors:
+            try:
+                element = self._page.locator(selector).first
+                if await element.is_visible():
+                    await element.click(timeout=1000)
+                    logger.info(f"[BrowserType] Closed overlay: {selector}")
+                    await asyncio.sleep(0.3)  # 等待动画
+            except:
+                continue
+        
+        # 按 Escape 键关闭可能的弹窗
+        try:
+            await self._page.keyboard.press("Escape")
+            await asyncio.sleep(0.2)
+        except:
+            pass
+        
+        # 点击页面空白处
+        try:
+            await self._page.mouse.click(10, 10)
+            await asyncio.sleep(0.2)
+        except:
+            pass
+    
     async def _screenshot(self, full_page: bool, path: Optional[str]) -> dict:
-        """截图"""
+        """截图
+        
+        注意：为避免上下文爆炸，截图总是保存到文件，不返回 base64
+        """
         # 检查是否在空白页
         current_url = self._page.url
         if current_url == "about:blank":
@@ -581,30 +979,26 @@ class BrowserMCP:
         # 获取当前页面信息
         page_title = await self._page.title()
         
-        if path:
-            Path(path).write_bytes(screenshot_bytes)
-            return {
-                "success": True,
-                "result": {
-                    "saved_to": path,
-                    "page_url": current_url,
-                    "page_title": page_title,
-                    "message": f"截图已保存到: {path}",
-                    "hint": "如需将截图发送给用户，请使用 send_im_message 工具，设置 file_path 参数为此路径"
-                }
+        # 如果没有指定路径，自动生成（强制保存文件，不返回 base64 以避免上下文爆炸）
+        if not path:
+            from datetime import datetime
+            screenshots_dir = Path("data/screenshots")
+            screenshots_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            path = str(screenshots_dir / f"screenshot_{timestamp}.png")
+        
+        # 保存截图到文件
+        Path(path).write_bytes(screenshot_bytes)
+        return {
+            "success": True,
+            "result": {
+                "saved_to": path,
+                "page_url": current_url,
+                "page_title": page_title,
+                "message": f"截图已保存到: {path}",
+                "hint": "如需将截图发送给用户，请使用 send_to_chat 工具，设置 file_path 参数为此路径"
             }
-        else:
-            # 返回 base64
-            b64 = base64.b64encode(screenshot_bytes).decode()
-            return {
-                "success": True,
-                "result": {
-                    "base64": b64,
-                    "length": len(b64),
-                    "page_url": current_url,
-                    "page_title": page_title,
-                }
-            }
+        }
     
     async def _get_content(self, selector: Optional[str], format: str) -> dict:
         """获取内容"""
@@ -842,6 +1236,166 @@ class BrowserMCP:
                 "error": f"打开新标签页失败: {str(e)}"
             }
     
+    async def _browser_task(self, task: str, max_steps: int = 15) -> dict:
+        """
+        使用 browser-use Agent 自主完成浏览器任务
+        
+        这是推荐的高层接口，适用于多步骤操作。
+        browser-use Agent 会自动规划和执行所有步骤。
+        
+        特性：
+        - 通过 CDP 复用 OpenAkita 已启动的浏览器
+        - 继承 OpenAkita 系统配置的 LLM
+        
+        Args:
+            task: 任务描述，例如 "打开百度搜索福建福州并截图"
+            max_steps: 最大执行步骤数
+        
+        Returns:
+            {"success": bool, "result": str, "error": str}
+        """
+        if not task:
+            return {"success": False, "error": "task is required"}
+        
+        try:
+            # 延迟导入 browser-use
+            from browser_use import Agent as BUAgent, Browser as BUBrowser
+            
+            # 确保浏览器已启动（带 CDP 端口）
+            if not self._started:
+                success = await self.start(visible=True)
+                if not success:
+                    return {
+                        "success": False,
+                        "error": "浏览器启动失败"
+                    }
+            
+            logger.info(f"[BrowserTask] Starting task: {task}")
+            
+            # 方式1：通过 CDP 连接到现有浏览器（复用 OpenAkita 的浏览器）
+            bu_browser = None
+            if self._cdp_url:
+                try:
+                    # browser-use 0.11.x API: 使用 cdp_url 连接时设置 is_local=True
+                    bu_browser = BUBrowser(cdp_url=self._cdp_url, is_local=True)
+                    logger.info(f"[BrowserTask] Connected via CDP: {self._cdp_url}")
+                except Exception as cdp_error:
+                    logger.warning(f"[BrowserTask] CDP connection failed: {cdp_error}, falling back to new browser")
+            
+            # 方式2：如果 CDP 连接失败，创建新浏览器
+            if bu_browser is None:
+                # browser-use 0.11.x API: headless 参数
+                bu_browser = BUBrowser(headless=not self._visible, is_local=True)
+                logger.info("[BrowserTask] Created new browser instance")
+            
+            # 获取 LLM 配置
+            # 优先级：1. 注入的配置 2. 环境变量 3. ChatBrowserUse
+            llm = None
+            import os
+            
+            # 1. 使用注入的 LLM 配置（从 Agent 继承）
+            if self._llm_config:
+                from langchain_openai import ChatOpenAI
+                model = self._llm_config.get("model", "gpt-4o")
+                api_key = self._llm_config.get("api_key")
+                base_url = self._llm_config.get("base_url")
+                
+                if api_key:
+                    llm = ChatOpenAI(
+                        model=model,
+                        api_key=api_key,
+                        base_url=base_url,
+                    )
+                    logger.info(f"[BrowserTask] Using inherited LLM config: {model}")
+            
+            # 2. 从环境变量获取
+            if llm is None:
+                from langchain_openai import ChatOpenAI
+                api_key = os.getenv("OPENAI_API_KEY")
+                base_url = os.getenv("OPENAI_API_BASE") or os.getenv("OPENAI_BASE_URL")
+                model = os.getenv("OPENAI_MODEL", "gpt-4o")
+                
+                if api_key:
+                    llm = ChatOpenAI(
+                        model=model,
+                        api_key=api_key,
+                        base_url=base_url,
+                    )
+                    logger.info(f"[BrowserTask] Using env LLM: {model}")
+            
+            # 3. 尝试 ChatBrowserUse（需要 BROWSER_USE_API_KEY）
+            if llm is None:
+                try:
+                    from browser_use import ChatBrowserUse
+                    llm = ChatBrowserUse()
+                    logger.info("[BrowserTask] Using ChatBrowserUse")
+                except Exception:
+                    pass
+            
+            if llm is None:
+                return {
+                    "success": False,
+                    "error": "No LLM configured. Please call browser_mcp.set_llm_config() or set OPENAI_API_KEY environment variable."
+                }
+            
+            # 创建 browser-use Agent
+            agent = BUAgent(
+                task=task,
+                llm=llm,
+                browser=bu_browser,
+                max_steps=max_steps,
+            )
+            
+            # 执行任务
+            history = await agent.run()
+            
+            # 获取结果
+            final_result = history.final_result() if hasattr(history, 'final_result') else str(history)
+            
+            # 注意：如果使用 CDP 连接，不关闭浏览器（由 OpenAkita 管理）
+            # 只有新建的浏览器才关闭
+            if not self._cdp_url:
+                await bu_browser.close()
+            
+            logger.info(f"[BrowserTask] Task completed: {task}")
+            
+            return {
+                "success": True,
+                "result": {
+                    "task": task,
+                    "steps_taken": len(history.history) if hasattr(history, 'history') else 0,
+                    "final_result": final_result,
+                    "message": f"任务完成: {task}"
+                }
+            }
+            
+        except ImportError as e:
+            logger.error(f"[BrowserTask] Import error: {e}")
+            return {
+                "success": False,
+                "error": f"browser-use 未安装或缺少依赖: {str(e)}. 请运行: pip install browser-use langchain-openai"
+            }
+        except Exception as e:
+            logger.error(f"[BrowserTask] Error: {e}")
+            return {
+                "success": False,
+                "error": f"任务执行失败: {str(e)}"
+            }
+    
+    def set_llm_config(self, config: dict) -> None:
+        """
+        设置 LLM 配置（由 Agent 注入）
+        
+        Args:
+            config: {
+                "model": str,        # 模型名称
+                "api_key": str,      # API Key
+                "base_url": str,     # API Base URL (可选)
+            }
+        """
+        self._llm_config = config
+        logger.info(f"[BrowserMCP] LLM config set: model={config.get('model')}")
+    
     @property
     def is_started(self) -> bool:
         return self._started
@@ -849,6 +1403,11 @@ class BrowserMCP:
     @property
     def current_url(self) -> Optional[str]:
         return self._page.url if self._page else None
+    
+    @property
+    def cdp_url(self) -> Optional[str]:
+        """获取 CDP 连接地址"""
+        return self._cdp_url
 
 
 # 单例
