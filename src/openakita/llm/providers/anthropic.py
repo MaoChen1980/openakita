@@ -11,6 +11,7 @@ from typing import AsyncIterator, Optional
 import httpx
 
 from .base import LLMProvider
+from .proxy_utils import get_proxy_config, get_httpx_transport
 from ..types import (
     LLMRequest,
     LLMResponse,
@@ -78,9 +79,23 @@ class AnthropicProvider(LLMProvider):
                 except Exception:
                     pass  # 忽略关闭错误
             
-            self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(self.config.timeout),
-            )
+            # 获取代理和网络配置
+            proxy = get_proxy_config()
+            transport = get_httpx_transport()  # IPv4-only 支持
+            
+            client_kwargs = {
+                "timeout": httpx.Timeout(self.config.timeout),
+            }
+            
+            if proxy:
+                client_kwargs["proxy"] = proxy
+                logger.info(f"[Anthropic] Using proxy: {proxy}")
+            
+            if transport:
+                client_kwargs["transport"] = transport
+                logger.info("[Anthropic] Using IPv4-only transport")
+            
+            self._client = httpx.AsyncClient(**client_kwargs)
             self._client_loop_id = current_loop_id
         
         return self._client

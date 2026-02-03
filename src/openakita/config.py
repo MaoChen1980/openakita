@@ -69,6 +69,16 @@ class Settings(BaseSettings):
     # === Whisper 语音识别 ===
     whisper_model: str = Field(default="base", description="Whisper 模型 (tiny/base/small/medium/large)")
     
+    # === 全局代理配置 ===
+    # 用于 LLM API 请求的代理（如果透明代理不生效）
+    http_proxy: str = Field(default="", description="HTTP 代理地址 (如 http://127.0.0.1:7890)")
+    https_proxy: str = Field(default="", description="HTTPS 代理地址 (如 http://127.0.0.1:7890)")
+    all_proxy: str = Field(default="", description="全局代理地址（优先级高于 http/https proxy）")
+    
+    # === IPv4 强制模式 ===
+    # 某些 VPN（如 LetsTAP）不支持 IPv6，启用此选项强制使用 IPv4
+    force_ipv4: bool = Field(default=False, description="强制使用 IPv4（解决某些 VPN 的 IPv6 兼容性问题）")
+    
     # GitHub
     github_token: str = Field(default="", description="GitHub Token")
     
