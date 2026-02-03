@@ -2100,7 +2100,7 @@ search_github → install_skill → 使用
         # === Plan 步骤检查：如果有活跃 Plan 且有未完成步骤，强制继续执行 ===
         from ..tools.handlers.plan import has_active_plan, get_plan_handler_for_session
         
-        session_id = getattr(self, 'session_id', None)
+        session_id = getattr(self, '_current_session_id', None)
         if session_id and has_active_plan(session_id):
             handler = get_plan_handler_for_session(session_id)
             if handler and handler.current_plan:
@@ -2743,7 +2743,7 @@ search_github → install_skill → 使用
         # 但还没有创建 Plan，则拒绝执行其他工具
         if tool_name != "create_plan":
             from ..tools.handlers.plan import is_plan_required, has_active_plan
-            session_id = getattr(self, 'session_id', None)
+            session_id = getattr(self, '_current_session_id', None)
             if session_id and is_plan_required(session_id) and not has_active_plan(session_id):
                 return (
                     "⚠️ **这是一个多步骤任务，必须先创建计划！**\n\n"
