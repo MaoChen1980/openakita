@@ -723,16 +723,35 @@ class BrowserMCP:
                 }
             }
         
-        # 如果已启动且模式相同，直接返回
+        # 如果已启动且模式相同，检查浏览器是否真的还在运行
         if self._started and self._visible == visible:
-            return {
-                "success": True,
-                "result": {
-                    "status": "already_running",
-                    "visible": self._visible,
-                    "message": f"浏览器已在{'可见' if self._visible else '后台'}模式运行"
-                }
-            }
+            # 验证浏览器是否真的还活着
+            if self._browser and self._context and self._page:
+                try:
+                    # 尝试访问页面属性来验证连接是否有效
+                    _ = self._page.url
+                    return {
+                        "success": True,
+                        "result": {
+                            "status": "already_running",
+                            "visible": self._visible,
+                            "message": f"浏览器已在{'可见' if self._visible else '后台'}模式运行"
+                        }
+                    }
+                except Exception:
+                    # 浏览器已断开，重置状态
+                    logger.warning("[Browser] Browser connection lost, resetting state")
+                    self._started = False
+                    self._browser = None
+                    self._context = None
+                    self._page = None
+            else:
+                # 状态不完整，重置
+                logger.warning("[Browser] Incomplete browser state, resetting")
+                self._started = False
+                self._browser = None
+                self._context = None
+                self._page = None
         
         # 启动浏览器
         success = await self.start(visible=visible)
