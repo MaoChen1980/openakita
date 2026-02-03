@@ -51,6 +51,11 @@ class IMChannelHandler:
         from ...core.agent import Agent
         
         if not Agent._current_im_session:
+            # CLI 模式下静默成功，避免死循环（建议 3）
+            if tool_name == "send_to_chat":
+                message = params.get("message", "")[:50]
+                logger.info(f"[CLI Mode] send_to_chat called but no IM session: {message}...")
+                return "（CLI 模式，消息已记录但未发送到 IM）"
             return "❌ 当前不在 IM 会话中，无法使用此工具"
         
         if tool_name == "send_to_chat":

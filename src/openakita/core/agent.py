@@ -2139,16 +2139,21 @@ search_github → install_skill → 使用
 - 如果响应包含明确的结果（数据、文件路径、操作确认），可能已完成
 
 ## 回答要求
-只回答一个词：COMPLETED 或 INCOMPLETE"""
+请用以下格式回答：
+STATUS: COMPLETED 或 INCOMPLETE
+EVIDENCE: 完成的证据（如有）
+MISSING: 缺失的内容（如有）
+NEXT: 建议的下一步（如有）"""
 
         try:
             response = await self.brain.think(
                 prompt=verify_prompt,
-                system="你是一个任务完成度判断助手。只回答 COMPLETED 或 INCOMPLETE。",
+                system="你是一个任务完成度判断助手。请分析任务是否完成，并说明证据和缺失项。",
             )
             
             result = response.content.strip().upper() if response.content else ""
-            is_completed = "COMPLETED" in result and "INCOMPLETE" not in result
+            # 建议 33: 改进的完成度判断
+            is_completed = "STATUS: COMPLETED" in result or ("COMPLETED" in result and "INCOMPLETE" not in result)
             
             logger.info(f"[TaskVerify] user_request={user_request[:50]}... response={assistant_response[:50]}... result={result} -> {is_completed}")
             return is_completed
@@ -2207,7 +2212,7 @@ search_github → install_skill → 使用
         
         # 追问计数器：当 LLM 没有调用工具时，最多追问几次
         no_tool_call_count = 0
-        max_no_tool_retries = 2  # 最多追问 2 次
+        max_no_tool_retries = 1  # 建议22: 降低强制追问次数  # 最多追问 2 次
         tools_executed_in_task = False  # 本轮任务是否已执行过工具
         
         for iteration in range(max_iterations):
@@ -2237,8 +2242,8 @@ search_github → install_skill → 使用
                     working_messages.append({
                         "role": "user",
                         "content": (
-                            "[系统提示] 之前的模型处理超时，现已切换到新模型。"
-                            "请从头开始处理上面的用户请求，不要依赖任何之前的上下文。"
+                            "[系统提示] 模型已切换。之前的工具调用历史已清除，请重新开始。"
+                            "注意：不要重复之前可能失败的操作，尝试新的方法。"
                         ),
                     })
             
@@ -2367,7 +2372,7 @@ search_github → install_skill → 使用
                     # 追加强制要求调用工具的消息
                     working_messages.append({
                         "role": "user",
-                        "content": "[系统] 你必须使用工具来执行操作，不能只回复文字。请立即调用相应的工具完成任务。",
+                        "content": "[系统] 如果任务需要工具，请调用相应工具。如果是对话型请求或工具不可用，可以直接文字回复。",
                     })
                     continue  # 继续循环，让 LLM 调用工具
                 
@@ -2864,7 +2869,7 @@ search_github → install_skill → 使用
         
         # 追问计数器：当 LLM 没有调用工具时，最多追问几次
         no_tool_call_count = 0
-        max_no_tool_retries = 2  # 最多追问 2 次
+        max_no_tool_retries = 1  # 建议22: 降低强制追问次数  # 最多追问 2 次
         
         while iteration < max_tool_iterations:
             iteration += 1
@@ -2895,8 +2900,8 @@ search_github → install_skill → 使用
                 messages.append({
                     "role": "user",
                     "content": (
-                        "[系统提示] 之前的模型处理超时，现已切换到新模型。"
-                        "请从头开始处理上面的任务请求，不要依赖任何之前的上下文。"
+                        "[系统提示] 模型已切换。之前的工具调用历史已清除，请重新开始。"
+                        "注意：不要重复之前可能失败的操作，尝试新的方法。"
                     ),
                 })
                 
@@ -2998,7 +3003,7 @@ search_github → install_skill → 使用
                     # 追加强制要求调用工具的消息
                     messages.append({
                         "role": "user",
-                        "content": "[系统] 你必须使用工具来执行操作，不能只回复文字。请立即调用相应的工具完成任务。",
+                        "content": "[系统] 如果任务需要工具，请调用相应工具。如果是对话型请求或工具不可用，可以直接文字回复。",
                     })
                     continue  # 继续循环，让 LLM 调用工具
                 

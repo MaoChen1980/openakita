@@ -41,6 +41,7 @@ def build_system_prompt(
     task_description: str = "",
     budget_config: Optional[BudgetConfig] = None,
     include_tools_guide: bool = False,
+    session_type: str = "cli",  # 建议 8: 区分 CLI/IM
 ) -> str:
     """
     组装系统提示词
@@ -55,6 +56,7 @@ def build_system_prompt(
         task_description: 任务描述（用于记忆检索）
         budget_config: 预算配置
         include_tools_guide: 是否包含工具使用指南（向后兼容）
+        session_type: 会话类型 "cli" 或 "im"（建议 8）
     
     Returns:
         完整的系统提示词
@@ -84,6 +86,11 @@ def build_system_prompt(
     # 3. 构建 Runtime 层
     runtime_section = _build_runtime_section()
     sections.append(runtime_section)
+    
+    # 3.5 构建会话类型规则（建议 8）
+    session_rules = _build_session_type_rules(session_type)
+    if session_rules:
+        sections.append(session_rules)
     
     # 4. 构建 Catalogs 层
     catalogs_section = _build_catalogs_section(
@@ -170,6 +177,32 @@ def _build_runtime_section() -> str:
     """构建 Runtime 层（运行时信息）"""
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
+    # 建议 32: 检测工具可用性
+    tool_status = []
+    
+    # 检查浏览器状态
+    try:
+        from pathlib import Path
+        browser_lock = Path("data/browser.lock")
+        if browser_lock.exists():
+            tool_status.append("- **浏览器**: 可能已启动（检测到 lock 文件）")
+        else:
+            tool_status.append("- **浏览器**: 未启动（需要先调用 browser_open）")
+    except:
+        tool_status.append("- **浏览器**: 状态未知")
+    
+    # 检查 MCP 服务
+    try:
+        mcp_config = Path("data/mcp_servers.json")
+        if mcp_config.exists():
+            tool_status.append("- **MCP 服务**: 配置已存在")
+        else:
+            tool_status.append("- **MCP 服务**: 未配置")
+    except:
+        tool_status.append("- **MCP 服务**: 状态未知")
+    
+    tool_status_text = "\n".join(tool_status) if tool_status else "- 工具状态: 正常"
+    
     return f"""## 运行环境
 
 - **当前时间**: {current_time}
@@ -177,7 +210,36 @@ def _build_runtime_section() -> str:
 - **当前工作目录**: {os.getcwd()}
 - **临时目录**: data/temp/
 
-⚠️ **重要**：服务重启后浏览器、变量、连接等状态会丢失，执行任务前必须通过工具检查实时状态。"""
+## 工具可用性（建议 32）
+{tool_status_text}
+
+⚠️ **重要**：服务重启后浏览器、变量、连接等状态会丢失，执行任务前必须通过工具检查实时状态。
+如果工具不可用，允许纯文本回复并说明限制。"""
+
+
+def _build_session_type_rules(session_type: str) -> str:
+    """
+    构建会话类型相关规则（建议 8）
+    
+    Args:
+        session_type: "cli" 或 "im"
+    
+    Returns:
+        会话类型相关的规则文本
+    """
+    if session_type == "im":
+        return """## IM 会话规则
+
+- **send_to_chat**: 可以使用，用于向用户发送消息
+- **主动汇报**: 执行过程中可以发送进度消息
+- **图片/文件**: 可以通过 send_to_chat 发送给用户"""
+    
+    else:  # cli 或其他
+        return """## CLI 会话规则
+
+- **send_to_chat**: 当前为 CLI 模式，此工具会静默成功但不发送消息
+- **直接输出**: 结果会直接显示在终端
+- **无需主动汇报**: CLI 模式下不需要频繁发送进度消息"""
 
 
 def _build_catalogs_section(

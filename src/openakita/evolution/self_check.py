@@ -1159,15 +1159,18 @@ ID: {result.test_id}
         
         return results
     
-    async def _execute_fix_by_llm_decision(self, analysis: dict) -> FixRecord:
+    async def _execute_fix_by_llm_decision(self, analysis: dict, max_retries: int = 2) -> FixRecord:
         """
         根据 LLM 决策执行修复（使用主 Agent）
         
         创建一个完整的 Agent 实例来执行修复任务，
         Agent 拥有完整能力：Soul、User、Memory、工具等。
         
+        建议 5：添加重试机制和脚本级降级策略
+        
         Args:
             analysis: LLM 分析结果（包含 fix_instruction）
+            max_retries: 最大重试次数
         
         Returns:
             FixRecord
@@ -1189,20 +1192,21 @@ ID: {result.test_id}
         
         fix_record.fix_action = f"Agent 执行: {fix_instruction}"
         
-        try:
-            # 创建 Agent（不启动 scheduler 避免递归）
-            from ..core.agent import Agent
-            agent = Agent()
-            await agent.initialize(start_scheduler=False)
-            
-            # 关键：清空历史上下文，使用干净状态
-            # 避免累积的会话历史导致上下文过大
-            agent._context.messages = []
-            agent._conversation_history = []
-            logger.info("SelfChecker: Agent context cleared for clean execution")
-            
-            # 构建修复 prompt
-            fix_prompt = f"""你是系统自检修复助手。请根据以下分析执行修复任务：
+        # 重试循环（建议 5）
+        for attempt in range(max_retries):
+            try:
+                # 创建 Agent（不启动 scheduler 避免递归）
+                from ..core.agent import Agent
+                agent = Agent()
+                await agent.initialize(start_scheduler=False)
+                
+                # 关键：清空历史上下文，使用干净状态
+                agent._context.messages = []
+                agent._conversation_history = []
+                logger.info(f"SelfChecker: Agent context cleared for fix attempt {attempt + 1}/{max_retries}")
+                
+                # 构建修复 prompt
+                fix_prompt = f"""你是系统自检修复助手。请根据以下分析执行修复任务：
 
 ## 错误信息
 - 错误ID: {analysis.get('error_id', 'unknown')}
@@ -1220,29 +1224,91 @@ ID: {result.test_id}
 
 请开始执行修复。"""
 
-            # 使用 Ralph 模式执行（支持多轮工具调用）
-            if hasattr(agent, "execute_task_from_message"):
-                result = await agent.execute_task_from_message(fix_prompt)
-                success = result.success if result else False
-                result_msg = result.data if result and result.success else (result.error if result else "无结果")
+                # 使用 Ralph 模式执行（支持多轮工具调用）
+                if hasattr(agent, "execute_task_from_message"):
+                    result = await agent.execute_task_from_message(fix_prompt)
+                    success = result.success if result else False
+                    result_msg = result.data if result and result.success else (result.error if result else "无结果")
+                else:
+                    # 降级到普通 chat
+                    result_msg = await agent.chat(fix_prompt)
+                    success = "失败" not in result_msg and "error" not in result_msg.lower()
+                
+                # 清理 Agent
+                await agent.shutdown()
+                
+                # 修复成功，记录并返回
+                if success:
+                    fix_record.success = True
+                    fix_record.verified = True
+                    fix_record.verification_result = result_msg if result_msg else ""
+                    logger.info(f"Agent fix completed: {analysis.get('error_id')} - success on attempt {attempt + 1}")
+                    return fix_record
+                
+                # 修复失败，记录并继续重试
+                logger.warning(f"Agent fix attempt {attempt + 1} failed: {result_msg[:100] if result_msg else 'no result'}")
+                
+            except Exception as e:
+                logger.error(f"Agent fix attempt {attempt + 1} error: {e}")
+                if attempt == max_retries - 1:
+                    # 最后一次重试也失败，尝试脚本级降级
+                    logger.info("All retries failed, attempting script-level fallback...")
+                    return await self._try_script_level_fix(analysis, fix_record)
+        
+        # 所有重试失败，尝试脚本级降级
+        return await self._try_script_level_fix(analysis, fix_record)
+    
+    async def _try_script_level_fix(self, analysis: dict, fix_record: FixRecord) -> FixRecord:
+        """
+        脚本级降级修复（建议 5）
+        
+        当 Agent 修复失败时，尝试简单的脚本级操作：
+        - 重启服务
+        - 清理缓存
+        - 重置配置
+        """
+        module = analysis.get("module", "")
+        error_id = analysis.get("error_id", "")
+        
+        logger.info(f"Attempting script-level fix for {module}/{error_id}")
+        
+        try:
+            import subprocess
+            
+            # 根据模块类型选择降级策略
+            if "browser" in module.lower():
+                # 浏览器相关：尝试关闭所有浏览器进程
+                fix_record.fix_action = "脚本降级: 清理浏览器进程"
+                # 不实际执行危险操作，只记录
+                fix_record.verification_result = "已标记需要手动重启浏览器"
+                fix_record.success = False
+                
+            elif "memory" in module.lower() or "database" in module.lower():
+                # 数据库相关：清理临时文件
+                fix_record.fix_action = "脚本降级: 清理临时文件"
+                import shutil
+                temp_dir = Path("data/temp")
+                if temp_dir.exists():
+                    for f in temp_dir.glob("*.tmp"):
+                        f.unlink()
+                fix_record.verification_result = "已清理临时文件"
+                fix_record.success = True
+                
+            elif "config" in module.lower():
+                # 配置相关：备份并重置
+                fix_record.fix_action = "脚本降级: 建议手动检查配置"
+                fix_record.verification_result = "配置问题需要手动检查 .env 或 llm_endpoints.json"
+                fix_record.success = False
+                
             else:
-                # 降级到普通 chat
-                result_msg = await agent.chat(fix_prompt)
-                success = "失败" not in result_msg and "error" not in result_msg.lower()
-            
-            # 清理 Agent
-            await agent.shutdown()
-            
-            # 记录结果
-            fix_record.success = success
-            fix_record.verified = success
-            fix_record.verification_result = result_msg if result_msg else ""
-            
-            logger.info(f"Agent fix completed: {analysis.get('error_id')} - {'success' if success else 'failed'}")
-            
+                # 其他：通用降级
+                fix_record.fix_action = "脚本降级: 无法自动修复"
+                fix_record.verification_result = f"建议手动检查 {module} 模块"
+                fix_record.success = False
+                
         except Exception as e:
-            logger.error(f"Agent fix failed: {e}", exc_info=True)
-            fix_record.fix_action = f"Agent 修复失败: {str(e)}"
+            logger.error(f"Script-level fix failed: {e}")
+            fix_record.fix_action = f"脚本降级失败: {str(e)}"
             fix_record.success = False
         
         return fix_record

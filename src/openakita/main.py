@@ -638,9 +638,22 @@ def show_memory():
 
 
 def show_skills():
-    """显示已安装技能"""
-    console.print("[yellow]技能系统尚未实现[/yellow]")
-    # TODO: 实现技能列表
+    """显示已安装技能（建议 4）"""
+    try:
+        from .skills.catalog import SkillCatalog
+        catalog = SkillCatalog()
+        skills_text = catalog.generate_catalog()
+        if skills_text and skills_text.strip():
+            console.print(Panel(
+                Markdown(skills_text),
+                title="已安装技能",
+                border_style="green",
+            ))
+        else:
+            console.print("[yellow]暂无已安装技能[/yellow]")
+            console.print("使用 install_skill 工具安装技能，或在 skills/ 目录下创建技能")
+    except Exception as e:
+        console.print(f"[red]无法加载技能列表: {e}[/red]")
 
 
 @app.callback(invoke_without_command=True)
@@ -660,10 +673,16 @@ def main(
     
     # 如果没有子命令，进入交互模式
     if ctx.invoked_subcommand is None:
-        # 检查 API Key
-        if not settings.anthropic_api_key:
-            console.print("[red]错误: 未设置 ANTHROPIC_API_KEY[/red]")
-            console.print("请设置环境变量或在 .env 文件中配置")
+        # 检查是否至少有一个可用的 LLM 端点（建议 1）
+        from pathlib import Path
+        has_endpoint = (
+            settings.anthropic_api_key or 
+            settings.openai_api_key or 
+            Path(settings.llm_endpoints_path).exists()
+        )
+        if not has_endpoint:
+            console.print("[red]错误: 未配置任何 LLM 端点[/red]")
+            console.print("请设置 ANTHROPIC_API_KEY 或 OPENAI_API_KEY，或运行 'openakita init' 配置 llm_endpoints.json")
             raise typer.Exit(1)
         
         # 运行交互式 CLI

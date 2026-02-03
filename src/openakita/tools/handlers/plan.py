@@ -90,10 +90,13 @@ def should_require_plan(user_message: str) -> bool:
     """
     检测用户请求是否需要 Plan 模式（多步骤任务检测）
     
+    建议 18：提高阈值，只在"多工具协作或明显多步"时启用
+    简单任务直接执行，不要过度计划
+    
     触发条件：
-    1. 包含多个动作词（打开+搜索、写+执行+读取）
-    2. 包含连接词（然后、接着、之后、并且）
-    3. 包含逗号分隔的多个动作
+    1. 包含 5+ 个动作词（明显的复杂任务）
+    2. 包含 3+ 个动作词 + 连接词（明确的多步骤）
+    3. 包含 3+ 个动作词 + 逗号分隔（明确的多步骤）
     """
     if not user_message:
         return False
@@ -119,15 +122,15 @@ def should_require_plan(user_message: str) -> bool:
     # 检查逗号分隔的多个动作
     comma_separated = "，" in msg or "," in msg
     
-    # 判断条件：
-    # 1. 有 3 个以上动作词
-    # 2. 有 2 个以上动作词 + 连接词
-    # 3. 有 2 个以上动作词 + 逗号分隔
-    if action_count >= 3:
+    # 判断条件（建议 18：提高阈值）：
+    # 1. 有 5 个以上动作词（明显复杂任务）
+    # 2. 有 3 个以上动作词 + 连接词（明确多步骤）
+    # 3. 有 3 个以上动作词 + 逗号分隔（明确多步骤）
+    if action_count >= 5:
         return True
-    if action_count >= 2 and has_connector:
+    if action_count >= 3 and has_connector:
         return True
-    if action_count >= 2 and comma_separated:
+    if action_count >= 3 and comma_separated:
         return True
     
     return False
