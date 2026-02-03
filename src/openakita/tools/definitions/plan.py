@@ -11,7 +11,7 @@ Plan 模式工具定义
 PLAN_TOOLS = [
     {
         "name": "create_plan",
-        "description": "Create a task execution plan. REQUIRED when task needs more than 2 steps. Call this FIRST before executing multi-step tasks.",
+        "description": "⚠️ MUST CALL FIRST for multi-step tasks! If user request needs 2+ tool calls (like 'open + search + screenshot'), call create_plan BEFORE any other tool. Examples: '打开百度搜索天气截图' → create_plan first!",
         "detail": """创建任务执行计划。
 
 **何时使用**：

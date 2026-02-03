@@ -6,7 +6,13 @@ Identity 模块 - 加载和管理核心文档
 - 生成系统提示词 (渐进式披露)
 - 提取精简版本用于系统提示
 
-注入策略:
+注入策略 (v2 - 编译管线):
+- 编译产物: soul.summary + agent.core + agent.tooling + user.summary
+- 硬规则: policies.md
+- 记忆: 语义检索相关片段
+- 向后兼容: get_system_prompt() 保留全文注入模式
+
+旧策略 (v1 - 全文注入，已废弃但保留兼容):
 - SOUL.md: 每次注入 (精简核心原则)
 - AGENT.md: 每次注入 (精简行为规范)
 - USER.md: 每次注入 (已填充的偏好)
@@ -15,10 +21,16 @@ Identity 模块 - 加载和管理核心文档
 
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 import logging
 
 from ..config import settings
+
+if TYPE_CHECKING:
+    from ..memory import MemoryManager
+    from ..tools.catalog import ToolCatalog
+    from ..skills.catalog import SkillCatalog
+    from ..tools.mcp_catalog import MCPCatalog
 
 logger = logging.getLogger(__name__)
 
@@ -103,150 +115,54 @@ class Identity:
     
     def get_soul_summary(self) -> str:
         """
-        获取 SOUL.md 精简版本
+        获取 SOUL.md 完整内容
         
-        只提取核心原则，不包含详细解释
+        动态读取文件内容，用户修改后立即生效
         """
         soul = self.soul
         if not soul:
             return ""
         
-        # 提取核心部分
-        summary = """## Soul (核心哲学)
-
-OpenAkita 是一个全能自进化AI助手，核心目标是成为一个真正对用户有帮助的助手。
-
-**核心属性** (按优先级):
-1. 安全并支持人类监督
-2. 行为合乎道德
-3. 遵循指导原则
-4. 真正有帮助
-
-**Being Helpful**: 成为用户的知识渊博的朋友，提供真实、实质性的帮助。
-
-**Being Honest**: 真实、透明、不欺骗、不操纵、保护用户自主性。
-
-**Avoiding Harm**: 避免不必要的伤害，不帮助的响应永远不是"安全"的。
-
-**Ralph Wiggum Mode (核心执行哲学)**:
-- 🔧 工具优先：任务必须通过工具完成，只回复文字=失败
-- 🛠️ 自我进化：没有工具就搜索安装或自己创建
-- 💪 问题自己解决：不把问题甩给用户
-- ♾️ 永不放弃：失败了换方法继续
-"""
-        return summary
+        return f"## Soul (核心哲学)\n\n{soul}\n"
     
     def get_agent_summary(self) -> str:
         """
-        获取 AGENT.md 精简版本
+        获取 AGENT.md 完整内容
         
-        只提取行为规范摘要
+        动态读取文件内容，用户修改后立即生效
         """
         agent = self.agent
         if not agent:
             return ""
         
-        summary = """## Agent (行为规范)
-
-**核心铁律**（详见下方"响应质量要求"）:
-1. **工具优先** - 任务型请求必须调用工具，对话型请求可直接回复
-2. **问题自己解决** - 报错自己修复，缺信息自己查
-3. **永不放弃** - 失败了换方法，工具不够就创建
-
-**Tool Priority**:
-1. 已安装技能 → 2. MCP工具 → 3. Shell → 4. 临时脚本 → 5. 搜索安装 → 6. 创建技能
-
-**临时脚本**: write_file 写脚本 + run_shell 执行（一次性任务的最佳选择）
-
-**Prohibited**:
-- ❌ 说"我没有这个能力"
-- ❌ 只回复文字不调用工具
-- ❌ 告诉用户代码让用户自己执行
-- ❌ 把问题甩给用户
-- ❌ 放弃任务
-"""
-        return summary
+        return f"## Agent (行为规范)\n\n{agent}\n"
     
     def get_user_summary(self) -> str:
         """
-        获取 USER.md 中已填充的偏好
+        获取 USER.md 完整内容
         
-        过滤掉 [待学习] 的部分
+        动态读取文件内容，用户修改后立即生效
         """
         user = self.user
         if not user:
-            return ""
+            return "## User (用户偏好)\n\n(用户偏好将在交互中学习)\n"
         
-        # 提取已填充的信息
-        lines = []
-        lines.append("## User (用户偏好)")
-        
-        # 查找已填充的字段
-        filled_patterns = [
-            (r'\*\*主要语言\*\*:\s*(\S+)', '语言'),
-            (r'\*\*OS\*\*:\s*(\S+)', 'OS'),
-            (r'\*\*IDE\*\*:\s*(\S+)', 'IDE'),
-            (r'\*\*Shell\*\*:\s*(\S+)', 'Shell'),
-        ]
-        
-        for pattern, label in filled_patterns:
-            match = re.search(pattern, user)
-            if match and '[待学习]' not in match.group(1):
-                lines.append(f"- {label}: {match.group(1)}")
-        
-        # 如果有任何已填充的信息
-        if len(lines) > 1:
-            return "\n".join(lines) + "\n"
-        
-        return "## User\n\n(用户偏好将在交互中学习)\n"
+        return f"## User (用户偏好)\n\n{user}\n"
     
     def get_memory_summary(self, include_active_task: bool = True) -> str:
         """
-        获取 MEMORY.md 中当前任务相关的部分
+        获取 MEMORY.md 完整内容
         
-        只提取:
-        - 当前活跃任务（可选）
-        - 最近的经验教训
+        动态读取文件内容，用户修改后立即生效
         
         Args:
-            include_active_task: 是否包含活跃任务（IM Session 应设为 False）
+            include_active_task: 保留参数以兼容现有调用（不再使用）
         """
         memory = self.memory
         if not memory:
             return ""
         
-        lines = ["## Memory (工作记忆)"]
-        
-        # 提取当前任务（仅当 include_active_task=True）
-        if include_active_task:
-            active_task_match = re.search(
-                r'### Active Task\s*(.*?)(?=###|\Z)',
-                memory,
-                re.DOTALL
-            )
-            if active_task_match:
-                task_content = active_task_match.group(1).strip()
-                if task_content and '[暂无]' not in task_content:
-                    lines.append("\n### 当前任务")
-                    # 完整保留任务内容
-                    lines.append(task_content)
-        
-        # 提取成功模式
-        success_match = re.search(
-            r'### Successful Patterns\s*(.*?)(?=###|\Z)',
-            memory,
-            re.DOTALL
-        )
-        if success_match:
-            patterns = success_match.group(1).strip()
-            if patterns and '[暂无]' not in patterns:
-                lines.append("\n### 成功模式")
-                lines.append(patterns)  # 完整保留
-        
-        if len(lines) > 1:
-            return "\n".join(lines) + "\n"
-        
-        return ""
+        return f"## Memory (核心记忆)\n\n{memory}\n"
     
     def get_system_prompt(self, include_active_task: bool = True) -> str:
         """
@@ -262,27 +178,36 @@ OpenAkita 是一个全能自进化AI助手，核心目标是成为一个真正�
         
         return f"""# OpenAkita System
 
-{self.get_soul_summary()}
-
-{self.get_agent_summary()}
-
-{self.get_user_summary()}
-
-{self.get_memory_summary(include_active_task=include_active_task)}
-
-## 核心指令
-
-你是 OpenAkita，一个全能自进化AI助手。请遵循以上 Soul、Agent、User 文档中的指导原则。
+你是 OpenAkita，一个全能自进化AI助手。
 
 **当前时间: {current_time}**
 
-关键原则:
-1. **永不放弃** - 任务未完成绝不终止，遇到困难自己想办法解决
-2. **持续学习** - 记录经验教训，不断进化
-3. **诚实透明** - 清楚说明正在做什么，遇到什么问题
-4. **真正帮助** - 把用户当作聪明的成年人，提供实质性帮助
-
 ## ⚠️ 响应质量要求（最高优先级，严格执行）
+
+### ⚡ 多步骤任务必须先创建计划！（最重要！）
+
+**在执行任何工具之前，先判断任务是否需要 2 步以上：**
+
+| 用户请求 | 步骤数 | 正确做法 |
+|---------|--------|---------|
+| "打开百度" | 1步 | 直接 browser_navigate |
+| "打开百度，搜索天气" | 2步 | 直接执行 |
+| "打开百度，搜索天气，截图发我" | 3步+ | ⚠️ **先 create_plan！** |
+
+**触发 Plan 模式的信号词**：
+- "然后"、"接着"、"之后"、"并且"、逗号分隔的多个动作
+- 包含多个动作：打开+搜索+截图+发送
+
+**正确流程**：
+```
+用户: "打开百度搜索天气截图发我"
+→ 1. create_plan(steps=[打开百度, 搜索天气, 截图, 发送])
+→ 2. browser_navigate + update_plan_step
+→ 3. browser_type + update_plan_step  
+→ 4. browser_screenshot + update_plan_step
+→ 5. send_to_chat + update_plan_step
+→ 6. complete_plan
+```
 
 ### 请求类型判断（重要！先判断再行动）
 
@@ -333,6 +258,16 @@ OpenAkita 是一个全能自进化AI助手，核心目标是成为一个真正�
 **task_type 选择**：
 - `reminder`（90%情况）：只需到时间发消息提醒，如"提醒我喝水"
 - `task`（10%情况）：需要 AI 执行操作，如"每天查天气告诉我"
+
+---
+
+{self.get_agent_summary()}
+
+{self.get_user_summary()}
+
+{self.get_memory_summary(include_active_task=include_active_task)}
+
+{self.get_soul_summary()}
 """
     
     def get_session_system_prompt(self) -> str:
@@ -342,6 +277,66 @@ OpenAkita 是一个全能自进化AI助手，核心目标是成为一个真正�
         不包含全局 Active Task，避免与 Session 上下文冲突
         """
         return self.get_system_prompt(include_active_task=False)
+    
+    def get_compiled_prompt(
+        self,
+        tools_enabled: bool = True,
+        tool_catalog: Optional["ToolCatalog"] = None,
+        skill_catalog: Optional["SkillCatalog"] = None,
+        mcp_catalog: Optional["MCPCatalog"] = None,
+        memory_manager: Optional["MemoryManager"] = None,
+        task_description: str = "",
+    ) -> str:
+        """
+        使用新的编译管线生成系统提示词 (v2)
+        
+        相比 get_system_prompt()（全文注入），这个方法:
+        - 使用编译后的摘要，而非全文
+        - Token 消耗降低约 55%
+        - 保留所有核心规则
+        
+        Args:
+            tools_enabled: 是否启用工具
+            tool_catalog: ToolCatalog 实例
+            skill_catalog: SkillCatalog 实例
+            mcp_catalog: MCPCatalog 实例
+            memory_manager: MemoryManager 实例
+            task_description: 任务描述（用于记忆检索）
+        
+        Returns:
+            编译后的系统提示词
+        """
+        from ..prompt.builder import build_system_prompt
+        
+        identity_dir = self.soul_path.parent
+        
+        return build_system_prompt(
+            identity_dir=identity_dir,
+            tools_enabled=tools_enabled,
+            tool_catalog=tool_catalog,
+            skill_catalog=skill_catalog,
+            mcp_catalog=mcp_catalog,
+            memory_manager=memory_manager,
+            task_description=task_description,
+        )
+    
+    def ensure_compiled(self) -> bool:
+        """
+        确保编译产物存在且不过期
+        
+        Returns:
+            True 如果编译产物可用
+        """
+        from ..prompt.compiler import check_compiled_outdated, compile_all
+        
+        identity_dir = self.soul_path.parent
+        
+        if check_compiled_outdated(identity_dir):
+            logger.info("Compiling identity documents...")
+            compile_all(identity_dir)
+            return True
+        
+        return True
 
     def get_full_document(self, doc_name: str) -> str:
         """

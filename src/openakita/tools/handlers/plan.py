@@ -19,6 +19,119 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# ============================================
+# Session Plan 状态管理（模块级别）
+# ============================================
+
+# 记录哪些 session 被标记为需要 Plan（compound 任务）
+_session_plan_required: dict[str, bool] = {}
+
+# 记录 session 的活跃 Plan（session_id -> plan_id）
+_session_active_plans: dict[str, str] = {}
+
+
+def require_plan_for_session(session_id: str, required: bool) -> None:
+    """标记 session 是否需要 Plan（由 Prompt Compiler 调用）"""
+    _session_plan_required[session_id] = required
+    logger.info(f"[Plan] Session {session_id} plan_required={required}")
+
+
+def is_plan_required(session_id: str) -> bool:
+    """检查 session 是否被标记为需要 Plan"""
+    return _session_plan_required.get(session_id, False)
+
+
+def has_active_plan(session_id: str) -> bool:
+    """检查 session 是否有活跃的 Plan"""
+    return session_id in _session_active_plans
+
+
+def register_active_plan(session_id: str, plan_id: str) -> None:
+    """注册活跃的 Plan"""
+    _session_active_plans[session_id] = plan_id
+    logger.info(f"[Plan] Registered active plan {plan_id} for session {session_id}")
+
+
+def unregister_active_plan(session_id: str) -> None:
+    """注销活跃的 Plan"""
+    if session_id in _session_active_plans:
+        plan_id = _session_active_plans.pop(session_id)
+        logger.info(f"[Plan] Unregistered plan {plan_id} for session {session_id}")
+    # 同时清除 plan_required 标记和 handler
+    if session_id in _session_plan_required:
+        del _session_plan_required[session_id]
+    if session_id in _session_handlers:
+        del _session_handlers[session_id]
+
+
+def clear_session_plan_state(session_id: str) -> None:
+    """清除 session 的所有 Plan 状态（会话结束时调用）"""
+    _session_plan_required.pop(session_id, None)
+    _session_active_plans.pop(session_id, None)
+    _session_handlers.pop(session_id, None)
+
+
+# 存储 session -> PlanHandler 实例的映射（用于任务完成判断时查询 Plan 状态）
+_session_handlers: dict[str, "PlanHandler"] = {}
+
+
+def register_plan_handler(session_id: str, handler: "PlanHandler") -> None:
+    """注册 PlanHandler 实例"""
+    _session_handlers[session_id] = handler
+    logger.debug(f"[Plan] Registered handler for session {session_id}")
+
+
+def get_plan_handler_for_session(session_id: str) -> Optional["PlanHandler"]:
+    """获取 session 对应的 PlanHandler 实例"""
+    return _session_handlers.get(session_id)
+
+
+def should_require_plan(user_message: str) -> bool:
+    """
+    检测用户请求是否需要 Plan 模式（多步骤任务检测）
+    
+    触发条件：
+    1. 包含多个动作词（打开+搜索、写+执行+读取）
+    2. 包含连接词（然后、接着、之后、并且）
+    3. 包含逗号分隔的多个动作
+    """
+    if not user_message:
+        return False
+    
+    msg = user_message.lower()
+    
+    # 动作词列表
+    action_words = [
+        "打开", "搜索", "截图", "发给", "发送", "写", "创建", "执行", "运行",
+        "读取", "查看", "保存", "下载", "上传", "复制", "粘贴", "删除",
+        "编辑", "修改", "更新", "安装", "配置", "设置", "启动", "关闭"
+    ]
+    
+    # 连接词（表示多步骤）
+    connector_words = ["然后", "接着", "之后", "并且", "再", "最后"]
+    
+    # 统计动作词数量
+    action_count = sum(1 for word in action_words if word in msg)
+    
+    # 检查连接词
+    has_connector = any(word in msg for word in connector_words)
+    
+    # 检查逗号分隔的多个动作
+    comma_separated = "，" in msg or "," in msg
+    
+    # 判断条件：
+    # 1. 有 3 个以上动作词
+    # 2. 有 2 个以上动作词 + 连接词
+    # 3. 有 2 个以上动作词 + 逗号分隔
+    if action_count >= 3:
+        return True
+    if action_count >= 2 and has_connector:
+        return True
+    if action_count >= 2 and comma_separated:
+        return True
+    
+    return False
+
 
 class PlanHandler:
     """Plan 模式处理器"""
@@ -70,6 +183,12 @@ class PlanHandler:
             "logs": []
         }
         
+        # 注册活跃的 Plan（用于强制 Plan 模式检查）
+        session_id = getattr(self.agent, 'session_id', None)
+        if session_id:
+            register_active_plan(session_id, plan_id)
+            register_plan_handler(session_id, self)  # 注册 handler 以便查询 Plan 状态
+        
         # 保存到文件
         self._save_plan_markdown()
         
@@ -82,8 +201,11 @@ class PlanHandler:
         # 通知用户（如果有 IM 会话）
         try:
             from ...core.agent import Agent
-            if Agent._current_im_session:
-                await self.agent.send_to_chat(plan_message)
+            if Agent._current_im_session and Agent._current_im_gateway:
+                await Agent._current_im_gateway.send_to_session(
+                    Agent._current_im_session, 
+                    plan_message
+                )
         except Exception as e:
             logger.warning(f"Failed to send plan message: {e}")
         
@@ -129,18 +251,42 @@ class PlanHandler:
         
         self._add_log(f"{status_emoji} {step_id}: {result or status}")
         
-        # 通知用户
-        if status in ["completed", "failed"]:
-            message = f"{status_emoji} {step_id} {'完成' if status == 'completed' else '失败'}"
-            if result:
-                message += f"：{result}"
-            
-            try:
-                from ...core.agent import Agent
-                if Agent._current_im_session:
-                    await self.agent.send_to_chat(message)
-            except Exception as e:
-                logger.warning(f"Failed to send step update: {e}")
+        # 通知用户（每个状态变化都通知）
+        # 计算进度
+        steps = self.current_plan["steps"]
+        completed_count = sum(1 for s in steps if s["status"] in ["completed", "failed", "skipped"])
+        total_count = len(steps)
+        
+        # 构建通知消息
+        status_text = {
+            "in_progress": "开始执行",
+            "completed": "完成",
+            "failed": "失败",
+            "skipped": "跳过"
+        }.get(status, status)
+        
+        # 查找步骤描述
+        step_desc = ""
+        for s in steps:
+            if s["id"] == step_id:
+                step_desc = s.get("description", "")
+                break
+        
+        message = f"{status_emoji} **[{completed_count}/{total_count}]** {step_desc or step_id}"
+        if status == "completed" and result:
+            message += f"\n   结果：{result}"
+        elif status == "failed":
+            message += f"\n   ❌ 错误：{result or '未知错误'}"
+        
+        try:
+            from ...core.agent import Agent
+            if Agent._current_im_session and Agent._current_im_gateway:
+                await Agent._current_im_gateway.send_to_session(
+                    Agent._current_im_session, 
+                    message
+                )
+        except Exception as e:
+            logger.warning(f"Failed to send step update: {e}")
         
         return f"步骤 {step_id} 状态已更新为 {status}"
     
@@ -218,14 +364,22 @@ class PlanHandler:
         # 通知用户
         try:
             from ...core.agent import Agent
-            if Agent._current_im_session:
-                await self.agent.send_to_chat(complete_message)
+            if Agent._current_im_session and Agent._current_im_gateway:
+                await Agent._current_im_gateway.send_to_session(
+                    Agent._current_im_session, 
+                    complete_message
+                )
         except Exception as e:
             logger.warning(f"Failed to send complete message: {e}")
         
         # 清理当前计划
         plan_id = self.current_plan["id"]
         self.current_plan = None
+        
+        # 注销活跃的 Plan
+        session_id = getattr(self.agent, 'session_id', None)
+        if session_id:
+            unregister_active_plan(session_id)
         
         return f"✅ 计划 {plan_id} 已完成\n\n{complete_message}"
     
@@ -300,6 +454,7 @@ class PlanHandler:
             self.current_plan.setdefault("logs", []).append(f"[{timestamp}] {message}")
 
 
-def create_plan_handler(agent: "Agent") -> PlanHandler:
-    """创建 Plan Handler 实例"""
-    return PlanHandler(agent)
+def create_plan_handler(agent: "Agent"):
+    """创建 Plan Handler 处理函数"""
+    handler = PlanHandler(agent)
+    return handler.handle

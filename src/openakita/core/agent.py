@@ -46,6 +46,10 @@ from ..tools.catalog import ToolCatalog
 # 记忆系统
 from ..memory import MemoryManager
 
+# Prompt 编译管线 (v2)
+from ..prompt import build_system_prompt as build_system_prompt_v2
+from ..prompt.compiler import check_compiled_outdated, compile_all
+
 # 系统工具定义（从 tools/definitions 导入）
 from ..tools.definitions import BASE_TOOLS
 
@@ -390,7 +394,7 @@ class Agent:
         
         # 设置系统提示词 (包含技能清单、MCP 清单和相关记忆)
         base_prompt = self.identity.get_system_prompt()
-        self._context.system = self._build_system_prompt(base_prompt)
+        self._context.system = self._build_system_prompt(base_prompt, use_compiled=True)
         
         self._initialized = True
         logger.info(
@@ -997,7 +1001,7 @@ class Agent:
                 existing_task.deletable = False
                 self.task_scheduler._save_tasks()
     
-    def _build_system_prompt(self, base_prompt: str, task_description: str = "") -> str:
+    def _build_system_prompt(self, base_prompt: str, task_description: str = "", use_compiled: bool = False) -> str:
         """
         构建系统提示词 (动态生成，包含技能清单、MCP 清单和相关记忆)
         
@@ -1009,12 +1013,17 @@ class Agent:
         - User Profile: 首次引导或日常询问
         
         Args:
-            base_prompt: 基础提示词 (身份信息)
+            base_prompt: 基础提示词 (身份信息，use_compiled=True 时忽略)
             task_description: 任务描述 (用于检索相关记忆)
+            use_compiled: 是否使用编译管线 (v2)，降低约 55% token 消耗
         
         Returns:
             完整的系统提示词
         """
+        # 使用编译管线 (v2) - 降低 token 消耗
+        if use_compiled:
+            return self._build_system_prompt_compiled(task_description)
+        
         # 技能清单 (Agent Skills 规范) - 每次动态生成，确保新创建的技能被包含
         skill_catalog = self.skill_catalog.generate_catalog()
         
@@ -1368,6 +1377,37 @@ search_github → install_skill → 使用
 
 **用户信任比看起来厉害更重要！宁可说"我做不到"也不要骗人！**
 {profile_prompt}"""
+    
+    def _build_system_prompt_compiled(self, task_description: str = "") -> str:
+        """
+        使用编译管线构建系统提示词 (v2)
+        
+        Token 消耗降低约 55%，从 ~6300 降到 ~2800。
+        
+        Args:
+            task_description: 任务描述 (用于检索相关记忆)
+        
+        Returns:
+            编译后的系统提示词
+        """
+        identity_dir = settings.identity_path
+        
+        # 检查编译产物是否过期
+        if check_compiled_outdated(identity_dir):
+            logger.info("Compiled identity files outdated, recompiling...")
+            compile_all(identity_dir)
+        
+        # 使用新管线构建提示词
+        return build_system_prompt_v2(
+            identity_dir=identity_dir,
+            tools_enabled=True,
+            tool_catalog=self.tool_catalog,
+            skill_catalog=self.skill_catalog,
+            mcp_catalog=self.mcp_catalog,
+            memory_manager=self.memory_manager,
+            task_description=task_description,
+            include_tools_guide=True,  # 包含工具使用指南
+        )
     
     def _generate_tools_text(self) -> str:
         """
@@ -1750,6 +1790,19 @@ search_github → install_skill → 使用
                 compiled_message, compiler_output = await self._compile_prompt(message)
                 if compiler_output:
                     logger.info(f"[Session:{session_id}] Prompt compiled")
+                    
+                    # 检查是否需要 Plan 模式（多步骤任务检测）
+                    from ..tools.handlers.plan import require_plan_for_session, should_require_plan
+                    
+                    # 判断条件：
+                    # 1. task_type 是 compound
+                    # 2. 用户请求包含多个动作（打开+搜索+截图等）
+                    is_compound = "task_type: compound" in compiler_output or "task_type:compound" in compiler_output
+                    has_multi_actions = should_require_plan(message)
+                    
+                    if is_compound or has_multi_actions:
+                        require_plan_for_session(session_id, True)
+                        logger.info(f"[Session:{session_id}] Multi-step task detected (compound={is_compound}, multi_actions={has_multi_actions}), Plan required")
             
             # 构建 API 消息格式（从 session_messages 转换）
             messages = []
@@ -2044,6 +2097,26 @@ search_github → install_skill → 使用
         Returns:
             True 如果任务已完成，False 如果需要继续执行
         """
+        # === Plan 步骤检查：如果有活跃 Plan 且有未完成步骤，强制继续执行 ===
+        from ..tools.handlers.plan import has_active_plan, get_plan_handler_for_session
+        
+        session_id = getattr(self, 'session_id', None)
+        if session_id and has_active_plan(session_id):
+            handler = get_plan_handler_for_session(session_id)
+            if handler and handler.current_plan:
+                steps = handler.current_plan.get("steps", [])
+                pending = [s for s in steps if s.get("status") in ("pending", "in_progress")]
+                
+                if pending:
+                    pending_ids = [s.get("id", "?") for s in pending[:3]]
+                    logger.info(f"[TaskVerify] Plan has {len(pending)} pending steps: {pending_ids}, forcing continue")
+                    return False  # 还有未完成步骤，强制继续执行
+                
+                # 所有步骤完成但 Plan 未结束（未调用 complete_plan）
+                if handler.current_plan.get("status") != "completed":
+                    logger.info("[TaskVerify] All steps done but plan not completed, forcing continue")
+                    return False
+        
         # 完全依赖 LLM 进行判断，不使用关键词匹配
         verify_prompt = f"""请判断以下任务是否已经**真正完成**用户的意图。
 
@@ -2122,7 +2195,7 @@ search_github → install_skill → 使用
             # 使用 Session 专用的 System Prompt，但仍需包含完整的工具信息
             # 否则 LLM 不知道有哪些工具可用（MCP、Skill、Tools）
             base_prompt = self.identity.get_session_system_prompt()
-            system_prompt = self._build_system_prompt(base_prompt, task_description="")
+            system_prompt = self._build_system_prompt(base_prompt, task_description="", use_compiled=True)
         else:
             system_prompt = self._context.system
         
@@ -2652,23 +2725,72 @@ search_github → install_skill → 使用
         执行工具调用
         
         优先使用 handler_registry 执行，不支持的工具使用旧的 if-elif 兜底
+        执行后自动附加 WARNING/ERROR 日志到返回结果
         
         Args:
             tool_name: 工具名称
             tool_input: 工具输入参数
         
         Returns:
-            工具执行结果
+            工具执行结果（包含执行期间的警告/错误日志）
         """
         logger.info(f"Executing tool: {tool_name} with {tool_input}")
+        
+        # ============================================
+        # Plan 模式强制检查
+        # ============================================
+        # 如果当前 session 被标记为需要 Plan（compound 任务），
+        # 但还没有创建 Plan，则拒绝执行其他工具
+        if tool_name != "create_plan":
+            from ..tools.handlers.plan import is_plan_required, has_active_plan
+            session_id = getattr(self, 'session_id', None)
+            if session_id and is_plan_required(session_id) and not has_active_plan(session_id):
+                return (
+                    "⚠️ **这是一个多步骤任务，必须先创建计划！**\n\n"
+                    "请先调用 `create_plan` 工具创建任务计划，然后再执行具体操作。\n\n"
+                    "示例：\n"
+                    "```\n"
+                    "create_plan(\n"
+                    "  task_summary='写脚本获取时间并显示',\n"
+                    "  steps=[\n"
+                    "    {id: 'step1', description: '创建Python脚本', tool: 'write_file'},\n"
+                    "    {id: 'step2', description: '执行脚本', tool: 'run_shell'},\n"
+                    "    {id: 'step3', description: '读取结果', tool: 'read_file'}\n"
+                    "  ]\n"
+                    ")\n"
+                    "```"
+                )
+        
+        # 导入日志缓存
+        from ..logging import get_session_log_buffer
+        log_buffer = get_session_log_buffer()
+        
+        # 记录执行前的日志数量
+        logs_before = log_buffer.get_logs(count=500)
+        logs_before_count = len(logs_before)
         
         try:
             # 优先使用 handler_registry 执行
             if self.handler_registry.has_tool(tool_name):
-                return await self.handler_registry.execute_by_tool(tool_name, tool_input)
+                result = await self.handler_registry.execute_by_tool(tool_name, tool_input)
+            else:
+                # 未注册的工具
+                return f"❌ 未知工具: {tool_name}。请检查工具名称是否正确。"
             
-            # 未注册的工具
-            return f"❌ 未知工具: {tool_name}。请检查工具名称是否正确。"
+            # 获取执行期间产生的新日志（WARNING/ERROR/CRITICAL）
+            all_logs = log_buffer.get_logs(count=500)
+            new_logs = [
+                log for log in all_logs[logs_before_count:]
+                if log['level'] in ('WARNING', 'ERROR', 'CRITICAL')
+            ]
+            
+            # 如果有警告/错误日志，附加到结果
+            if new_logs:
+                result += "\n\n[执行日志]:\n"
+                for log in new_logs[-10:]:  # 最多显示 10 条
+                    result += f"[{log['level']}] {log['module']}: {log['message']}\n"
+            
+            return result
                 
         except Exception as e:
             logger.error(f"Tool execution error: {e}", exc_info=True)
