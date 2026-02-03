@@ -440,15 +440,14 @@ class Agent:
         self.handler_registry.register(
             "system",
             create_system_handler(self),
-            ["get_tool_info", "get_chat_history", "get_session_logs",
-             "enable_thinking", "get_voice_file", "get_image_file", "send_to_chat"]
+            ["get_tool_info", "get_session_logs", "enable_thinking"]
         )
         
         # IM 渠道
         self.handler_registry.register(
             "im_channel",
             create_im_channel_handler(self),
-            ["send_im_image", "send_im_file"]
+            ["send_to_chat", "get_voice_file", "get_image_file", "get_chat_history"]
         )
         
         # 技能管理
@@ -1952,6 +1951,64 @@ search_github → install_skill → 使用
         # 其他情况都进行编译
         return True
     
+
+    async def _verify_task_completion(
+        self,
+        user_request: str,
+        assistant_response: str,
+        executed_tools: list[str],
+    ) -> bool:
+        """
+        任务完成度复核
+        
+        让 LLM 判断当前响应是否真正完成了用户的意图，
+        而不是仅仅返回了中间状态的文本。
+        
+        Args:
+            user_request: 用户原始请求
+            assistant_response: 助手当前响应
+            executed_tools: 已执行的工具列表
+            
+        Returns:
+            True 如果任务已完成，False 如果需要继续执行
+        """
+        # 完全依赖 LLM 进行判断，不使用关键词匹配
+        verify_prompt = f"""请判断以下任务是否已经**真正完成**用户的意图。
+
+## 用户请求
+{user_request[:500]}
+
+## 助手响应
+{assistant_response[:800]}
+
+## 已执行的工具
+{', '.join(executed_tools) if executed_tools else '无'}
+
+## 判断标准
+- 如果用户要求"下载文件并发送"，必须同时完成下载和发送才算完成
+- 如果用户要求"搜索并告诉我结果"，必须返回搜索结果才算完成
+- 如果响应只是说"现在开始..."、"让我..."、"接下来..."，说明任务还在进行中
+- 如果响应包含明确的结果（数据、文件路径、操作确认），可能已完成
+
+## 回答要求
+只回答一个词：COMPLETED 或 INCOMPLETE"""
+
+        try:
+            response = await self.brain.think(
+                prompt=verify_prompt,
+                system="你是一个任务完成度判断助手。只回答 COMPLETED 或 INCOMPLETE。",
+            )
+            
+            result = response.content.strip().upper() if response.content else ""
+            is_completed = "COMPLETED" in result and "INCOMPLETE" not in result
+            
+            logger.info(f"[TaskVerify] user_request={user_request[:50]}... response={assistant_response[:50]}... result={result} -> {is_completed}")
+            return is_completed
+            
+        except Exception as e:
+            logger.warning(f"[TaskVerify] Failed to verify: {e}, assuming completed")
+            return True  # 验证失败时默认认为完成，避免死循环
+
     async def _chat_with_tools_and_context(
         self, 
         messages: list[dict], 
@@ -2115,11 +2172,32 @@ search_github → install_skill → 使用
             if not tool_calls:
                 # 如果本轮任务已经执行过工具
                 if tools_executed_in_task:
-                    # 只有当 LLM 返回了有意义的文本确认时才结束任务
+                    # 只有当 LLM 返回了有意义的文本确认时才检查是否真正完成
                     cleaned_text = strip_thinking_tags(text_content)
                     if cleaned_text and len(cleaned_text.strip()) > 0:
-                        logger.info("[ForceToolCall] Skipped - tools executed and LLM provided confirmation")
-                        return cleaned_text
+                        # === 任务完成度复核 ===
+                        # 让 LLM 判断任务是否真正完成用户意图
+                        is_completed = await self._verify_task_completion(
+                            user_request=messages[0].get("content", "") if messages else "",
+                            assistant_response=cleaned_text,
+                            executed_tools=executed_tool_names if 'executed_tool_names' in dir() else [],
+                        )
+                        
+                        if is_completed:
+                            logger.info("[ForceToolCall] Skipped - task verified as completed")
+                            return cleaned_text
+                        else:
+                            logger.info("[ForceToolCall] Task not completed, continuing execution...")
+                            # 任务未完成，追加提示让 LLM 继续
+                            working_messages.append({
+                                "role": "assistant",
+                                "content": [{"type": "text", "text": text_content}],
+                            })
+                            working_messages.append({
+                                "role": "user",
+                                "content": "[系统] 任务尚未完成。请继续执行剩余步骤，确保完成用户的完整请求。",
+                            })
+                            continue
                     else:
                         # LLM 没有返回文本，可能还需要继续操作，让它继续
                         logger.info("[ForceToolCall] Tools executed but no confirmation text, continuing...")
@@ -2215,7 +2293,11 @@ search_github → install_skill → 使用
                         "tool_use_id": tc["id"],
                         "content": str(result) if result else "操作已完成",
                     })
-                    tools_executed_in_task = True  # 标记本轮已执行工具
+                    tools_executed_in_task = True
+                    # 记录已执行的工具名称（用于任务完成度复核）
+                    if 'executed_tool_names' not in dir():
+                        executed_tool_names = []
+                    executed_tool_names.append(tc["name"])  # 标记本轮已执行工具
                     # 任务监控：结束工具调用（成功）
                     if task_monitor:
                         task_monitor.end_tool_call(str(result) if result else "", success=True)
