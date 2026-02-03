@@ -259,6 +259,14 @@ class Agent:
     _current_im_session = None
     _current_im_gateway = None
     
+    # 停止任务的指令列表（用户发送这些指令时会立即停止当前任务）
+    STOP_COMMANDS = {
+        "停止", "停", "stop", "停止执行", "取消", "取消任务",
+        "算了", "不用了", "别做了", "停下", "暂停",
+        "cancel", "abort", "quit",
+        "停止当前任务", "中止", "终止", "不要了",
+    }
+    
     def __init__(
         self,
         name: Optional[str] = None,
@@ -336,6 +344,10 @@ class Agent:
         # 消息中断机制
         self._current_session = None  # 当前会话引用
         self._interrupt_enabled = True  # 是否启用中断检查
+        
+        # 任务取消机制
+        self._task_cancelled = False  # 任务是否被用户取消
+        self._cancel_reason = ""  # 取消原因
         
         # 状态
         self._initialized = False
@@ -1669,6 +1681,19 @@ search_github → install_skill → 使用
         if not self._initialized:
             await self.initialize()
         
+        # === 停止指令检测 ===
+        # 检测用户是否发送了停止任务的指令
+        message_lower = message.strip().lower()
+        if message_lower in self.STOP_COMMANDS or message.strip() in self.STOP_COMMANDS:
+            self._task_cancelled = True
+            self._cancel_reason = f"用户发送停止指令: {message}"
+            logger.info(f"[StopTask] User requested to stop: {message}")
+            return "✅ 好的，已停止当前任务。有什么其他需要帮助的吗？"
+        
+        # 重置取消标志（开始新任务）
+        self._task_cancelled = False
+        self._cancel_reason = ""
+        
         # 保存当前 IM 会话信息（供 send_to_chat 工具使用）
         Agent._current_im_session = session
         Agent._current_im_gateway = gateway
@@ -2269,12 +2294,27 @@ search_github → install_skill → 使用
                 "content": assistant_content,
             })
             
-            # 执行工具调用（支持中断检查）
+            # 执行工具调用（支持中断检查和任务取消）
             tool_results = []
             interrupt_detected = False
             
+            # === 工具执行前检查取消 ===
+            if self._task_cancelled:
+                logger.info(f"[StopTask] Task cancelled before tool execution: {self._cancel_reason}")
+                return "✅ 任务已停止。"
+            
             for i, tc in enumerate(tool_calls):
                 # === 中断检查点 ===
+                # 检查是否有新消息请求停止任务
+                if self._task_cancelled:
+                    logger.info(f"[StopTask] Task cancelled during tool loop: {self._cancel_reason}")
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": tc["id"],
+                        "content": "[任务已被用户停止]",
+                    })
+                    break
+                
                 # 在每个工具调用之前检查是否有新消息（第一个工具除外）
                 if i > 0:
                     interrupt_hint = await self._check_interrupt()
@@ -2399,6 +2439,32 @@ search_github → install_skill → 使用
         """
         self._interrupt_enabled = enabled
         logger.info(f"Interrupt check {'enabled' if enabled else 'disabled'}")
+    
+    def cancel_current_task(self, reason: str = "用户请求停止") -> None:
+        """
+        取消当前正在执行的任务
+        
+        可以从外部调用此方法来停止正在运行的任务。
+        
+        Args:
+            reason: 取消原因
+        """
+        self._task_cancelled = True
+        self._cancel_reason = reason
+        logger.info(f"[StopTask] Task cancellation requested: {reason}")
+    
+    def is_stop_command(self, message: str) -> bool:
+        """
+        检查消息是否为停止指令
+        
+        Args:
+            message: 用户消息
+            
+        Returns:
+            是否为停止指令
+        """
+        msg_lower = message.strip().lower()
+        return msg_lower in self.STOP_COMMANDS or message.strip() in self.STOP_COMMANDS
     
     async def _chat_with_tools(self, message: str) -> str:
         """
