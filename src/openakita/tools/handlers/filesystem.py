@@ -83,9 +83,13 @@ class FilesystemHandler:
             log_buffer.add_log(
                 level="INFO",
                 module="shell",
-                message=f"$ {command}\n[exit: 0]\n{result.stdout}",
+                message=f"$ {command}\n[exit: 0]\n{result.stdout}" + (f"\n[stderr]: {result.stderr}" if result.stderr else ""),
             )
-            return f"命令执行成功 (exit code: 0):\n{result.stdout}"
+            # 即使成功，也返回 stderr 中的警告信息
+            output = result.stdout
+            if result.stderr:
+                output += f"\n[警告]:\n{result.stderr}"
+            return f"命令执行成功 (exit code: 0):\n{output}"
         else:
             log_buffer.add_log(
                 level="ERROR",
