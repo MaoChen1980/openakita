@@ -156,14 +156,14 @@ LOG_RETENTION_DAYS=30
 
 ### Multi-Platform Support
 
-| Platform | Status |
-|----------|--------|
-| **CLI** | ✅ Full Support |
-| **Telegram** | ✅ Full Support |
-| **Feishu** | ⚠️ Implemented, Not Tested |
-| **WeCom** | ⚠️ Implemented, Not Tested |
-| **DingTalk** | ⚠️ Implemented, Not Tested |
-| **QQ** | ⚠️ Implemented, Not Tested |
+| Platform | Status | Supported Message Types |
+|----------|--------|------------------------|
+| **CLI** | ✅ Full Support | Text |
+| **Telegram** | ✅ Full Support | Text, Voice, Image, File |
+| **Feishu** | ✅ Full Support | Text, Voice, Image, File |
+| **WeCom** | ⚠️ Implemented, Not Tested | - |
+| **DingTalk** | ⚠️ Implemented, Not Tested | - |
+| **QQ** | ⚠️ Implemented, Not Tested | - |
 
 ## Quick Start
 
