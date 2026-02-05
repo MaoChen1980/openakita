@@ -8,21 +8,21 @@ QQ 适配器
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import uuid
-from pathlib import Path
-from typing import Optional, Any, Callable
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 from ..base import ChannelAdapter
 from ..types import (
-    UnifiedMessage,
-    OutgoingMessage,
-    MessageContent,
     MediaFile,
     MediaStatus,
-    MessageType,
+    MessageContent,
+    OutgoingMessage,
+    UnifiedMessage,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,38 +36,37 @@ def _import_websockets():
     if websockets is None:
         try:
             import websockets as ws
+
             websockets = ws
         except ImportError:
-            raise ImportError(
-                "websockets not installed. "
-                "Run: pip install websockets"
-            )
+            raise ImportError("websockets not installed. Run: pip install websockets")
 
 
 @dataclass
 class QQConfig:
     """QQ 配置"""
+
     ws_url: str = "ws://127.0.0.1:8080"
-    access_token: Optional[str] = None
+    access_token: str | None = None
 
 
 class QQAdapter(ChannelAdapter):
     """
     QQ 适配器 (OneBot 协议)
-    
+
     支持:
     - WebSocket 正向连接
     - 文本/图片/语音/文件消息
     - 群聊/私聊
     """
-    
+
     channel_name = "qq"
-    
+
     def __init__(
         self,
         ws_url: str = "ws://127.0.0.1:8080",
-        access_token: Optional[str] = None,
-        media_dir: Optional[Path] = None,
+        access_token: str | None = None,
+        media_dir: Path | None = None,
     ):
         """
         Args:
@@ -76,59 +75,57 @@ class QQAdapter(ChannelAdapter):
             media_dir: 媒体文件存储目录
         """
         super().__init__()
-        
+
         self.config = QQConfig(
             ws_url=ws_url,
             access_token=access_token,
         )
         self.media_dir = Path(media_dir) if media_dir else Path("data/media/qq")
         self.media_dir.mkdir(parents=True, exist_ok=True)
-        
-        self._ws: Optional[Any] = None
+
+        self._ws: Any | None = None
         self._api_callbacks: dict[str, asyncio.Future] = {}
-        self._receive_task: Optional[asyncio.Task] = None
-    
+        self._receive_task: asyncio.Task | None = None
+
     async def start(self) -> None:
         """启动 QQ 客户端"""
         _import_websockets()
-        
+
         # 连接 WebSocket
         headers = {}
         if self.config.access_token:
             headers["Authorization"] = f"Bearer {self.config.access_token}"
-        
+
         try:
             self._ws = await websockets.connect(
                 self.config.ws_url,
                 extra_headers=headers,
             )
-            
+
             # 启动消息接收循环
             self._receive_task = asyncio.create_task(self._receive_loop())
-            
+
             self._running = True
             logger.info(f"QQ adapter connected to {self.config.ws_url}")
-            
+
         except Exception as e:
             logger.error(f"Failed to connect to OneBot: {e}")
             raise
-    
+
     async def stop(self) -> None:
         """停止 QQ 客户端"""
         self._running = False
-        
+
         if self._receive_task:
             self._receive_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._receive_task
-            except asyncio.CancelledError:
-                pass
-        
+
         if self._ws:
             await self._ws.close()
-        
+
         logger.info("QQ adapter stopped")
-    
+
     async def _receive_loop(self) -> None:
         """WebSocket 消息接收循环"""
         try:
@@ -140,12 +137,12 @@ class QQAdapter(ChannelAdapter):
                     logger.warning(f"Invalid JSON: {message}")
                 except Exception as e:
                     logger.error(f"Error handling event: {e}")
-                    
+
         except websockets.ConnectionClosed:
             logger.warning("WebSocket connection closed")
         except asyncio.CancelledError:
             pass
-    
+
     async def _handle_event(self, data: dict) -> None:
         """处理 OneBot 事件"""
         # API 响应
@@ -156,33 +153,31 @@ class QQAdapter(ChannelAdapter):
                 if data.get("status") == "ok":
                     future.set_result(data.get("data"))
                 else:
-                    future.set_exception(
-                        RuntimeError(data.get("message", "API call failed"))
-                    )
+                    future.set_exception(RuntimeError(data.get("message", "API call failed")))
             return
-        
+
         # 事件
         post_type = data.get("post_type")
-        
+
         if post_type == "message":
             await self._handle_message_event(data)
         elif post_type == "notice":
             await self._emit_event("notice", data)
         elif post_type == "request":
             await self._emit_event("request", data)
-    
+
     async def _handle_message_event(self, data: dict) -> None:
         """处理消息事件"""
         message_type = data.get("message_type")
-        
+
         # 解析消息内容
         raw_message = data.get("message", [])
         if isinstance(raw_message, str):
             # CQ 码格式，转换为数组
             raw_message = self._parse_cq_code(raw_message)
-        
+
         content = await self._parse_message(raw_message)
-        
+
         # 确定聊天类型和 ID
         if message_type == "private":
             chat_type = "private"
@@ -190,10 +185,10 @@ class QQAdapter(ChannelAdapter):
         else:  # group
             chat_type = "group"
             chat_id = str(data.get("group_id"))
-        
+
         sender = data.get("sender", {})
         user_id = str(data.get("user_id"))
-        
+
         unified = UnifiedMessage.create(
             channel=self.channel_name,
             channel_message_id=str(data.get("message_id", "")),
@@ -208,25 +203,25 @@ class QQAdapter(ChannelAdapter):
                 "card": sender.get("card"),
             },
         )
-        
+
         self._log_message(unified)
         await self._emit_message(unified)
-    
+
     def _parse_cq_code(self, message: str) -> list[dict]:
         """解析 CQ 码"""
         import re
-        
+
         result = []
-        pattern = r'\[CQ:(\w+)(?:,([^\]]+))?\]'
-        
+        pattern = r"\[CQ:(\w+)(?:,([^\]]+))?\]"
+
         last_end = 0
         for match in re.finditer(pattern, message):
             # 前面的文本
             if match.start() > last_end:
-                text = message[last_end:match.start()]
+                text = message[last_end : match.start()]
                 if text:
                     result.append({"type": "text", "data": {"text": text}})
-            
+
             # CQ 码
             cq_type = match.group(1)
             params = {}
@@ -235,31 +230,31 @@ class QQAdapter(ChannelAdapter):
                     if "=" in param:
                         key, value = param.split("=", 1)
                         params[key] = value
-            
+
             result.append({"type": cq_type, "data": params})
             last_end = match.end()
-        
+
         # 剩余文本
         if last_end < len(message):
             text = message[last_end:]
             if text:
                 result.append({"type": "text", "data": {"text": text}})
-        
+
         return result
-    
+
     async def _parse_message(self, message: list) -> MessageContent:
         """解析 OneBot 消息"""
         content = MessageContent()
-        
+
         text_parts = []
-        
+
         for segment in message:
             seg_type = segment.get("type")
             data = segment.get("data", {})
-            
+
             if seg_type == "text":
                 text_parts.append(data.get("text", ""))
-            
+
             elif seg_type == "image":
                 media = MediaFile.create(
                     filename=data.get("file", "image.jpg"),
@@ -268,7 +263,7 @@ class QQAdapter(ChannelAdapter):
                     file_id=data.get("file"),
                 )
                 content.images.append(media)
-            
+
             elif seg_type == "record":
                 media = MediaFile.create(
                     filename=data.get("file", "voice.amr"),
@@ -277,7 +272,7 @@ class QQAdapter(ChannelAdapter):
                     file_id=data.get("file"),
                 )
                 content.voices.append(media)
-            
+
             elif seg_type == "video":
                 media = MediaFile.create(
                     filename=data.get("file", "video.mp4"),
@@ -286,7 +281,7 @@ class QQAdapter(ChannelAdapter):
                     file_id=data.get("file"),
                 )
                 content.videos.append(media)
-            
+
             elif seg_type == "file":
                 media = MediaFile.create(
                     filename=data.get("name", "file"),
@@ -294,138 +289,141 @@ class QQAdapter(ChannelAdapter):
                     file_id=data.get("id"),
                 )
                 content.files.append(media)
-            
+
             elif seg_type == "at":
                 text_parts.append(f"@{data.get('qq', '')}")
-            
+
             elif seg_type == "face":
                 text_parts.append(f"[表情:{data.get('id', '')}]")
-        
+
         content.text = "".join(text_parts) if text_parts else None
-        
+
         return content
-    
+
     async def _call_api(self, action: str, params: dict = None) -> Any:
         """调用 OneBot API"""
         if not self._ws:
             raise RuntimeError("WebSocket not connected")
-        
+
         echo = str(uuid.uuid4())
-        
+
         request = {
             "action": action,
             "params": params or {},
             "echo": echo,
         }
-        
+
         # 创建 Future 等待响应
         future = asyncio.get_event_loop().create_future()
         self._api_callbacks[echo] = future
-        
+
         try:
             await self._ws.send(json.dumps(request))
             result = await asyncio.wait_for(future, timeout=30)
             return result
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._api_callbacks.pop(echo, None)
             raise RuntimeError(f"API call timeout: {action}")
-    
+
     async def send_message(self, message: OutgoingMessage) -> str:
         """发送消息"""
         # 构建消息数组
         msg_array = []
-        
+
         # 文本
         if message.content.text:
-            msg_array.append({
-                "type": "text",
-                "data": {"text": message.content.text}
-            })
-        
+            msg_array.append({"type": "text", "data": {"text": message.content.text}})
+
         # 图片
         for img in message.content.images:
             if img.local_path:
-                msg_array.append({
-                    "type": "image",
-                    "data": {"file": f"file:///{img.local_path}"}
-                })
+                msg_array.append({"type": "image", "data": {"file": f"file:///{img.local_path}"}})
             elif img.url:
-                msg_array.append({
-                    "type": "image",
-                    "data": {"file": img.url}
-                })
-        
+                msg_array.append({"type": "image", "data": {"file": img.url}})
+
         # 语音
         for voice in message.content.voices:
             if voice.local_path:
-                msg_array.append({
-                    "type": "record",
-                    "data": {"file": f"file:///{voice.local_path}"}
-                })
-        
+                msg_array.append(
+                    {"type": "record", "data": {"file": f"file:///{voice.local_path}"}}
+                )
+
         # 判断是群消息还是私聊
         # 这里简化处理，假设 chat_id 是数字
         chat_id = int(message.chat_id)
-        
+
         # 发送（默认发送私聊，群聊需要额外判断）
         if message.metadata.get("is_group"):
-            result = await self._call_api("send_group_msg", {
-                "group_id": chat_id,
-                "message": msg_array,
-            })
+            result = await self._call_api(
+                "send_group_msg",
+                {
+                    "group_id": chat_id,
+                    "message": msg_array,
+                },
+            )
         else:
-            result = await self._call_api("send_private_msg", {
-                "user_id": chat_id,
-                "message": msg_array,
-            })
-        
+            result = await self._call_api(
+                "send_private_msg",
+                {
+                    "user_id": chat_id,
+                    "message": msg_array,
+                },
+            )
+
         return str(result.get("message_id", ""))
-    
+
     async def send_group_message(
         self,
         group_id: int,
         message: str,
     ) -> str:
         """发送群消息"""
-        result = await self._call_api("send_group_msg", {
-            "group_id": group_id,
-            "message": message,
-        })
+        result = await self._call_api(
+            "send_group_msg",
+            {
+                "group_id": group_id,
+                "message": message,
+            },
+        )
         return str(result.get("message_id", ""))
-    
+
     async def send_private_message(
         self,
         user_id: int,
         message: str,
     ) -> str:
         """发送私聊消息"""
-        result = await self._call_api("send_private_msg", {
-            "user_id": user_id,
-            "message": message,
-        })
+        result = await self._call_api(
+            "send_private_msg",
+            {
+                "user_id": user_id,
+                "message": message,
+            },
+        )
         return str(result.get("message_id", ""))
-    
+
     async def download_media(self, media: MediaFile) -> Path:
         """下载媒体文件"""
         if media.local_path and Path(media.local_path).exists():
             return Path(media.local_path)
-        
+
         if media.url:
             import httpx
+
             async with httpx.AsyncClient() as client:
                 response = await client.get(media.url)
-                
+
                 local_path = self.media_dir / media.filename
                 with open(local_path, "wb") as f:
                     f.write(response.content)
-                
+
                 media.local_path = str(local_path)
                 media.status = MediaStatus.READY
-                
+
                 return local_path
-        
+
         raise ValueError("Media has no url")
-    
+
     async def upload_media(self, path: Path, mime_type: str) -> MediaFile:
         """上传媒体文件"""
         # OneBot 直接使用本地路径
@@ -433,13 +431,16 @@ class QQAdapter(ChannelAdapter):
             filename=path.name,
             mime_type=mime_type,
         )
-    
-    async def get_user_info(self, user_id: str) -> Optional[dict]:
+
+    async def get_user_info(self, user_id: str) -> dict | None:
         """获取用户信息"""
         try:
-            result = await self._call_api("get_stranger_info", {
-                "user_id": int(user_id),
-            })
+            result = await self._call_api(
+                "get_stranger_info",
+                {
+                    "user_id": int(user_id),
+                },
+            )
             return {
                 "id": str(result.get("user_id")),
                 "nickname": result.get("nickname"),
@@ -448,13 +449,16 @@ class QQAdapter(ChannelAdapter):
             }
         except Exception:
             return None
-    
-    async def get_group_info(self, group_id: int) -> Optional[dict]:
+
+    async def get_group_info(self, group_id: int) -> dict | None:
         """获取群信息"""
         try:
-            result = await self._call_api("get_group_info", {
-                "group_id": group_id,
-            })
+            result = await self._call_api(
+                "get_group_info",
+                {
+                    "group_id": group_id,
+                },
+            )
             return {
                 "id": str(result.get("group_id")),
                 "name": result.get("group_name"),
@@ -463,13 +467,16 @@ class QQAdapter(ChannelAdapter):
             }
         except Exception:
             return None
-    
+
     async def delete_message(self, chat_id: str, message_id: str) -> bool:
         """撤回消息"""
         try:
-            await self._call_api("delete_msg", {
-                "message_id": int(message_id),
-            })
+            await self._call_api(
+                "delete_msg",
+                {
+                    "message_id": int(message_id),
+                },
+            )
             return True
         except Exception:
             return False

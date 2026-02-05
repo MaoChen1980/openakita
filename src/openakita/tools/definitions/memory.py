@@ -30,11 +30,15 @@ MEMORY_TOOLS = [
             "type": "object",
             "properties": {
                 "content": {"type": "string", "description": "要记住的内容"},
-                "type": {"type": "string", "enum": ["fact", "preference", "skill", "error", "rule"], "description": "记忆类型"},
-                "importance": {"type": "number", "description": "重要性（0-1）", "default": 0.5}
+                "type": {
+                    "type": "string",
+                    "enum": ["fact", "preference", "skill", "error", "rule"],
+                    "description": "记忆类型",
+                },
+                "importance": {"type": "number", "description": "重要性（0-1）", "default": 0.5},
             },
-            "required": ["content", "type"]
-        }
+            "required": ["content", "type"],
+        },
     },
     {
         "name": "search_memory",
@@ -53,10 +57,14 @@ MEMORY_TOOLS = [
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "搜索关键词"},
-                "type": {"type": "string", "enum": ["fact", "preference", "skill", "error", "rule"], "description": "记忆类型过滤（可选）"}
+                "type": {
+                    "type": "string",
+                    "enum": ["fact", "preference", "skill", "error", "rule"],
+                    "description": "记忆类型过滤（可选）",
+                },
             },
-            "required": ["query"]
-        }
+            "required": ["query"],
+        },
     },
     {
         "name": "get_memory_stats",
@@ -67,9 +75,6 @@ MEMORY_TOOLS = [
 - 总记忆数量
 - 按类型分布
 - 按重要性分布""",
-        "input_schema": {
-            "type": "object",
-            "properties": {}
-        }
+        "input_schema": {"type": "object", "properties": {}},
     },
 ]

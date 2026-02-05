@@ -34,10 +34,10 @@ FILESYSTEM_TOOLS = [
             "properties": {
                 "command": {"type": "string", "description": "要执行的 Shell 命令"},
                 "cwd": {"type": "string", "description": "工作目录（可选）"},
-                "timeout": {"type": "integer", "description": "超时时间（秒），默认 60 秒"}
+                "timeout": {"type": "integer", "description": "超时时间（秒），默认 60 秒"},
             },
-            "required": ["command"]
-        }
+            "required": ["command"],
+        },
     },
     {
         "name": "write_file",
@@ -57,10 +57,10 @@ FILESYSTEM_TOOLS = [
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "文件路径"},
-                "content": {"type": "string", "description": "文件内容"}
+                "content": {"type": "string", "description": "文件内容"},
             },
-            "required": ["path", "content"]
-        }
+            "required": ["path", "content"],
+        },
     },
     {
         "name": "read_file",
@@ -78,11 +78,9 @@ FILESYSTEM_TOOLS = [
 - 二进制文件需要特殊处理""",
         "input_schema": {
             "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "文件路径"}
-            },
-            "required": ["path"]
-        }
+            "properties": {"path": {"type": "string", "description": "文件路径"}},
+            "required": ["path"],
+        },
     },
     {
         "name": "list_directory",
@@ -100,10 +98,8 @@ FILESYSTEM_TOOLS = [
 - 修改时间""",
         "input_schema": {
             "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "目录路径"}
-            },
-            "required": ["path"]
-        }
+            "properties": {"path": {"type": "string", "description": "目录路径"}},
+            "required": ["path"],
+        },
     },
 ]

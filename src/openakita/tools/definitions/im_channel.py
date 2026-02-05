@@ -2,7 +2,7 @@
 IM Channel 工具定义
 
 包含 IM 通道相关的工具：
-- send_to_chat: 发送消息/文件
+- deliver_artifacts: 通过网关交付附件并返回回执
 - get_voice_file: 获取语音文件
 - get_image_file: 获取图片文件
 - get_chat_history: 获取聊天历史
@@ -10,44 +10,60 @@ IM Channel 工具定义
 
 IM_CHANNEL_TOOLS = [
     {
-        "name": "send_to_chat",
-        "description": "Send messages/files to current IM chat (only available in IM session). When you need to: (1) Send text responses, (2) Send screenshots/images after desktop_screenshot, (3) Send voice/documents to user. Use file_path for files.",
-        "detail": """发送消息到当前 IM 聊天（仅在 IM 会话中可用）。
+        "name": "deliver_artifacts",
+        "description": "Deliver artifacts (files/images/voice) to current IM chat via gateway, returning a receipt. Use this as the only delivery proof for attachments.",
+        "detail": """通过网关向当前 IM 聊天交付附件（文件/图片/语音），并返回结构化回执（receipt）。
 
-**支持发送**：
-- 文本消息
-- 图片文件
-- 语音文件
-- 其他文件
+⚠️ **重要**：
+- 文本回复会由网关直接转发（不需要用工具发送）。
+- 附件交付必须使用本工具，并以回执作为“已交付”的唯一证据。
 
-**使用场景**：
-当你完成了生成文件（如截图、文档、语音）的任务时，使用此工具将文件发送给用户。
+输入说明：
+- artifacts: 要交付的附件清单（显式 manifest）
+  - type: file | image | voice
+  - path: 本地文件路径
+  - caption: 说明文字（可选）
+  - mime/name/dedupe_key: 预留字段（可选）
 
-**示例**：
-- 截图后: send_to_chat(file_path="C:/Users/.../screenshot.png")
-- 发消息: send_to_chat(text="任务完成！")
-- 带说明: send_to_chat(file_path="...", caption="这是截图")""",
+输出说明：
+- 返回 JSON 字符串，包含每个 artifact 的回执（receipt）：
+  - status: delivered | skipped | failed
+  - message_id: 底层通道消息 ID（若适用）
+  - size/sha256: 本地文件信息（若可读取）
+  - dedupe_key: 会话内去重键（相同附件可被标记为 skipped）
+  - error_code: 失败码/跳过原因（如 missing_type_or_path / deduped / unsupported_type / send_failed / adapter_not_found / missing_context）
+
+示例：
+- 发送截图：deliver_artifacts(artifacts=[{"type":"image","path":"data/temp/s.png","caption":"这是截图"}])
+- 发送文件：deliver_artifacts(artifacts=[{"type":"file","path":"data/out/report.md"}])""",
         "input_schema": {
             "type": "object",
             "properties": {
-                "text": {
-                    "type": "string",
-                    "description": "要发送的文本消息（可选）"
+                "artifacts": {
+                    "type": "array",
+                    "description": "要交付的附件清单（manifest）",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "type": {"type": "string", "description": "file|image|voice"},
+                            "path": {"type": "string", "description": "本地文件路径"},
+                            "caption": {"type": "string", "description": "说明文字（可选）"},
+                            "mime": {"type": "string", "description": "MIME 类型（可选）"},
+                            "name": {"type": "string", "description": "展示文件名（可选）"},
+                            "dedupe_key": {"type": "string", "description": "去重键（可选）"},
+                        },
+                        "required": ["type", "path"],
+                    },
+                    "minItems": 1,
                 },
-                "file_path": {
+                "mode": {
                     "type": "string",
-                    "description": "要发送的文件路径（图片、文档等）"
+                    "description": "send|preview（预留）",
+                    "default": "send",
                 },
-                "voice_path": {
-                    "type": "string",
-                    "description": "要发送的语音文件路径"
-                },
-                "caption": {
-                    "type": "string",
-                    "description": "文件的说明文字（可选）"
-                }
-            }
-        }
+            },
+            "required": ["artifacts"],
+        },
     },
     {
         "name": "get_voice_file",
@@ -63,10 +79,7 @@ IM_CHANNEL_TOOLS = [
 **适用场景**：
 - 处理用户的语音消息
 - 语音转文字""",
-        "input_schema": {
-            "type": "object",
-            "properties": {}
-        }
+        "input_schema": {"type": "object", "properties": {}},
     },
     {
         "name": "get_image_file",
@@ -81,10 +94,7 @@ IM_CHANNEL_TOOLS = [
 **适用场景**：
 - 处理用户的图片
 - 分析图片内容""",
-        "input_schema": {
-            "type": "object",
-            "properties": {}
-        }
+        "input_schema": {"type": "object", "properties": {}},
     },
     {
         "name": "get_chat_history",
@@ -103,17 +113,13 @@ IM_CHANNEL_TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "limit": {
-                    "type": "integer",
-                    "description": "获取最近多少条消息",
-                    "default": 20
-                },
+                "limit": {"type": "integer", "description": "获取最近多少条消息", "default": 20},
                 "include_system": {
                     "type": "boolean",
                     "description": "是否包含系统消息（如任务通知）",
-                    "default": True
-                }
-            }
-        }
+                    "default": True,
+                },
+            },
+        },
     },
 ]

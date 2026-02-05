@@ -86,7 +86,7 @@ tool_name(param="value")""",
 | Browser | browser_open, browser_navigate, browser_click, ... | 网页自动化 |
 | Memory | add_memory, search_memory, get_memory_stats | 长期记忆 |
 | Scheduled Tasks | schedule_task, list_scheduled_tasks, ... | 定时任务和提醒 |
-| IM Channel | send_to_chat, get_voice_file, get_image_file, ... | IM 消息处理 |
+| IM Channel | deliver_artifacts, get_voice_file, get_image_file, ... | IM 消息处理（附件交付以回执为证据） |
 | User Profile | update_user_profile, get_user_profile, ... | 用户档案管理 |
 | System | enable_thinking, get_session_logs, get_tool_info | 系统控制 |
 

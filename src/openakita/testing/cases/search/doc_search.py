@@ -45,7 +45,6 @@ DOC_SEARCH_TESTS = [
         expected="length>=10",
         tags=["doc", "soul"],
     ),
-    
     # 规格文档搜索
     TestCase(
         id="search_spec_001",
@@ -73,7 +72,6 @@ DOC_SEARCH_TESTS = [
         expected="length>=1",
         tags=["spec", "tool"],
     ),
-    
     # 代码注释搜索
     TestCase(
         id="search_docstring_001",
@@ -102,6 +100,7 @@ DOC_SEARCH_TESTS = [
         tags=["docstring", "class"],
     ),
 ]
+
 
 def get_tests() -> list[TestCase]:
     return DOC_SEARCH_TESTS

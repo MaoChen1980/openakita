@@ -244,11 +244,11 @@ Bot: I'll create that for you...
 
 | Type | Support | Tool |
 |------|---------|------|
-| Text | All platforms | `send_to_chat` |
-| Markdown | All platforms | `send_to_chat` |
-| Image | All platforms | `send_to_chat` with `file_path` |
-| Voice | Telegram | `send_to_chat` with `voice_path` |
-| File | Telegram, Feishu | `send_to_chat` with `file_path` |
+| Text | All platforms | **Gateway forward** (assistant text is forwarded automatically) |
+| Markdown | All platforms | **Gateway forward** |
+| Image | All platforms | `deliver_artifacts` |
+| Voice | Telegram | `deliver_artifacts` |
+| File | Telegram, Feishu | `deliver_artifacts` |
 | Cards | DingTalk, Feishu | Platform-specific |
 
 ## LLM Tools for IM
@@ -257,10 +257,15 @@ The Agent has access to these IM-specific tools:
 
 | Tool | Description |
 |------|-------------|
-| `send_to_chat` | Send text, image, voice, or file to user |
+| `deliver_artifacts` | Deliver attachments (file/image/voice) via gateway and return receipts (the only delivery proof) |
 | `get_chat_history` | Query recent chat messages (user, assistant, system) |
 | `get_voice_file` | Get local path of user's voice message |
 | `get_image_file` | Get local path of user's image |
+
+### Delivery Protocol (Important)
+
+- **Text**: do not call any tool. Normal assistant text will be forwarded by the gateway.
+- **Attachments**: must call `deliver_artifacts` and rely on its receipt as proof of delivery.
 
 ### Example: Chat History
 

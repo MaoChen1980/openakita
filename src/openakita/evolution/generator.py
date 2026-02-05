@@ -8,14 +8,13 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
+from ..config import settings
 from ..core.brain import Brain
-from ..skills.registry import SkillRegistry
 from ..skills.loader import SkillLoader
+from ..skills.registry import SkillRegistry
 from ..tools.file import FileTool
 from ..tools.shell import ShellTool
-from ..config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -23,19 +22,20 @@ logger = logging.getLogger(__name__)
 @dataclass
 class GenerationResult:
     """生成结果"""
+
     success: bool
     skill_name: str
-    skill_dir: Optional[str] = None
-    error: Optional[str] = None
+    skill_dir: str | None = None
+    error: str | None = None
     test_passed: bool = False
 
 
 class SkillGenerator:
     """
     技能生成器
-    
+
     使用 LLM 根据描述自动生成符合 Agent Skills 规范的技能。
-    
+
     生成的技能结构:
     skills/<skill-name>/
     ├── SKILL.md          # 技能定义 (必需)
@@ -44,8 +44,8 @@ class SkillGenerator:
     └── references/       # 参考文档 (可选)
         └── REFERENCE.md
     """
-    
-    SKILL_MD_TEMPLATE = '''---
+
+    SKILL_MD_TEMPLATE = """---
 name: {name}
 description: |
   {description}
@@ -66,7 +66,7 @@ metadata:
 ## Instructions
 
 {instructions}
-'''
+"""
 
     SCRIPT_TEMPLATE = '''#!/usr/bin/env python3
 """
@@ -85,9 +85,9 @@ def main():
     parser = argparse.ArgumentParser(description="{description}")
     # 添加参数
     {args_code}
-    
+
     args = parser.parse_args()
-    
+
     try:
         result = execute(args)
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -99,10 +99,10 @@ def main():
 def execute(args):
     """
     执行主逻辑
-    
+
     Args:
         args: 命令行参数
-    
+
     Returns:
         结果字典
     """
@@ -116,8 +116,8 @@ if __name__ == "__main__":
     def __init__(
         self,
         brain: Brain,
-        skills_dir: Optional[Path] = None,
-        skill_registry: Optional[SkillRegistry] = None,
+        skills_dir: Path | None = None,
+        skill_registry: SkillRegistry | None = None,
     ):
         self.brain = brain
         self.skills_dir = skills_dir or settings.skills_path
@@ -125,51 +125,51 @@ if __name__ == "__main__":
         self.loader = SkillLoader(self.registry)
         self.file_tool = FileTool()
         self.shell = ShellTool()
-    
-    async def generate(self, description: str, name: Optional[str] = None) -> GenerationResult:
+
+    async def generate(self, description: str, name: str | None = None) -> GenerationResult:
         """
         生成技能
-        
+
         Args:
             description: 技能功能描述
             name: 技能名称（可选，自动生成）
-        
+
         Returns:
             GenerationResult
         """
         logger.info(f"Generating skill: {description}")
-        
+
         # 1. 生成技能名称
         if not name:
             name = await self._generate_name(description)
-        
+
         # 确保名称格式正确 (lowercase, hyphens)
         name = self._normalize_name(name)
-        
+
         # 2. 检查是否已存在
         skill_dir = self.skills_dir / name
         if skill_dir.exists():
             logger.warning(f"Skill directory already exists: {skill_dir}")
             # 可以选择覆盖或返回错误
-        
+
         # 3. 创建目录结构
         skill_dir.mkdir(parents=True, exist_ok=True)
         scripts_dir = skill_dir / "scripts"
         scripts_dir.mkdir(exist_ok=True)
-        
+
         # 4. 生成 SKILL.md
         skill_md_content = await self._generate_skill_md(name, description)
         skill_md_path = skill_dir / "SKILL.md"
         await self.file_tool.write(str(skill_md_path), skill_md_content)
-        
+
         # 5. 生成脚本
         script_content = await self._generate_script(name, description)
         script_path = scripts_dir / "main.py"
         await self.file_tool.write(str(script_path), script_content)
-        
+
         # 6. 测试脚本
         test_passed = await self._test_script(script_path)
-        
+
         if not test_passed:
             # 尝试修复
             logger.info("Initial test failed, attempting to fix...")
@@ -177,7 +177,7 @@ if __name__ == "__main__":
             if fixed_script:
                 await self.file_tool.write(str(script_path), fixed_script)
                 test_passed = await self._test_script(script_path)
-        
+
         # 7. 加载技能到 registry
         if test_passed:
             try:
@@ -186,14 +186,14 @@ if __name__ == "__main__":
                     logger.info(f"Skill loaded successfully: {name}")
             except Exception as e:
                 logger.error(f"Failed to load generated skill: {e}")
-        
+
         return GenerationResult(
             success=test_passed,
             skill_name=name,
             skill_dir=str(skill_dir),
             test_passed=test_passed,
         )
-    
+
     def _normalize_name(self, name: str) -> str:
         """标准化技能名称 (lowercase, hyphens only)"""
         # 转小写
@@ -206,12 +206,12 @@ if __name__ == "__main__":
         name = re.sub(r"-+", "-", name)
         # 去除首尾连字符
         name = name.strip("-")
-        
+
         if not name:
             name = "custom-skill"
-        
+
         return name
-    
+
     async def _generate_name(self, description: str) -> str:
         """使用 LLM 生成技能名称"""
         prompt = f"""为以下功能生成一个简短的技能名称（使用小写字母和连字符，如 datetime-tool, file-manager）:
@@ -222,10 +222,10 @@ if __name__ == "__main__":
 
         response = await self.brain.think(prompt)
         return response.content.strip()
-    
+
     async def _generate_skill_md(self, name: str, description: str) -> str:
         """生成 SKILL.md 内容"""
-        prompt = f'''为以下技能生成 SKILL.md 的内容部分（不包括 YAML frontmatter）:
+        prompt = f"""为以下技能生成 SKILL.md 的内容部分（不包括 YAML frontmatter）:
 
 技能名称: {name}
 功能描述: {description}
@@ -237,18 +237,18 @@ if __name__ == "__main__":
 
 脚本路径是 `scripts/main.py`，使用 `python scripts/main.py [args]` 运行。
 
-只返回 Markdown 内容，不要包含 frontmatter。'''
+只返回 Markdown 内容，不要包含 frontmatter。"""
 
         response = await self.brain.think(prompt)
         body_content = response.content.strip()
-        
+
         # 组装完整的 SKILL.md
         title = name.replace("-", " ").title()
-        
+
         # 解析 LLM 生成的内容，提取各部分
         when_to_use = "- 见上述描述"
         instructions = "运行 `python scripts/main.py --help` 查看帮助"
-        
+
         # 尝试从响应中提取
         if "## When to Use" in body_content:
             parts = body_content.split("## When to Use")
@@ -262,7 +262,7 @@ if __name__ == "__main__":
                 else:
                     when_to_use = rest.strip()
                 body_content = intro
-        
+
         return self.SKILL_MD_TEMPLATE.format(
             name=name,
             description=description.replace("\n", "\n  "),  # YAML 多行缩进
@@ -271,7 +271,7 @@ if __name__ == "__main__":
             when_to_use=when_to_use,
             instructions=instructions,
         )
-    
+
     async def _generate_script(self, name: str, description: str) -> str:
         """生成 Python 脚本"""
         prompt = f'''请生成一个 Python 脚本来实现以下功能:
@@ -301,7 +301,7 @@ def main():
     parser = argparse.ArgumentParser(description="...")
     # 添加参数
     args = parser.parse_args()
-    
+
     try:
         result = execute(args)
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -321,7 +321,7 @@ if __name__ == "__main__":
 请生成完整的代码。只输出代码，不要解释。'''
 
         response = await self.brain.think(prompt)
-        
+
         # 提取代码
         code = response.content
         if "```python" in code:
@@ -334,31 +334,31 @@ if __name__ == "__main__":
             end = code.find("```", start)
             if end > start:
                 code = code[start:end].strip()
-        
+
         return code
-    
+
     async def _test_script(self, script_path: Path) -> bool:
         """测试脚本"""
         logger.info(f"Testing script: {script_path}")
-        
+
         # 语法检查
-        result = await self.shell.run(f"python -m py_compile \"{script_path}\"")
-        
+        result = await self.shell.run(f'python -m py_compile "{script_path}"')
+
         if not result.success:
             logger.error(f"Syntax error: {result.stderr}")
             return False
-        
+
         # 尝试运行 --help
-        result = await self.shell.run(f"python \"{script_path}\" --help")
-        
+        result = await self.shell.run(f'python "{script_path}" --help')
+
         if not result.success:
             logger.error(f"Script error: {result.output}")
             return False
-        
+
         logger.info("Script test passed")
         return True
-    
-    async def _fix_script(self, code: str, name: str, description: str) -> Optional[str]:
+
+    async def _fix_script(self, code: str, name: str, description: str) -> str | None:
         """尝试修复脚本错误"""
         prompt = f"""以下 Python 脚本有错误，请修复:
 
@@ -379,36 +379,36 @@ if __name__ == "__main__":
 只输出修复后的完整代码，不要解释。"""
 
         response = await self.brain.think(prompt)
-        
+
         fixed_code = response.content
         if "```python" in fixed_code:
             start = fixed_code.find("```python") + 9
             end = fixed_code.find("```", start)
             if end > start:
                 fixed_code = fixed_code[start:end].strip()
-        
+
         return fixed_code
-    
+
     async def improve(self, skill_name: str, feedback: str) -> GenerationResult:
         """
         根据反馈改进技能
-        
+
         Args:
             skill_name: 技能名称
             feedback: 改进反馈
-        
+
         Returns:
             GenerationResult
         """
         skill_dir = self.skills_dir / skill_name
-        
+
         if not skill_dir.exists():
             return GenerationResult(
                 success=False,
                 skill_name=skill_name,
                 error="技能目录不存在",
             )
-        
+
         script_path = skill_dir / "scripts" / "main.py"
         if not script_path.exists():
             return GenerationResult(
@@ -416,9 +416,9 @@ if __name__ == "__main__":
                 skill_name=skill_name,
                 error="脚本文件不存在",
             )
-        
+
         current_code = await self.file_tool.read(str(script_path))
-        
+
         prompt = f"""请根据反馈改进以下技能脚本:
 
 当前代码:
@@ -432,18 +432,18 @@ if __name__ == "__main__":
 请输出改进后的完整代码，不要解释。"""
 
         response = await self.brain.think(prompt)
-        
+
         improved_code = response.content
         if "```python" in improved_code:
             start = improved_code.find("```python") + 9
             end = improved_code.find("```", start)
             if end > start:
                 improved_code = improved_code[start:end].strip()
-        
+
         # 保存并测试
         await self.file_tool.write(str(script_path), improved_code)
         test_passed = await self._test_script(script_path)
-        
+
         return GenerationResult(
             success=test_passed,
             skill_name=skill_name,

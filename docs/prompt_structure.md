@@ -262,34 +262,34 @@ OpenAkita 是一个全能自进化AI助手，核心目标是成为一个真正�
 
 **位置**: `src/openakita/core/agent.py`
 
-构建最终的系统提示词，动态组合多个部分：
+构建最终的系统提示词（**v2：编译管线 + 预算裁剪 + 显式分段**）。
 
-```python
-def _build_system_prompt(self, base_prompt: str, task_description: str = "") -> str:
-    # 1. 技能清单 (Agent Skills 规范)
-    skill_catalog = self.skill_catalog.generate_catalog()
-    
-    # 2. MCP 清单 (Model Context Protocol 规范)
-    mcp_catalog = getattr(self, '_mcp_catalog_text', '')
-    
-    # 3. 相关记忆 (按任务相关性注入)
-    memory_context = self.memory_manager.get_injection_context(task_description)
-    
-    # 4. 动态工具列表
-    tools_text = self._generate_tools_text()
-    
-    # 5. 用户档案引导 (首次使用或日常询问)
-    profile_prompt = self.profile_manager.get_onboarding_prompt()
-    
-    return f"""{base_prompt}
-{skill_catalog}
-{mcp_catalog}
-{memory_context}
-{tools_text}
+当前实现的“最终 system prompt”主要由 `Prompt Builder` 负责组装，而不是把各段直接字符串拼接在 `Agent._build_system_prompt()` 里：
 
-## 核心原则 (最高优先级!!!)
-...
-"""
+- **Prompt Builder**：`src/openakita/prompt/builder.py::build_system_prompt()`
+- **预算裁剪**：`src/openakita/prompt/budget.py`
+- **记忆检索**：`src/openakita/prompt/retriever.py::retrieve_memory()`
+
+#### v2 组装要点（单个 system 字符串内分段）
+
+- 输出为一个字符串，但内部显式分成四段（便于对齐标准的 `system / developer / user / tool` 语义）：
+  - `## System`：Identity 编译产物 + Runtime facts
+  - `## Developer`：会话规则（IM/CLI）+ Memory 注入（含核心记忆与相关记忆）
+  - `## User`：用户档案摘要
+  - `## Tool`：ToolCatalog / SkillCatalog / MCPCatalog（可发现性，受预算裁剪）
+
+#### v2 伪代码（高层）
+
+```text
+Agent._build_system_prompt(base_prompt, task_description, session_type)
+  -> prompt.builder.build_system_prompt(
+       identity_dir,
+       tool_catalog, skill_catalog, mcp_catalog,
+       memory_manager, task_description,
+       budget_config=BudgetConfig(),
+       session_type="cli"|"im"
+     )
+  -> 返回拼好的 system_prompt（含 ## System/Developer/User/Tool）
 ```
 
 ---

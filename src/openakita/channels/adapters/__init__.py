@@ -9,11 +9,11 @@ IM 通道适配器
 - QQ
 """
 
-from .telegram import TelegramAdapter
-from .feishu import FeishuAdapter
-from .wework import WeWorkAdapter
 from .dingtalk import DingTalkAdapter
+from .feishu import FeishuAdapter
 from .qq import QQAdapter
+from .telegram import TelegramAdapter
+from .wework import WeWorkAdapter
 
 __all__ = [
     "TelegramAdapter",

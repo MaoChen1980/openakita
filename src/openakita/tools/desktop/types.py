@@ -5,13 +5,14 @@ Windows 桌面自动化 - 数据类型定义
 """
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Optional
 from datetime import datetime
+from enum import StrEnum
+from typing import Any
 
 
-class ControlType(str, Enum):
+class ControlType(StrEnum):
     """Windows UI 控件类型"""
+
     BUTTON = "Button"
     EDIT = "Edit"
     TEXT = "Text"
@@ -50,30 +51,34 @@ class ControlType(str, Enum):
     UNKNOWN = "Unknown"
 
 
-class MouseButton(str, Enum):
+class MouseButton(StrEnum):
     """鼠标按钮"""
+
     LEFT = "left"
     RIGHT = "right"
     MIDDLE = "middle"
 
 
-class ScrollDirection(str, Enum):
+class ScrollDirection(StrEnum):
     """滚动方向"""
+
     UP = "up"
     DOWN = "down"
     LEFT = "left"
     RIGHT = "right"
 
 
-class FindMethod(str, Enum):
+class FindMethod(StrEnum):
     """元素查找方法"""
-    AUTO = "auto"       # 自动选择：先 UIA，失败则 Vision
-    UIA = "uia"         # 只使用 UIAutomation
-    VISION = "vision"   # 只使用视觉识别
+
+    AUTO = "auto"  # 自动选择：先 UIA，失败则 Vision
+    UIA = "uia"  # 只使用 UIAutomation
+    VISION = "vision"  # 只使用视觉识别
 
 
-class WindowAction(str, Enum):
+class WindowAction(StrEnum):
     """窗口操作类型"""
+
     LIST = "list"
     SWITCH = "switch"
     MINIMIZE = "minimize"
@@ -85,37 +90,35 @@ class WindowAction(str, Enum):
 @dataclass
 class BoundingBox:
     """边界框"""
+
     left: int
     top: int
     right: int
     bottom: int
-    
+
     @property
     def width(self) -> int:
         return self.right - self.left
-    
+
     @property
     def height(self) -> int:
         return self.bottom - self.top
-    
+
     @property
     def center(self) -> tuple[int, int]:
-        return (
-            self.left + self.width // 2,
-            self.top + self.height // 2
-        )
-    
+        return (self.left + self.width // 2, self.top + self.height // 2)
+
     def to_tuple(self) -> tuple[int, int, int, int]:
         return (self.left, self.top, self.right, self.bottom)
-    
+
     def to_region(self) -> tuple[int, int, int, int]:
         """转换为 (x, y, width, height) 格式"""
         return (self.left, self.top, self.width, self.height)
-    
+
     @classmethod
     def from_tuple(cls, t: tuple[int, int, int, int]) -> "BoundingBox":
         return cls(left=t[0], top=t[1], right=t[2], bottom=t[3])
-    
+
     @classmethod
     def from_region(cls, x: int, y: int, width: int, height: int) -> "BoundingBox":
         """从 (x, y, width, height) 创建"""
@@ -126,39 +129,40 @@ class BoundingBox:
 class UIElement:
     """
     统一的 UI 元素数据结构
-    
+
     可以来自 UIAutomation 或视觉识别
     """
+
     # 基本信息
     name: str = ""
     control_type: str = "Unknown"
-    bbox: Optional[BoundingBox] = None
-    
+    bbox: BoundingBox | None = None
+
     # UIAutomation 特有属性
     automation_id: str = ""
     class_name: str = ""
-    value: Optional[str] = None
+    value: str | None = None
     is_enabled: bool = True
     is_visible: bool = True
     is_focused: bool = False
-    
+
     # 视觉识别特有属性
     description: str = ""
     confidence: float = 1.0
-    
+
     # 来源标识
     source: str = "unknown"  # "uia" 或 "vision"
-    
+
     # 原始控件引用（仅 UIA）
     _control: Any = field(default=None, repr=False)
-    
+
     @property
-    def center(self) -> Optional[tuple[int, int]]:
+    def center(self) -> tuple[int, int] | None:
         """获取元素中心点坐标"""
         if self.bbox:
             return self.bbox.center
         return None
-    
+
     def to_dict(self) -> dict:
         """转换为字典（不包含 _control）"""
         return {
@@ -180,20 +184,21 @@ class UIElement:
 @dataclass
 class WindowInfo:
     """窗口信息"""
+
     title: str
     handle: int
     class_name: str = ""
     process_id: int = 0
     process_name: str = ""
-    bbox: Optional[BoundingBox] = None
+    bbox: BoundingBox | None = None
     is_visible: bool = True
     is_minimized: bool = False
     is_maximized: bool = False
     is_focused: bool = False
-    
+
     # 原始窗口引用
     _window: Any = field(default=None, repr=False)
-    
+
     def to_dict(self) -> dict:
         """转换为字典"""
         return {
@@ -213,15 +218,16 @@ class WindowInfo:
 @dataclass
 class ElementLocation:
     """视觉识别返回的元素位置"""
+
     description: str
     bbox: BoundingBox
     confidence: float = 1.0
     reasoning: str = ""
-    
+
     @property
     def center(self) -> tuple[int, int]:
         return self.bbox.center
-    
+
     def to_ui_element(self) -> UIElement:
         """转换为 UIElement"""
         return UIElement(
@@ -237,35 +243,38 @@ class ElementLocation:
 @dataclass
 class VisionResult:
     """视觉分析结果"""
+
     success: bool
     query: str
     answer: str = ""
     elements: list[ElementLocation] = field(default_factory=list)
     raw_response: str = ""
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @dataclass
 class ScreenshotInfo:
     """截图信息"""
+
     width: int
     height: int
     monitor: int = 0
     timestamp: datetime = field(default_factory=datetime.now)
-    region: Optional[tuple[int, int, int, int]] = None  # (x, y, w, h)
-    window_title: Optional[str] = None
+    region: tuple[int, int, int, int] | None = None  # (x, y, w, h)
+    window_title: str | None = None
 
 
 @dataclass
 class ActionResult:
     """操作结果"""
+
     success: bool
     action: str
-    target: Optional[str] = None
+    target: str | None = None
     message: str = ""
-    error: Optional[str] = None
+    error: str | None = None
     duration_ms: float = 0
-    
+
     def to_dict(self) -> dict:
         return {
             "success": self.success,
@@ -280,7 +289,8 @@ class ActionResult:
 @dataclass
 class DesktopState:
     """桌面状态快照"""
-    active_window: Optional[WindowInfo] = None
+
+    active_window: WindowInfo | None = None
     windows: list[WindowInfo] = field(default_factory=list)
     mouse_position: tuple[int, int] = (0, 0)
     screen_size: tuple[int, int] = (0, 0)

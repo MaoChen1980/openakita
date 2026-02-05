@@ -28,40 +28,28 @@ PLAN_TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "task_summary": {
-                    "type": "string",
-                    "description": "任务的一句话总结"
-                },
+                "task_summary": {"type": "string", "description": "任务的一句话总结"},
                 "steps": {
                     "type": "array",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "id": {
-                                "type": "string",
-                                "description": "步骤ID，如 step_1, step_2"
-                            },
-                            "description": {
-                                "type": "string",
-                                "description": "步骤描述"
-                            },
-                            "tool": {
-                                "type": "string",
-                                "description": "预计使用的工具（可选）"
-                            },
+                            "id": {"type": "string", "description": "步骤ID，如 step_1, step_2"},
+                            "description": {"type": "string", "description": "步骤描述"},
+                            "tool": {"type": "string", "description": "预计使用的工具（可选）"},
                             "depends_on": {
                                 "type": "array",
                                 "items": {"type": "string"},
-                                "description": "依赖的步骤ID（可选）"
-                            }
+                                "description": "依赖的步骤ID（可选）",
+                            },
                         },
-                        "required": ["id", "description"]
+                        "required": ["id", "description"],
                     },
-                    "description": "步骤列表"
-                }
+                    "description": "步骤列表",
+                },
             },
-            "required": ["task_summary", "steps"]
-        }
+            "required": ["task_summary", "steps"],
+        },
     },
     {
         "name": "update_plan_step",
@@ -83,22 +71,16 @@ PLAN_TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "step_id": {
-                    "type": "string",
-                    "description": "步骤ID"
-                },
+                "step_id": {"type": "string", "description": "步骤ID"},
                 "status": {
                     "type": "string",
                     "enum": ["pending", "in_progress", "completed", "failed", "skipped"],
-                    "description": "步骤状态"
+                    "description": "步骤状态",
                 },
-                "result": {
-                    "type": "string",
-                    "description": "执行结果或错误信息"
-                }
+                "result": {"type": "string", "description": "执行结果或错误信息"},
             },
-            "required": ["step_id", "status"]
-        }
+            "required": ["step_id", "status"],
+        },
     },
     {
         "name": "get_plan_status",
@@ -110,10 +92,7 @@ PLAN_TOOLS = [
 - 各步骤状态
 - 已完成/待执行数量
 - 执行日志""",
-        "input_schema": {
-            "type": "object",
-            "properties": {}
-        }
+        "input_schema": {"type": "object", "properties": {}},
     },
     {
         "name": "complete_plan",
@@ -128,13 +107,8 @@ PLAN_TOOLS = [
 - 总耗时""",
         "input_schema": {
             "type": "object",
-            "properties": {
-                "summary": {
-                    "type": "string",
-                    "description": "完成总结"
-                }
-            },
-            "required": ["summary"]
-        }
-    }
+            "properties": {"summary": {"type": "string", "description": "完成总结"}},
+            "required": ["summary"],
+        },
+    },
 ]

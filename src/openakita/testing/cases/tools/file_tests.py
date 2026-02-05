@@ -135,5 +135,6 @@ FILE_TESTS = [
     ),
 ]
 
+
 def get_tests() -> list[TestCase]:
     return FILE_TESTS

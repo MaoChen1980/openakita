@@ -7,10 +7,10 @@
 - 支持 once/interval/cron 三种触发类型
 """
 
-from .task import ScheduledTask, TriggerType, TaskStatus
-from .triggers import Trigger, OnceTrigger, IntervalTrigger, CronTrigger
-from .scheduler import TaskScheduler
 from .executor import TaskExecutor
+from .scheduler import TaskScheduler
+from .task import ScheduledTask, TaskStatus, TriggerType
+from .triggers import CronTrigger, IntervalTrigger, OnceTrigger, Trigger
 
 __all__ = [
     "ScheduledTask",

@@ -7,34 +7,36 @@
 - Memori: https://memorilabs.ai/docs/core-concepts/agents/
 """
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional, Any
-import uuid
 
 
 class MemoryType(Enum):
     """记忆类型 (参考 Memori)"""
-    FACT = "fact"           # 事实信息 (用户偏好、技术栈)
+
+    FACT = "fact"  # 事实信息 (用户偏好、技术栈)
     PREFERENCE = "preference"  # 用户偏好 (交互风格、代码风格)
-    SKILL = "skill"         # 学到的技能 (成功模式、解决方案)
-    CONTEXT = "context"     # 上下文信息 (项目背景、当前任务)
-    RULE = "rule"           # 规则约束 (禁止行为、安全边界)
-    ERROR = "error"         # 错误教训 (失败原因、避免重复)
+    SKILL = "skill"  # 学到的技能 (成功模式、解决方案)
+    CONTEXT = "context"  # 上下文信息 (项目背景、当前任务)
+    RULE = "rule"  # 规则约束 (禁止行为、安全边界)
+    ERROR = "error"  # 错误教训 (失败原因、避免重复)
 
 
 class MemoryPriority(Enum):
     """记忆优先级 (决定保留时长)"""
-    TRANSIENT = "transient"     # 临时 (会话结束后丢弃)
-    SHORT_TERM = "short_term"   # 短期 (保留几天)
-    LONG_TERM = "long_term"     # 长期 (保留几周)
-    PERMANENT = "permanent"     # 永久 (永不删除)
+
+    TRANSIENT = "transient"  # 临时 (会话结束后丢弃)
+    SHORT_TERM = "short_term"  # 短期 (保留几天)
+    LONG_TERM = "long_term"  # 长期 (保留几周)
+    PERMANENT = "permanent"  # 永久 (永不删除)
 
 
 @dataclass
 class Memory:
     """单条记忆"""
+
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     type: MemoryType = MemoryType.FACT
     priority: MemoryPriority = MemoryPriority.SHORT_TERM
@@ -45,7 +47,7 @@ class Memory:
     updated_at: datetime = field(default_factory=datetime.now)
     access_count: int = 0  # 访问次数 (用于相关性)
     importance_score: float = 0.5  # 重要性评分 (0-1)
-    
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -59,7 +61,7 @@ class Memory:
             "access_count": self.access_count,
             "importance_score": self.importance_score,
         }
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> "Memory":
         return cls(
@@ -69,27 +71,34 @@ class Memory:
             content=data.get("content", ""),
             source=data.get("source", ""),
             tags=data.get("tags", []),
-            created_at=datetime.fromisoformat(data["created_at"]) if "created_at" in data else datetime.now(),
-            updated_at=datetime.fromisoformat(data["updated_at"]) if "updated_at" in data else datetime.now(),
+            created_at=datetime.fromisoformat(data["created_at"])
+            if "created_at" in data
+            else datetime.now(),
+            updated_at=datetime.fromisoformat(data["updated_at"])
+            if "updated_at" in data
+            else datetime.now(),
             access_count=data.get("access_count", 0),
             importance_score=data.get("importance_score", 0.5),
         )
-    
+
     def to_markdown(self) -> str:
         """转为 Markdown 格式"""
         tags_str = ", ".join(self.tags) if self.tags else ""
-        return f"- [{self.type.value}] {self.content}" + (f" (tags: {tags_str})" if tags_str else "")
+        return f"- [{self.type.value}] {self.content}" + (
+            f" (tags: {tags_str})" if tags_str else ""
+        )
 
 
 @dataclass
 class ConversationTurn:
     """对话轮次"""
+
     role: str  # user/assistant
     content: str
     timestamp: datetime = field(default_factory=datetime.now)
     tool_calls: list[dict] = field(default_factory=list)
     tool_results: list[dict] = field(default_factory=list)
-    
+
     def to_dict(self) -> dict:
         return {
             "role": self.role,
@@ -103,6 +112,7 @@ class ConversationTurn:
 @dataclass
 class SessionSummary:
     """会话摘要"""
+
     session_id: str
     start_time: datetime
     end_time: datetime
@@ -112,7 +122,7 @@ class SessionSummary:
     learnings: list[str] = field(default_factory=list)
     errors_encountered: list[str] = field(default_factory=list)
     memories_created: list[str] = field(default_factory=list)  # Memory IDs
-    
+
     def to_dict(self) -> dict:
         return {
             "session_id": self.session_id,
@@ -125,7 +135,7 @@ class SessionSummary:
             "errors_encountered": self.errors_encountered,
             "memories_created": self.memories_created,
         }
-    
+
     def to_markdown(self) -> str:
         """转为 Markdown 格式"""
         lines = [

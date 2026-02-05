@@ -4,7 +4,7 @@ OpenAkita - 全能自进化AI Agent
 基于 Ralph Wiggum 模式，永不放弃。
 """
 
-from importlib.metadata import version, PackageNotFoundError
+from importlib.metadata import PackageNotFoundError, version
 
 try:
     # 从已安装的包获取版本（pip install 后可用）
@@ -12,9 +12,9 @@ try:
 except PackageNotFoundError:
     # 开发模式：从 pyproject.toml 读取
     try:
-        from pathlib import Path
         import tomllib
-        
+        from pathlib import Path
+
         pyproject_path = Path(__file__).parent.parent.parent / "pyproject.toml"
         if pyproject_path.exists():
             with open(pyproject_path, "rb") as f:

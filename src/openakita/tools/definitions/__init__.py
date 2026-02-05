@@ -22,45 +22,45 @@
 
 # 基础模块
 from .base import (
+    Prerequisite,
+    RelatedTool,
+    ToolBuilder,
     ToolDefinition,
     ToolExample,
-    RelatedTool,
-    Prerequisite,
-    ToolBuilder,
-    validate_tool_definition,
-    validate_tool_name,
-    validate_description,
     build_description,
     build_detail,
+    filter_tools_by_category,
     infer_category,
     merge_tool_lists,
-    filter_tools_by_category,
+    validate_description,
+    validate_tool_definition,
+    validate_tool_name,
 )
 
 # 工具定义
 from .browser import BROWSER_TOOLS
 from .filesystem import FILESYSTEM_TOOLS
-from .skills import SKILLS_TOOLS
-from .memory import MEMORY_TOOLS
-from .scheduled import SCHEDULED_TOOLS
 from .im_channel import IM_CHANNEL_TOOLS
-from .profile import PROFILE_TOOLS
-from .system import SYSTEM_TOOLS
 from .mcp import MCP_TOOLS
+from .memory import MEMORY_TOOLS
 from .plan import PLAN_TOOLS
+from .profile import PROFILE_TOOLS
+from .scheduled import SCHEDULED_TOOLS
+from .skills import SKILLS_TOOLS
+from .system import SYSTEM_TOOLS
 
 # 合并所有工具定义
 BASE_TOOLS = (
-    FILESYSTEM_TOOLS +
-    SKILLS_TOOLS +
-    MEMORY_TOOLS +
-    BROWSER_TOOLS +
-    SCHEDULED_TOOLS +
-    IM_CHANNEL_TOOLS +
-    SYSTEM_TOOLS +
-    PROFILE_TOOLS +
-    MCP_TOOLS +
-    PLAN_TOOLS
+    FILESYSTEM_TOOLS
+    + SKILLS_TOOLS
+    + MEMORY_TOOLS
+    + BROWSER_TOOLS
+    + SCHEDULED_TOOLS
+    + IM_CHANNEL_TOOLS
+    + SYSTEM_TOOLS
+    + PROFILE_TOOLS
+    + MCP_TOOLS
+    + PLAN_TOOLS
 )
 
 __all__ = [

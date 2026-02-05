@@ -9,8 +9,8 @@ OpenAkita 日志系统
 - 会话级日志缓存（供 AI 查询）
 """
 
-from .config import setup_logging, get_logger
 from .cleaner import LogCleaner
+from .config import get_logger, setup_logging
 from .session_buffer import SessionLogBuffer, get_session_log_buffer
 
 __all__ = [

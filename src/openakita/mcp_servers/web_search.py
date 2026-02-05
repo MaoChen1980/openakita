@@ -12,7 +12,6 @@ Web Search MCP 服务器
 """
 
 import logging
-from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
@@ -30,7 +29,7 @@ mcp = FastMCP(
 使用示例：
 - 搜索信息：web_search(query="Python 教程", max_results=5)
 - 搜索新闻：news_search(query="AI 最新进展", max_results=5)
-"""
+""",
 )
 
 
@@ -38,14 +37,14 @@ def _format_web_results(results: list) -> str:
     """格式化网页搜索结果"""
     if not results:
         return "未找到相关结果"
-    
+
     output = []
     for i, r in enumerate(results, 1):
         title = r.get("title", "无标题")
         url = r.get("href", r.get("link", ""))
         body = r.get("body", r.get("snippet", ""))
         output.append(f"**{i}. {title}**\n{url}\n{body}\n")
-    
+
     return "\n".join(output)
 
 
@@ -53,7 +52,7 @@ def _format_news_results(results: list) -> str:
     """格式化新闻搜索结果"""
     if not results:
         return "未找到相关新闻"
-    
+
     output = []
     for i, r in enumerate(results, 1):
         title = r.get("title", "无标题")
@@ -61,32 +60,29 @@ def _format_news_results(results: list) -> str:
         body = r.get("body", r.get("excerpt", ""))
         date = r.get("date", "")
         source = r.get("source", "")
-        
+
         header = f"**{i}. {title}**"
         if source or date:
             header += f" ({source} {date})"
-        
+
         output.append(f"{header}\n{url}\n{body}\n")
-    
+
     return "\n".join(output)
 
 
 @mcp.tool()
 def web_search(
-    query: str,
-    max_results: int = 5,
-    region: str = "wt-wt",
-    safesearch: str = "moderate"
+    query: str, max_results: int = 5, region: str = "wt-wt", safesearch: str = "moderate"
 ) -> str:
     """
     Search the web using DuckDuckGo.
-    
+
     Args:
         query: Search query string
         max_results: Maximum number of results (default: 5, max: 20)
         region: Region code (default: "wt-wt" for worldwide, "cn-zh" for China)
         safesearch: Safe search level ("on", "moderate", "off")
-    
+
     Returns:
         Formatted search results with title, URL, and snippet
     """
@@ -94,18 +90,15 @@ def web_search(
         from ddgs import DDGS
     except ImportError:
         return "错误：ddgs 库未安装。请运行: pip install ddgs"
-    
+
     # 限制结果数量
     max_results = min(max(1, max_results), 20)
-    
+
     try:
         with DDGS() as ddgs:
-            results = list(ddgs.text(
-                query,
-                max_results=max_results,
-                region=region,
-                safesearch=safesearch
-            ))
+            results = list(
+                ddgs.text(query, max_results=max_results, region=region, safesearch=safesearch)
+            )
             return _format_web_results(results)
     except Exception as e:
         logger.error(f"Web search failed: {e}")
@@ -118,18 +111,18 @@ def news_search(
     max_results: int = 5,
     region: str = "wt-wt",
     safesearch: str = "moderate",
-    timelimit: Optional[str] = None
+    timelimit: str | None = None,
 ) -> str:
     """
     Search news using DuckDuckGo.
-    
+
     Args:
         query: Search query string
         max_results: Maximum number of results (default: 5, max: 20)
         region: Region code (default: "wt-wt" for worldwide)
         safesearch: Safe search level ("on", "moderate", "off")
         timelimit: Time limit ("d" for day, "w" for week, "m" for month)
-    
+
     Returns:
         Formatted news results with title, source, date, URL, and excerpt
     """
@@ -137,19 +130,21 @@ def news_search(
         from ddgs import DDGS
     except ImportError:
         return "错误：ddgs 库未安装。请运行: pip install ddgs"
-    
+
     # 限制结果数量
     max_results = min(max(1, max_results), 20)
-    
+
     try:
         with DDGS() as ddgs:
-            results = list(ddgs.news(
-                query,
-                max_results=max_results,
-                region=region,
-                safesearch=safesearch,
-                timelimit=timelimit
-            ))
+            results = list(
+                ddgs.news(
+                    query,
+                    max_results=max_results,
+                    region=region,
+                    safesearch=safesearch,
+                    timelimit=timelimit,
+                )
+            )
             return _format_news_results(results)
     except Exception as e:
         logger.error(f"News search failed: {e}")

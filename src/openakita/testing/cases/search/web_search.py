@@ -60,7 +60,6 @@ WEB_SEARCH_TESTS = [
         tags=["http", "json"],
         timeout=15,
     ),
-    
     # GitHub 搜索测试
     TestCase(
         id="search_github_001",
@@ -90,7 +89,6 @@ WEB_SEARCH_TESTS = [
         tags=["github", "search"],
         timeout=30,
     ),
-    
     # 下载测试
     TestCase(
         id="search_download_001",
@@ -107,6 +105,7 @@ WEB_SEARCH_TESTS = [
         timeout=30,
     ),
 ]
+
 
 def get_tests() -> list[TestCase]:
     return WEB_SEARCH_TESTS

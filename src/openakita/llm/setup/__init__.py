@@ -7,7 +7,7 @@ LLM 配置向导
 - Telegram 命令
 """
 
-from .cli import run_cli_wizard, quick_add_endpoint
+from .cli import quick_add_endpoint, run_cli_wizard
 
 __all__ = [
     "run_cli_wizard",

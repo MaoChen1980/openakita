@@ -11,17 +11,17 @@ OpenAkita Prompt 管线模块
 - guard.py: 运行时守门（无工具调用则重试）
 """
 
+from .budget import BudgetConfig, apply_budget
+from .builder import build_system_prompt
 from .compiler import (
-    compile_all,
-    compile_soul,
     compile_agent_core,
     compile_agent_tooling,
+    compile_all,
+    compile_soul,
     compile_user,
 )
+from .guard import GuardConfig, guard_response
 from .retriever import retrieve_memory
-from .budget import apply_budget, BudgetConfig
-from .builder import build_system_prompt
-from .guard import guard_response, GuardConfig
 
 __all__ = [
     # Compiler

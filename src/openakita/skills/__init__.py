@@ -8,30 +8,27 @@
 - Level 3: 资源文件 - 按需加载
 """
 
-from .parser import (
-    SkillParser,
-    SkillMetadata,
-    ParsedSkill,
-    parse_skill,
-    parse_skill_directory,
-)
-
-from .registry import (
-    SkillRegistry,
-    SkillEntry,
-    default_registry,
-    register_skill,
-    get_skill,
-)
-
-from .loader import (
-    SkillLoader,
-    SKILL_DIRECTORIES,
-)
-
 from .catalog import (
     SkillCatalog,
     generate_skill_catalog,
+)
+from .loader import (
+    SKILL_DIRECTORIES,
+    SkillLoader,
+)
+from .parser import (
+    ParsedSkill,
+    SkillMetadata,
+    SkillParser,
+    parse_skill,
+    parse_skill_directory,
+)
+from .registry import (
+    SkillEntry,
+    SkillRegistry,
+    default_registry,
+    get_skill,
+    register_skill,
 )
 
 __all__ = [

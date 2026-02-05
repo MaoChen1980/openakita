@@ -35,49 +35,50 @@ DESKTOP_TOOLS = [
 
 class DesktopHandler:
     """桌面自动化工具处理器"""
-    
+
     def __init__(self, agent):
         self.agent = agent
         self._desktop_handler = None
         self._available = sys.platform == "win32"
-    
+
     @property
     def desktop_handler(self):
         """懒加载桌面工具处理器"""
         if self._desktop_handler is None and self._available:
             try:
                 from ..desktop.tools import DesktopToolHandler
+
                 self._desktop_handler = DesktopToolHandler()
             except ImportError as e:
                 logger.warning(f"Desktop tools not available: {e}")
                 self._available = False
         return self._desktop_handler
-    
+
     async def handle(self, tool_name: str, params: dict[str, Any]) -> str:
         """
         处理桌面工具调用
-        
+
         Args:
             tool_name: 工具名称
             params: 工具参数
-            
+
         Returns:
             执行结果字符串
         """
         if not self._available:
             return "桌面工具仅在 Windows 上可用。安装依赖: pip install mss pyautogui pywinauto pyperclip psutil"
-        
+
         handler = self.desktop_handler
         if handler is None:
             return "桌面工具处理器未初始化"
-        
+
         try:
             result = await handler.handle(tool_name, params)
             return self._format_result(tool_name, result)
         except Exception as e:
             logger.error(f"Desktop tool error: {e}", exc_info=True)
             return f"桌面工具错误: {str(e)}"
-    
+
     def _format_result(self, tool_name: str, result: Any) -> str:
         """格式化工具执行结果"""
         if isinstance(result, dict):
@@ -88,7 +89,7 @@ class DesktopHandler:
                     if result.get("analysis"):
                         output += f"\n\n分析结果:\n{result['analysis'].get('answer', '')}"
                     return output
-                
+
                 # 元素查找结果
                 if result.get("found") is not None:
                     if result.get("found"):
@@ -96,7 +97,7 @@ class DesktopHandler:
                         return f"找到元素: {elem.get('name', 'unknown')} @ {elem.get('center', 'unknown')}"
                     else:
                         return f"未找到元素: {result.get('message', '')}"
-                
+
                 # 窗口列表
                 if result.get("windows"):
                     windows = result["windows"]
@@ -106,11 +107,11 @@ class DesktopHandler:
                     if len(windows) > 10:
                         output += f"  ... 还有 {len(windows) - 10} 个\n"
                     return output
-                
+
                 # 元素树
                 if result.get("tree"):
                     return f"元素树:\n```\n{result.get('text', '')}\n```"
-                
+
                 # 通用成功
                 return f"{result.get('message', '操作成功')}"
             else:
@@ -122,10 +123,10 @@ class DesktopHandler:
 def create_handler(agent) -> callable:
     """
     创建桌面处理器的 handle 方法
-    
+
     Args:
         agent: Agent 实例
-        
+
     Returns:
         处理器的 handle 方法
     """

@@ -22,7 +22,7 @@ SCHEDULED_TOOLS = [
    - "提醒我喝水" → reminder
    - "站立提醒" → reminder
    - "叫我起床" → reminder
-   
+
 ❌ **task**（仅当需要 AI 执行操作时）:
    - "查询天气告诉我" → task（需要查询）
    - "截图发给我" → task（需要操作）
@@ -42,38 +42,38 @@ SCHEDULED_TOOLS = [
                     "type": "string",
                     "enum": ["reminder", "task"],
                     "default": "reminder",
-                    "description": "默认使用 reminder！reminder=发消息提醒，task=AI 执行操作"
+                    "description": "默认使用 reminder！reminder=发消息提醒，task=AI 执行操作",
                 },
                 "trigger_type": {
                     "type": "string",
                     "enum": ["once", "interval", "cron"],
-                    "description": "触发类型"
+                    "description": "触发类型",
                 },
                 "trigger_config": {
                     "type": "object",
-                    "description": "触发配置。once: {run_at: '2026-02-01 10:00'}；interval: {interval_minutes: 30}；cron: {cron: '0 9 * * *'}"
+                    "description": "触发配置。once: {run_at: '2026-02-01 10:00'}；interval: {interval_minutes: 30}；cron: {cron: '0 9 * * *'}",
                 },
                 "reminder_message": {
                     "type": "string",
-                    "description": "提醒消息内容（仅 reminder 类型需要）"
+                    "description": "提醒消息内容（仅 reminder 类型需要）",
                 },
                 "prompt": {
                     "type": "string",
-                    "description": "执行时发送给 Agent 的提示（仅 task 类型需要）"
+                    "description": "执行时发送给 Agent 的提示（仅 task 类型需要）",
                 },
                 "notify_on_start": {
                     "type": "boolean",
                     "default": True,
-                    "description": "任务开始时发通知？默认 true"
+                    "description": "任务开始时发通知？默认 true",
                 },
                 "notify_on_complete": {
                     "type": "boolean",
                     "default": True,
-                    "description": "任务完成时发通知？默认 true"
-                }
+                    "description": "任务完成时发通知？默认 true",
+                },
             },
-            "required": ["name", "description", "task_type", "trigger_type", "trigger_config"]
-        }
+            "required": ["name", "description", "task_type", "trigger_type", "trigger_config"],
+        },
     },
     {
         "name": "list_scheduled_tasks",
@@ -94,9 +94,13 @@ SCHEDULED_TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "enabled_only": {"type": "boolean", "description": "是否只列出启用的任务", "default": False}
-            }
-        }
+                "enabled_only": {
+                    "type": "boolean",
+                    "description": "是否只列出启用的任务",
+                    "default": False,
+                }
+            },
+        },
     },
     {
         "name": "cancel_scheduled_task",
@@ -111,11 +115,9 @@ SCHEDULED_TOOLS = [
 **注意**：删除后无法恢复！""",
         "input_schema": {
             "type": "object",
-            "properties": {
-                "task_id": {"type": "string", "description": "任务 ID"}
-            },
-            "required": ["task_id"]
-        }
+            "properties": {"task_id": {"type": "string", "description": "任务 ID"}},
+            "required": ["task_id"],
+        },
     },
     {
         "name": "update_scheduled_task",
@@ -136,11 +138,14 @@ SCHEDULED_TOOLS = [
             "properties": {
                 "task_id": {"type": "string", "description": "要修改的任务 ID"},
                 "notify_on_start": {"type": "boolean", "description": "开始时发通知？不传=不修改"},
-                "notify_on_complete": {"type": "boolean", "description": "完成时发通知？不传=不修改"},
-                "enabled": {"type": "boolean", "description": "启用/暂停任务？不传=不修改"}
+                "notify_on_complete": {
+                    "type": "boolean",
+                    "description": "完成时发通知？不传=不修改",
+                },
+                "enabled": {"type": "boolean", "description": "启用/暂停任务？不传=不修改"},
             },
-            "required": ["task_id"]
-        }
+            "required": ["task_id"],
+        },
     },
     {
         "name": "trigger_scheduled_task",
@@ -155,10 +160,8 @@ SCHEDULED_TOOLS = [
 不会影响原有的执行计划""",
         "input_schema": {
             "type": "object",
-            "properties": {
-                "task_id": {"type": "string", "description": "任务 ID"}
-            },
-            "required": ["task_id"]
-        }
+            "properties": {"task_id": {"type": "string", "description": "任务 ID"}},
+            "required": ["task_id"],
+        },
     },
 ]

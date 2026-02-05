@@ -15,7 +15,7 @@ Browser 工具定义
 - browser_new_tab: 新建标签页
 """
 
-from .base import ToolBuilder, build_detail
+from .base import build_detail
 
 # ==================== 工具定义 ====================
 
@@ -66,7 +66,9 @@ BROWSER_TOOLS = [
         "examples": [
             {
                 "scenario": "淘宝搜索筛选排序",
-                "params": {"task": "打开淘宝搜索机械键盘，筛选价格200-500元，按销量排序，截图发给我"},
+                "params": {
+                    "task": "打开淘宝搜索机械键盘，筛选价格200-500元，按销量排序，截图发给我"
+                },
                 "expected": "Agent automatically: opens Taobao → searches → filters price → sorts by sales → screenshots",
             },
             {
@@ -84,7 +86,10 @@ BROWSER_TOOLS = [
             {"name": "browser_navigate", "relation": "alternative for simple URL opening"},
             {"name": "browser_click", "relation": "alternative for single click"},
             {"name": "browser_type", "relation": "alternative for single text input"},
-            {"name": "browser_screenshot", "relation": "can be used after task for manual screenshot"},
+            {
+                "name": "browser_screenshot",
+                "relation": "can be used after task for manual screenshot",
+            },
         ],
         "input_schema": {
             "type": "object",
@@ -102,7 +107,6 @@ BROWSER_TOOLS = [
             "required": ["task"],
         },
     },
-    
     # ---------- browser_status ----------
     {
         "name": "browser_status",
@@ -147,7 +151,6 @@ BROWSER_TOOLS = [
             "properties": {},
         },
     },
-    
     # ---------- browser_open ----------
     {
         "name": "browser_open",
@@ -201,7 +204,7 @@ BROWSER_TOOLS = [
             "type": "object",
             "properties": {
                 "visible": {
-                    "type": "boolean", 
+                    "type": "boolean",
                     "description": "True=显示浏览器窗口, False=后台运行。默认 True",
                     "default": True,
                 },
@@ -213,7 +216,6 @@ BROWSER_TOOLS = [
             },
         },
     },
-    
     # ---------- browser_navigate ----------
     {
         "name": "browser_navigate",
@@ -276,7 +278,6 @@ BROWSER_TOOLS = [
             "required": ["url"],
         },
     },
-    
     # ---------- browser_click ----------
     {
         "name": "browser_click",
@@ -334,7 +335,6 @@ BROWSER_TOOLS = [
             },
         },
     },
-    
     # ---------- browser_type ----------
     {
         "name": "browser_type",
@@ -393,7 +393,6 @@ BROWSER_TOOLS = [
             "required": ["selector", "text"],
         },
     },
-    
     # ---------- browser_get_content ----------
     {
         "name": "browser_get_content",
@@ -443,11 +442,13 @@ BROWSER_TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "selector": {"type": "string", "description": "元素选择器（可选，不填则获取整个页面）"},
+                "selector": {
+                    "type": "string",
+                    "description": "元素选择器（可选，不填则获取整个页面）",
+                },
             },
         },
     },
-    
     # ---------- browser_screenshot ----------
     {
         "name": "browser_screenshot",
@@ -491,7 +492,10 @@ BROWSER_TOOLS = [
         ],
         "related_tools": [
             {"name": "desktop_screenshot", "relation": "alternative for desktop apps"},
-            {"name": "send_to_chat", "relation": "commonly used after to send image"},
+            {
+                "name": "deliver_artifacts",
+                "relation": "deliver the screenshot as an attachment (with receipts)",
+            },
         ],
         "input_schema": {
             "type": "object",
@@ -500,7 +504,6 @@ BROWSER_TOOLS = [
             },
         },
     },
-    
     # ---------- browser_list_tabs ----------
     {
         "name": "browser_list_tabs",
@@ -543,7 +546,6 @@ BROWSER_TOOLS = [
             "properties": {},
         },
     },
-    
     # ---------- browser_switch_tab ----------
     {
         "name": "browser_switch_tab",
@@ -596,7 +598,6 @@ BROWSER_TOOLS = [
             "required": ["index"],
         },
     },
-    
     # ---------- browser_new_tab ----------
     {
         "name": "browser_new_tab",

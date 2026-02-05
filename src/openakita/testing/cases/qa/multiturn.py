@@ -45,7 +45,6 @@ MULTITURN_TESTS = [
         expected="contains:1991",
         tags=["context", "coreference"],
     ),
-    
     # 话题追踪
     TestCase(
         id="qa_topic_001",
@@ -73,7 +72,6 @@ MULTITURN_TESTS = [
         expected="contains:print",
         tags=["topic", "switch"],
     ),
-    
     # 指令追踪
     TestCase(
         id="qa_instruction_001",
@@ -101,7 +99,6 @@ MULTITURN_TESTS = [
         expected="contains:{",
         tags=["instruction", "format"],
     ),
-    
     # 纠错与澄清
     TestCase(
         id="qa_correct_001",
@@ -128,6 +125,7 @@ MULTITURN_TESTS = [
         tags=["clarification"],
     ),
 ]
+
 
 def get_tests() -> list[TestCase]:
     return MULTITURN_TESTS

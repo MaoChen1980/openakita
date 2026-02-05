@@ -11,10 +11,9 @@
 import json
 import logging
 import random
-from datetime import datetime, date
-from pathlib import Path
-from typing import Optional, Any
 from dataclasses import dataclass, field
+from datetime import date, datetime
+from pathlib import Path
 
 from ..config import settings
 
@@ -24,15 +23,16 @@ logger = logging.getLogger(__name__)
 @dataclass
 class UserProfileItem:
     """用户档案项"""
-    key: str                    # 键名
-    name: str                   # 显示名称
-    description: str            # 描述
-    question: str               # 询问用户时的问题
-    priority: int = 1           # 优先级 (1-5，1最高)
-    category: str = "basic"     # 分类
-    value: Optional[str] = None # 当前值
-    collected_at: Optional[str] = None  # 收集时间
-    
+
+    key: str  # 键名
+    name: str  # 显示名称
+    description: str  # 描述
+    question: str  # 询问用户时的问题
+    priority: int = 1  # 优先级 (1-5，1最高)
+    category: str = "basic"  # 分类
+    value: str | None = None  # 当前值
+    collected_at: str | None = None  # 收集时间
+
     @property
     def is_collected(self) -> bool:
         """是否已收集"""
@@ -66,7 +66,6 @@ USER_PROFILE_ITEMS = [
         priority=2,
         category="basic",
     ),
-    
     # === 技术偏好 (优先级 2) ===
     UserProfileItem(
         key="preferred_language",
@@ -92,7 +91,6 @@ USER_PROFILE_ITEMS = [
         priority=3,
         category="tech",
     ),
-    
     # === 交流偏好 (优先级 3) ===
     UserProfileItem(
         key="detail_level",
@@ -110,7 +108,6 @@ USER_PROFILE_ITEMS = [
         priority=4,
         category="communication",
     ),
-    
     # === 工作习惯 (优先级 4) ===
     UserProfileItem(
         key="work_hours",
@@ -142,13 +139,14 @@ USER_PROFILE_ITEMS = [
 @dataclass
 class UserProfileState:
     """用户档案状态"""
+
     is_first_use: bool = True
     onboarding_completed: bool = False
-    last_question_date: Optional[str] = None
+    last_question_date: str | None = None
     questions_asked_today: list = field(default_factory=list)
     collected_items: dict = field(default_factory=dict)  # key -> value
-    skipped_items: list = field(default_factory=list)    # 用户跳过的项
-    
+    skipped_items: list = field(default_factory=list)  # 用户跳过的项
+
     def to_dict(self) -> dict:
         return {
             "is_first_use": self.is_first_use,
@@ -158,7 +156,7 @@ class UserProfileState:
             "collected_items": self.collected_items,
             "skipped_items": self.skipped_items,
         }
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> "UserProfileState":
         return cls(
@@ -174,47 +172,49 @@ class UserProfileState:
 class UserProfileManager:
     """
     用户档案管理器
-    
+
     负责:
     - 跟踪用户信息收集状态
     - 生成首次使用引导提示
     - 生成日常询问提示
     - 更新 USER.md 文件
     """
-    
+
     MAX_QUESTIONS_PER_DAY = 2  # 每天最多询问的问题数
-    
-    def __init__(self, data_dir: Optional[Path] = None, user_md_path: Optional[Path] = None):
+
+    def __init__(self, data_dir: Path | None = None, user_md_path: Path | None = None):
         self.data_dir = data_dir or (settings.project_root / "data" / "user")
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        
+
         self.user_md_path = user_md_path or settings.user_path
         self.state_file = self.data_dir / "profile_state.json"
-        
+
         # 加载状态
         self.state = self._load_state()
-        
+
         # 初始化档案项
         self.items = {item.key: item for item in USER_PROFILE_ITEMS}
-        
+
         # 将已收集的值填充到档案项
         for key, value in self.state.collected_items.items():
             if key in self.items:
                 self.items[key].value = value
-        
-        logger.info(f"UserProfileManager initialized, collected: {len(self.state.collected_items)} items")
-    
+
+        logger.info(
+            f"UserProfileManager initialized, collected: {len(self.state.collected_items)} items"
+        )
+
     def _load_state(self) -> UserProfileState:
         """加载状态"""
         if self.state_file.exists():
             try:
-                with open(self.state_file, "r", encoding="utf-8") as f:
+                with open(self.state_file, encoding="utf-8") as f:
                     data = json.load(f)
                 return UserProfileState.from_dict(data)
             except Exception as e:
                 logger.warning(f"Failed to load profile state: {e}")
         return UserProfileState()
-    
+
     def _save_state(self) -> None:
         """保存状态"""
         try:
@@ -222,36 +222,39 @@ class UserProfileManager:
                 json.dump(self.state.to_dict(), f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"Failed to save profile state: {e}")
-    
+
     def is_first_use(self) -> bool:
         """是否是首次使用"""
         return self.state.is_first_use
-    
+
     def get_onboarding_prompt(self) -> str:
         """
         获取首次使用引导提示
-        
+
         Returns:
             引导提示文本（添加到系统提示中）
         """
         if not self.state.is_first_use:
             return ""
-        
+
         # 获取优先级为 1 的未收集项
         priority_items = [
-            item for item in self.items.values()
-            if item.priority == 1 and not item.is_collected and item.key not in self.state.skipped_items
+            item
+            for item in self.items.values()
+            if item.priority == 1
+            and not item.is_collected
+            and item.key not in self.state.skipped_items
         ]
-        
+
         if not priority_items:
             # 首次引导已完成
             self.state.is_first_use = False
             self.state.onboarding_completed = True
             self._save_state()
             return ""
-        
+
         questions = [f"- {item.question}" for item in priority_items]
-        
+
         return f"""
 ## 首次使用引导
 
@@ -259,151 +262,155 @@ class UserProfileManager:
 
 {chr(10).join(questions)}
 
-**重要**: 
+**重要**:
 - 保持对话自然，不要像问卷一样逐个询问
 - 如果用户不想回答，尊重用户的选择，继续帮助用户完成当前任务
 - 收集到信息后，使用 update_user_profile 工具保存
 """
-    
+
     def get_daily_question_prompt(self) -> str:
         """
         获取日常询问提示
-        
+
         每天选择性地询问 1-2 个未收集的信息
-        
+
         Returns:
             询问提示文本（添加到系统提示中）
         """
         # 检查今天是否已经问过足够的问题
         today = date.today().isoformat()
-        
+
         if self.state.last_question_date != today:
             # 新的一天，重置计数
             self.state.last_question_date = today
             self.state.questions_asked_today = []
             self._save_state()
-        
+
         if len(self.state.questions_asked_today) >= self.MAX_QUESTIONS_PER_DAY:
             return ""
-        
+
         # 获取未收集且未跳过的项
         uncollected = [
-            item for item in self.items.values()
-            if not item.is_collected 
+            item
+            for item in self.items.values()
+            if not item.is_collected
             and item.key not in self.state.skipped_items
             and item.key not in self.state.questions_asked_today
         ]
-        
+
         if not uncollected:
             return ""
-        
+
         # 按优先级排序，选择一个
         uncollected.sort(key=lambda x: x.priority)
-        
+
         # 随机选择一个（在同优先级中）
         top_priority = uncollected[0].priority
         same_priority = [item for item in uncollected if item.priority == top_priority]
         selected = random.choice(same_priority)
-        
+
         return f"""
 ## 日常信息收集（可选）
 
 如果对话氛围合适，可以自然地了解:
 - {selected.question} (key: {selected.key})
 
-**重要**: 
+**重要**:
 - 只在对话自然过渡时才询问，不要刻意打断用户
 - 如果用户不想回答，完全没问题，继续当前话题
 - 收集到信息后，使用 update_user_profile 工具保存
 """
-    
+
     def update_profile(self, key: str, value: str) -> bool:
         """
         更新用户档案
-        
+
         Args:
             key: 档案项键名
             value: 值
-        
+
         Returns:
             是否成功
         """
         if key not in self.items:
             logger.warning(f"Unknown profile key: {key}")
             return False
-        
+
         # 更新状态
         self.state.collected_items[key] = value
         self.items[key].value = value
         self.items[key].collected_at = datetime.now().isoformat()
-        
+
         # 记录今天询问过
         today = date.today().isoformat()
         if self.state.last_question_date == today and key not in self.state.questions_asked_today:
             self.state.questions_asked_today.append(key)
-        
+
         # 检查是否完成首次引导
         priority_1_items = [item for item in self.items.values() if item.priority == 1]
-        all_collected = all(item.is_collected or item.key in self.state.skipped_items for item in priority_1_items)
+        all_collected = all(
+            item.is_collected or item.key in self.state.skipped_items for item in priority_1_items
+        )
         if all_collected and self.state.is_first_use:
             self.state.is_first_use = False
             self.state.onboarding_completed = True
-        
+
         self._save_state()
-        
+
         # 更新 USER.md
         self._update_user_md()
-        
+
         logger.info(f"Updated user profile: {key} = {value}")
         return True
-    
+
     def skip_question(self, key: str) -> None:
         """
         跳过某个问题
-        
+
         Args:
             key: 档案项键名
         """
         if key not in self.state.skipped_items:
             self.state.skipped_items.append(key)
-        
+
         # 记录今天询问过
         today = date.today().isoformat()
         if self.state.last_question_date == today and key not in self.state.questions_asked_today:
             self.state.questions_asked_today.append(key)
-        
+
         self._save_state()
         logger.info(f"User skipped question: {key}")
-    
+
     def mark_onboarding_complete(self) -> None:
         """标记首次引导完成"""
         self.state.is_first_use = False
         self.state.onboarding_completed = True
         self._save_state()
         logger.info("Onboarding marked as complete")
-    
+
     def _update_user_md(self) -> None:
         """更新 USER.md 文件"""
         try:
             # 生成新的 USER.md 内容
             content = self._generate_user_md()
-            
+
             with open(self.user_md_path, "w", encoding="utf-8") as f:
                 f.write(content)
-            
+
             logger.info("Updated USER.md")
-            
+
         except Exception as e:
             logger.error(f"Failed to update USER.md: {e}")
-    
+
     def _generate_user_md(self) -> str:
         """生成 USER.md 内容"""
+
         def get_value(key: str) -> str:
             item = self.items.get(key)
             if item and item.is_collected:
                 return item.value
             return "[待学习]"
-        
+
         return f"""# User Profile
 <!--
 参考来源:
@@ -500,16 +507,16 @@ class UserProfileManager:
 ---
 
 *此文件由 OpenAkita 自动维护。用户也可以手动编辑以提供更准确的信息。*
-*最后更新: {datetime.now().strftime('%Y-%m-%d %H:%M')}*
+*最后更新: {datetime.now().strftime("%Y-%m-%d %H:%M")}*
 """
-    
+
     def get_profile_summary(self) -> str:
         """获取档案摘要"""
         collected = len([item for item in self.items.values() if item.is_collected])
         total = len(self.items)
-        
+
         summary = f"已收集 {collected}/{total} 项用户信息\n\n"
-        
+
         for category in ["basic", "tech", "communication", "habits"]:
             category_items = [item for item in self.items.values() if item.category == category]
             summary += f"**{category.title()}**:\n"
@@ -518,16 +525,16 @@ class UserProfileManager:
                 value = item.value if item.is_collected else "-"
                 summary += f"  {status} {item.name}: {value}\n"
             summary += "\n"
-        
+
         return summary
-    
+
     def get_available_keys(self) -> list[str]:
         """获取所有可用的键名"""
         return list(self.items.keys())
 
 
 # 全局实例
-_profile_manager: Optional[UserProfileManager] = None
+_profile_manager: UserProfileManager | None = None
 
 
 def get_profile_manager() -> UserProfileManager:

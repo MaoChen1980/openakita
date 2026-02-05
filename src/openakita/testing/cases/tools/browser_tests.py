@@ -45,7 +45,6 @@ BROWSER_TESTS = [
         tags=["browser", "text"],
         timeout=30,
     ),
-    
     # 元素交互（预留）
     TestCase(
         id="tool_browser_010",
@@ -61,7 +60,6 @@ BROWSER_TESTS = [
         tags=["browser", "element"],
         timeout=30,
     ),
-    
     # 截图（预留）
     TestCase(
         id="tool_browser_020",
@@ -78,6 +76,7 @@ BROWSER_TESTS = [
         timeout=30,
     ),
 ]
+
 
 def get_tests() -> list[TestCase]:
     return BROWSER_TESTS

@@ -7,8 +7,8 @@ OpenAkita 测试系统
 - 搜索测试 (100个)
 """
 
-from .runner import TestRunner
-from .judge import Judge
 from .fixer import CodeFixer
+from .judge import Judge
+from .runner import TestRunner
 
 __all__ = ["TestRunner", "Judge", "CodeFixer"]

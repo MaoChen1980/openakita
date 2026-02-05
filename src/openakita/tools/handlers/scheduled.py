@@ -10,7 +10,7 @@
 """
 
 import logging
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ...core.agent import Agent
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class ScheduledHandler:
     """定时任务处理器"""
-    
+
     TOOLS = [
         "schedule_task",
         "list_scheduled_tasks",
@@ -28,15 +28,15 @@ class ScheduledHandler:
         "update_scheduled_task",
         "trigger_scheduled_task",
     ]
-    
+
     def __init__(self, agent: "Agent"):
         self.agent = agent
-    
+
     async def handle(self, tool_name: str, params: dict[str, Any]) -> str:
         """处理工具调用"""
-        if not hasattr(self.agent, 'task_scheduler') or not self.agent.task_scheduler:
+        if not hasattr(self.agent, "task_scheduler") or not self.agent.task_scheduler:
             return "❌ 定时任务调度器未启动"
-        
+
         if tool_name == "schedule_task":
             return await self._schedule_task(params)
         elif tool_name == "list_scheduled_tasks":
@@ -49,16 +49,16 @@ class ScheduledHandler:
             return await self._trigger_task(params)
         else:
             return f"❌ Unknown scheduled tool: {tool_name}"
-    
+
     async def _schedule_task(self, params: dict) -> str:
         """创建定时任务"""
+        from ...core.agent import Agent
         from ...scheduler import ScheduledTask, TriggerType
         from ...scheduler.task import TaskType
-        from ...core.agent import Agent
-        
+
         trigger_type = TriggerType(params["trigger_type"])
         task_type = TaskType(params.get("task_type", "task"))
-        
+
         # 获取当前 IM 会话信息
         channel_id = chat_id = user_id = None
         if Agent._current_im_session:
@@ -66,7 +66,7 @@ class ScheduledHandler:
             channel_id = session.channel
             chat_id = session.chat_id
             user_id = session.user_id
-        
+
         task = ScheduledTask.create(
             name=params["name"],
             description=params["description"],
@@ -81,13 +81,13 @@ class ScheduledHandler:
         )
         task.metadata["notify_on_start"] = params.get("notify_on_start", True)
         task.metadata["notify_on_complete"] = params.get("notify_on_complete", True)
-        
+
         task_id = await self.agent.task_scheduler.add_task(task)
-        next_run = task.next_run.strftime('%Y-%m-%d %H:%M:%S') if task.next_run else '待计算'
-        
+        next_run = task.next_run.strftime("%Y-%m-%d %H:%M:%S") if task.next_run else "待计算"
+
         type_display = "📝 简单提醒" if task_type == TaskType.REMINDER else "🔧 复杂任务"
-        
-        print(f"\n📅 定时任务已创建:")
+
+        print("\n📅 定时任务已创建:")
         print(f"   ID: {task_id}")
         print(f"   名称: {task.name}")
         print(f"   类型: {type_display}")
@@ -96,45 +96,49 @@ class ScheduledHandler:
         if channel_id and chat_id:
             print(f"   通知渠道: {channel_id}/{chat_id}")
         print()
-        
-        logger.info(f"Created scheduled task: {task_id} ({task.name}), type={task_type.value}, next run: {next_run}")
-        
-        return f"✅ 已创建{type_display}\n- ID: {task_id}\n- 名称: {task.name}\n- 下次执行: {next_run}"
-    
+
+        logger.info(
+            f"Created scheduled task: {task_id} ({task.name}), type={task_type.value}, next run: {next_run}"
+        )
+
+        return (
+            f"✅ 已创建{type_display}\n- ID: {task_id}\n- 名称: {task.name}\n- 下次执行: {next_run}"
+        )
+
     def _list_tasks(self, params: dict) -> str:
         """列出任务"""
         enabled_only = params.get("enabled_only", False)
         tasks = self.agent.task_scheduler.list_tasks(enabled_only=enabled_only)
-        
+
         if not tasks:
             return "当前没有定时任务"
-        
+
         output = f"共 {len(tasks)} 个定时任务:\n\n"
         for t in tasks:
             status = "✓" if t.enabled else "✗"
-            next_run = t.next_run.strftime('%m-%d %H:%M') if t.next_run else 'N/A'
+            next_run = t.next_run.strftime("%m-%d %H:%M") if t.next_run else "N/A"
             output += f"[{status}] {t.name} ({t.id})\n"
             output += f"    类型: {t.trigger_type.value}, 下次: {next_run}\n"
-        
+
         return output
-    
+
     async def _cancel_task(self, params: dict) -> str:
         """取消任务"""
         task_id = params["task_id"]
         success = await self.agent.task_scheduler.remove_task(task_id)
-        
+
         if success:
             return f"✅ 任务 {task_id} 已取消"
         else:
             return f"❌ 任务 {task_id} 不存在"
-    
+
     def _update_task(self, params: dict) -> str:
         """更新任务"""
         task_id = params["task_id"]
         task = self.agent.task_scheduler.get_task(task_id)
         if not task:
             return f"❌ 任务 {task_id} 不存在"
-        
+
         changes = []
         if "notify_on_start" in params:
             task.metadata["notify_on_start"] = params["notify_on_start"]
@@ -149,18 +153,18 @@ class ScheduledHandler:
             else:
                 task.disable()
                 changes.append("已暂停")
-        
+
         self.agent.task_scheduler._save_tasks()
-        
+
         if changes:
             return f"✅ 任务 {task.name} 已更新: " + ", ".join(changes)
         return "⚠️ 没有指定要修改的设置"
-    
+
     async def _trigger_task(self, params: dict) -> str:
         """立即触发任务"""
         task_id = params["task_id"]
         execution = await self.agent.task_scheduler.trigger_now(task_id)
-        
+
         if execution:
             status = "成功" if execution.status == "success" else "失败"
             return f"✅ 任务已触发执行，状态: {status}\n结果: {execution.result or execution.error or 'N/A'}"

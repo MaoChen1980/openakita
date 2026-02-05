@@ -9,21 +9,16 @@ OpenAkita CLI 入口
 import asyncio
 import logging
 import sys
-from typing import Optional, Union
 
 import typer
-from typer import Context
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.table import Table
-from rich.live import Live
-from rich.spinner import Spinner
-from rich.text import Text
 
-from .core.agent import Agent
 from .config import settings
+from .core.agent import Agent
 from .logging import setup_logging
 
 # 配置日志系统（使用新的日志模块）
@@ -50,7 +45,7 @@ app = typer.Typer(
 console = Console()
 
 # 全局组件
-_agent: Optional[Agent] = None
+_agent: Agent | None = None
 _master_agent = None  # MasterAgent（多 Agent 协同模式）
 _message_gateway = None
 _session_manager = None
@@ -70,12 +65,12 @@ def get_master_agent():
     if _master_agent is None:
         from .orchestration import MasterAgent
         from .orchestration.bus import BusConfig
-        
+
         bus_config = BusConfig(
             router_address=settings.orchestration_bus_address,
             pub_address=settings.orchestration_pub_address,
         )
-        
+
         _master_agent = MasterAgent(
             bus_config=bus_config,
             min_workers=settings.orchestration_min_workers,
@@ -95,48 +90,51 @@ def is_orchestration_enabled() -> bool:
 async def start_im_channels(agent_or_master):
     """
     启动配置的 IM 通道
-    
+
     Args:
         agent_or_master: Agent 实例或 MasterAgent 实例
     """
     global _message_gateway, _session_manager
-    
+
     # 检查是否有任何通道启用
     any_enabled = (
-        settings.telegram_enabled or
-        settings.feishu_enabled or
-        settings.wework_enabled or
-        settings.dingtalk_enabled or
-        settings.qq_enabled
+        settings.telegram_enabled
+        or settings.feishu_enabled
+        or settings.wework_enabled
+        or settings.dingtalk_enabled
+        or settings.qq_enabled
     )
-    
+
     if not any_enabled:
         logger.info("No IM channels enabled")
         return
-    
+
     # 初始化 SessionManager
     from .sessions import SessionManager
+
     _session_manager = SessionManager(
         storage_path=settings.project_root / settings.session_storage_path,
     )
     await _session_manager.start()
     logger.info("SessionManager started")
-    
+
     # 初始化 MessageGateway (先创建，agent_handler 会引用它)
     from .channels import MessageGateway
+
     _message_gateway = MessageGateway(
         session_manager=_session_manager,
         agent_handler=None,  # 稍后设置
         whisper_model=settings.whisper_model,  # 从配置读取 Whisper 模型
     )
-    
+
     # 注册启用的适配器
     adapters_started = []
-    
+
     # Telegram
     if settings.telegram_enabled and settings.telegram_bot_token:
         try:
             from .channels.adapters import TelegramAdapter
+
             telegram = TelegramAdapter(
                 bot_token=settings.telegram_bot_token,
                 webhook_url=settings.telegram_webhook_url or None,
@@ -150,11 +148,12 @@ async def start_im_channels(agent_or_master):
             logger.info("Telegram adapter registered")
         except Exception as e:
             logger.error(f"Failed to start Telegram adapter: {e}")
-    
+
     # 飞书
     if settings.feishu_enabled and settings.feishu_app_id:
         try:
             from .channels.adapters import FeishuAdapter
+
             feishu = FeishuAdapter(
                 app_id=settings.feishu_app_id,
                 app_secret=settings.feishu_app_secret,
@@ -164,11 +163,12 @@ async def start_im_channels(agent_or_master):
             logger.info("Feishu adapter registered")
         except Exception as e:
             logger.error(f"Failed to start Feishu adapter: {e}")
-    
+
     # 企业微信
     if settings.wework_enabled and settings.wework_corp_id:
         try:
             from .channels.adapters import WeWorkAdapter
+
             wework = WeWorkAdapter(
                 corp_id=settings.wework_corp_id,
                 agent_id=settings.wework_agent_id,
@@ -179,11 +179,12 @@ async def start_im_channels(agent_or_master):
             logger.info("WeWork adapter registered")
         except Exception as e:
             logger.error(f"Failed to start WeWork adapter: {e}")
-    
+
     # 钉钉
     if settings.dingtalk_enabled and settings.dingtalk_app_key:
         try:
             from .channels.adapters import DingTalkAdapter
+
             dingtalk = DingTalkAdapter(
                 app_key=settings.dingtalk_app_key,
                 app_secret=settings.dingtalk_app_secret,
@@ -193,11 +194,12 @@ async def start_im_channels(agent_or_master):
             logger.info("DingTalk adapter registered")
         except Exception as e:
             logger.error(f"Failed to start DingTalk adapter: {e}")
-    
+
     # QQ
     if settings.qq_enabled and settings.qq_onebot_url:
         try:
             from .channels.adapters import QQAdapter
+
             qq = QQAdapter(
                 onebot_url=settings.qq_onebot_url,
             )
@@ -206,13 +208,13 @@ async def start_im_channels(agent_or_master):
             logger.info("QQ adapter registered")
         except Exception as e:
             logger.error(f"Failed to start QQ adapter: {e}")
-    
+
     # 设置 Agent 处理函数
     # 根据是否启用协同模式选择不同的处理方式
     if is_orchestration_enabled():
         # 多 Agent 协同模式：通过 MasterAgent 路由
         master = agent_or_master
-        
+
         async def agent_handler(session, message: str) -> str:
             """通过 MasterAgent 处理消息"""
             try:
@@ -228,7 +230,7 @@ async def start_im_channels(agent_or_master):
             except Exception as e:
                 logger.error(f"MasterAgent handler error: {e}", exc_info=True)
                 return f"❌ 处理出错: {str(e)}"
-        
+
         # 设置 Brain 到 Gateway（用于模型切换命令）
         # MasterAgent 的 _local_agent 有 brain 属性
         if master._local_agent:
@@ -236,7 +238,7 @@ async def start_im_channels(agent_or_master):
     else:
         # 单 Agent 模式：直接调用 Agent
         agent = agent_or_master
-        
+
         async def agent_handler(session, message: str) -> str:
             """直接通过 Agent 处理消息"""
             try:
@@ -252,32 +254,32 @@ async def start_im_channels(agent_or_master):
             except Exception as e:
                 logger.error(f"Agent handler error: {e}", exc_info=True)
                 return f"❌ 处理出错: {str(e)}"
-        
+
         # 设置 Agent 的 scheduler gateway
         agent.set_scheduler_gateway(_message_gateway)
-        
+
         # 设置 Brain 到 Gateway（用于模型切换命令）
         _message_gateway.set_brain(agent.brain)
-    
+
     _message_gateway.agent_handler = agent_handler
-    
+
     # 启动网关
     if adapters_started:
         await _message_gateway.start()
         logger.info(f"MessageGateway started with adapters: {adapters_started}")
         return adapters_started
-    
+
     return []
 
 
 async def stop_im_channels():
     """停止 IM 通道"""
     global _message_gateway, _session_manager
-    
+
     if _message_gateway:
         await _message_gateway.stop()
         logger.info("MessageGateway stopped")
-    
+
     if _session_manager:
         await _session_manager.stop()
         logger.info("SessionManager stopped")
@@ -312,7 +314,7 @@ def print_help():
     table = Table(title="可用命令")
     table.add_column("命令", style="cyan")
     table.add_column("描述", style="green")
-    
+
     commands = [
         ("/help", "显示此帮助信息"),
         ("/status", "显示 Agent 状态"),
@@ -324,22 +326,22 @@ def print_help():
         ("/clear", "清空对话历史"),
         ("/exit, /quit", "退出程序"),
     ]
-    
+
     for cmd, desc in commands:
         table.add_row(cmd, desc)
-    
+
     console.print(table)
 
 
 async def show_orchestration_status(master):
     """显示多 Agent 协同状态"""
     stats = master.get_stats()
-    
+
     # 基本信息
     table = Table(title="MasterAgent 状态")
     table.add_column("属性", style="cyan")
     table.add_column("值", style="green")
-    
+
     table.add_row("模式", "多 Agent 协同")
     table.add_row("总任务数", str(stats["tasks_total"]))
     table.add_row("本地处理", str(stats["tasks_local"]))
@@ -347,10 +349,10 @@ async def show_orchestration_status(master):
     table.add_row("成功", str(stats["tasks_success"]))
     table.add_row("失败", str(stats["tasks_failed"]))
     table.add_row("待处理任务", str(stats["pending_tasks"]))
-    
+
     console.print(table)
     console.print()
-    
+
     # Agent 列表
     show_agents(master)
 
@@ -360,15 +362,17 @@ def show_agents(master):
     dashboard = master.get_dashboard_data()
     summary = dashboard["summary"]
     agents = dashboard["agents"]
-    
+
     # 摘要
-    console.print(f"[bold]Agent 摘要:[/bold] "
-                  f"总计 {summary['total_agents']} | "
-                  f"空闲 [green]{summary['idle']}[/green] | "
-                  f"繁忙 [yellow]{summary['busy']}[/yellow] | "
-                  f"故障 [red]{summary['dead']}[/red]")
+    console.print(
+        f"[bold]Agent 摘要:[/bold] "
+        f"总计 {summary['total_agents']} | "
+        f"空闲 [green]{summary['idle']}[/green] | "
+        f"繁忙 [yellow]{summary['busy']}[/yellow] | "
+        f"故障 [red]{summary['dead']}[/red]"
+    )
     console.print()
-    
+
     # Agent 列表
     if agents:
         table = Table(title="活跃 Agent")
@@ -378,7 +382,7 @@ def show_agents(master):
         table.add_column("当前任务", style="white")
         table.add_column("完成/失败", style="yellow")
         table.add_column("心跳", style="dim")
-        
+
         for agent_info in agents:
             status = agent_info["status"]
             status_style = {
@@ -387,7 +391,7 @@ def show_agents(master):
                 "dead": "[red]故障[/red]",
                 "stopping": "[dim]停止中[/dim]",
             }.get(status, status)
-            
+
             table.add_row(
                 agent_info["agent_id"],
                 agent_info["type"],
@@ -396,7 +400,7 @@ def show_agents(master):
                 f"{agent_info['tasks_completed']}/{agent_info['tasks_failed']}",
                 agent_info["last_heartbeat"],
             )
-        
+
         console.print(table)
     else:
         console.print("[yellow]没有活跃的 Agent[/yellow]")
@@ -408,7 +412,7 @@ def show_channels():
     table.add_column("通道", style="cyan")
     table.add_column("启用", style="green")
     table.add_column("状态", style="yellow")
-    
+
     channels = [
         ("Telegram", settings.telegram_enabled, settings.telegram_bot_token),
         ("飞书", settings.feishu_enabled, settings.feishu_app_id),
@@ -416,7 +420,7 @@ def show_channels():
         ("钉钉", settings.dingtalk_enabled, settings.dingtalk_app_key),
         ("QQ", settings.qq_enabled, settings.qq_onebot_url),
     ]
-    
+
     for name, enabled, token in channels:
         enabled_str = "✓" if enabled else "✗"
         if enabled and token:
@@ -426,9 +430,9 @@ def show_channels():
         else:
             status = "-"
         table.add_row(name, enabled_str, status)
-    
+
     console.print(table)
-    
+
     if _message_gateway:
         adapters = _message_gateway.list_adapters()
         console.print(f"\n[green]活跃适配器:[/green] {', '.join(adapters) if adapters else '无'}")
@@ -437,114 +441,111 @@ def show_channels():
 async def run_interactive():
     """运行交互式 CLI（同时启动 IM 通道）"""
     print_welcome()
-    
+
     # 根据配置选择单 Agent 或多 Agent 协同模式
     if is_orchestration_enabled():
         console.print("[cyan]ℹ[/cyan] 多 Agent 协同模式已启用")
         master = get_master_agent()
-        
+
         # 启动 MasterAgent
         with console.status("[bold green]正在启动 MasterAgent...", spinner="dots"):
             await master.start()
-        
-        worker_count = len([
-            a for a in master.registry.list_all()
-            if a.agent_type == "worker"
-        ])
+
+        worker_count = len([a for a in master.registry.list_all() if a.agent_type == "worker"])
         console.print(f"[green]✓[/green] MasterAgent 已启动 (Workers: {worker_count})")
-        
+
         agent_or_master = master
         agent_name = "OpenAkita (Master)"
     else:
         agent = get_agent()
-        
+
         # 初始化 Agent
         with console.status("[bold green]正在初始化 Agent...", spinner="dots"):
             await agent.initialize()
-        
+
         console.print("[green]✓[/green] Agent 已准备就绪")
-        
+
         agent_or_master = agent
         agent_name = agent.name
-    
+
     # 启动 IM 通道
     im_channels = []
     with console.status("[bold green]正在启动 IM 通道...", spinner="dots"):
         im_channels = await start_im_channels(agent_or_master)
-    
+
     if im_channels:
         console.print(f"[green]✓[/green] IM 通道已启动: {', '.join(im_channels)}")
     else:
         console.print("[yellow]ℹ[/yellow] 未启用任何 IM 通道 (可在 .env 中配置)")
-    
+
     console.print()
-    
+
     try:
         while True:
             try:
                 # 获取用户输入
                 user_input = Prompt.ask("[bold blue]You[/bold blue]")
-                
+
                 if not user_input.strip():
                     continue
-                
+
                 # 处理命令
                 if user_input.startswith("/"):
                     cmd = user_input.lower().strip()
-                    
+
                     if cmd in ("/exit", "/quit"):
                         console.print("[yellow]再见！[/yellow]")
                         break
-                    
+
                     elif cmd == "/help":
                         print_help()
                         continue
-                    
+
                     elif cmd == "/status":
                         if is_orchestration_enabled():
                             await show_orchestration_status(agent_or_master)
                         else:
                             await show_status(agent_or_master)
                         continue
-                    
+
                     elif cmd == "/selfcheck":
                         if not is_orchestration_enabled():
                             await run_selfcheck(agent_or_master)
                         else:
                             console.print("[yellow]协同模式下自检功能开发中[/yellow]")
                         continue
-                    
+
                     elif cmd == "/memory":
                         show_memory()
                         continue
-                    
+
                     elif cmd == "/skills":
                         show_skills()
                         continue
-                    
+
                     elif cmd == "/channels":
                         show_channels()
                         continue
-                    
+
                     elif cmd == "/agents":
                         if is_orchestration_enabled():
                             show_agents(agent_or_master)
                         else:
                             console.print("[yellow]单 Agent 模式，无 Worker 列表[/yellow]")
                         continue
-                    
+
                     elif cmd == "/clear":
                         if not is_orchestration_enabled():
                             agent_or_master._conversation_history.clear()
                             agent_or_master._context.messages.clear()
                         console.print("[green]对话历史已清空[/green]")
                         continue
-                    
+
                     else:
                         console.print(f"[red]未知命令: {cmd}[/red]")
                         print_help()
                         continue
-                
+
                 # 正常对话
                 with console.status("[bold green]思考中...", spinner="dots"):
                     if is_orchestration_enabled():
@@ -556,16 +557,18 @@ async def run_interactive():
                     else:
                         # 单 Agent 模式
                         response = await agent_or_master.chat(user_input)
-                
+
                 # 显示响应
                 console.print()
-                console.print(Panel(
-                    Markdown(response),
-                    title=f"[bold green]{agent_name}[/bold green]",
-                    border_style="green",
-                ))
+                console.print(
+                    Panel(
+                        Markdown(response),
+                        title=f"[bold green]{agent_name}[/bold green]",
+                        border_style="green",
+                    )
+                )
                 console.print()
-                
+
             except KeyboardInterrupt:
                 console.print("\n[yellow]使用 /exit 退出[/yellow]")
             except Exception as e:
@@ -585,42 +588,50 @@ async def show_status(agent: Agent):
     table = Table(title="Agent 状态")
     table.add_column("属性", style="cyan")
     table.add_column("值", style="green")
-    
+
     table.add_row("名称", agent.name)
     table.add_row("已初始化", "✓" if agent.is_initialized else "✗")
     table.add_row("对话轮数", str(len(agent.conversation_history) // 2))
     table.add_row("模型", settings.default_model)
     table.add_row("最大迭代", str(settings.max_iterations))
-    
+
     console.print(table)
 
 
 async def run_selfcheck(agent: Agent):
     """运行自检"""
     console.print("[bold]运行自检...[/bold]\n")
-    
+
     with console.status("[bold green]检查中...", spinner="dots"):
         results = await agent.self_check()
-    
+
     # 显示结果
     status_color = "green" if results["status"] == "healthy" else "red"
     console.print(f"状态: [{status_color}]{results['status']}[/{status_color}]")
     console.print()
-    
+
     table = Table(title="检查项目")
     table.add_column("检查项", style="cyan")
     table.add_column("状态", style="green")
     table.add_column("消息", style="white")
-    
+
     for name, check in results["checks"].items():
-        status_icon = "✓" if check["status"] == "ok" else "⚠" if check["status"] == "warning" else "✗"
-        status_style = "green" if check["status"] == "ok" else "yellow" if check["status"] == "warning" else "red"
+        status_icon = (
+            "✓" if check["status"] == "ok" else "⚠" if check["status"] == "warning" else "✗"
+        )
+        status_style = (
+            "green"
+            if check["status"] == "ok"
+            else "yellow"
+            if check["status"] == "warning"
+            else "red"
+        )
         table.add_row(
             name,
             f"[{status_style}]{status_icon}[/{status_style}]",
             check.get("message", ""),
         )
-    
+
     console.print(table)
 
 
@@ -628,11 +639,13 @@ def show_memory():
     """显示记忆状态"""
     try:
         content = settings.memory_path.read_text(encoding="utf-8")
-        console.print(Panel(
-            Markdown(content[:2000] + ("..." if len(content) > 2000 else "")),
-            title="MEMORY.md",
-            border_style="blue",
-        ))
+        console.print(
+            Panel(
+                Markdown(content[:2000] + ("..." if len(content) > 2000 else "")),
+                title="MEMORY.md",
+                border_style="blue",
+            )
+        )
     except Exception as e:
         console.print(f"[red]无法读取 MEMORY.md: {e}[/red]")
 
@@ -641,14 +654,17 @@ def show_skills():
     """显示已安装技能（建议 4）"""
     try:
         from .skills.catalog import SkillCatalog
+
         catalog = SkillCatalog()
         skills_text = catalog.generate_catalog()
         if skills_text and skills_text.strip():
-            console.print(Panel(
-                Markdown(skills_text),
-                title="已安装技能",
-                border_style="green",
-            ))
+            console.print(
+                Panel(
+                    Markdown(skills_text),
+                    title="已安装技能",
+                    border_style="green",
+                )
+            )
         else:
             console.print("[yellow]暂无已安装技能[/yellow]")
             console.print("使用 install_skill 工具安装技能，或在 skills/ 目录下创建技能")
@@ -663,54 +679,58 @@ def main(
 ):
     """
     OpenAkita - 全能自进化AI助手
-    
+
     直接运行进入交互模式
     """
     if version:
         from . import __version__
+
         console.print(f"OpenAkita v{__version__}")
         raise typer.Exit(0)
-    
+
     # 如果没有子命令，进入交互模式
     if ctx.invoked_subcommand is None:
         # 检查是否至少有一个可用的 LLM 端点（建议 1）
         from pathlib import Path
+
         has_endpoint = (
-            settings.anthropic_api_key or 
-            settings.openai_api_key or 
-            Path(settings.llm_endpoints_path).exists()
+            settings.anthropic_api_key
+            or settings.openai_api_key
+            or Path(settings.llm_endpoints_path).exists()
         )
         if not has_endpoint:
             console.print("[red]错误: 未配置任何 LLM 端点[/red]")
-            console.print("请设置 ANTHROPIC_API_KEY 或 OPENAI_API_KEY，或运行 'openakita init' 配置 llm_endpoints.json")
+            console.print(
+                "请设置 ANTHROPIC_API_KEY 或 OPENAI_API_KEY，或运行 'openakita init' 配置 llm_endpoints.json"
+            )
             raise typer.Exit(1)
-        
+
         # 运行交互式 CLI
         asyncio.run(run_interactive())
 
 
 @app.command()
 def init(
-    project_dir: Optional[str] = typer.Argument(None, help="项目目录（默认当前目录）"),
+    project_dir: str | None = typer.Argument(None, help="项目目录（默认当前目录）"),
 ):
     """
     初始化 OpenAkita - 交互式配置向导
-    
+
     运行此命令启动配置向导，引导您完成：
     - LLM API 配置
     - IM 通道配置（可选）
     - 记忆系统配置
     - 目录结构创建
-    
+
     示例:
         openakita init
         openakita init ./my-project
     """
     from .setup import SetupWizard
-    
+
     wizard = SetupWizard(project_dir)
     success = wizard.run()
-    
+
     if success:
         raise typer.Exit(0)
     else:
@@ -722,26 +742,31 @@ def run(
     task: str = typer.Argument(..., help="要执行的任务"),
 ):
     """执行单个任务"""
+
     async def _run():
         agent = get_agent()
         await agent.initialize()
-        
+
         with console.status("[bold green]执行任务中...", spinner="dots"):
             result = await agent.execute_task_from_message(task)
-        
+
         if result.success:
-            console.print(Panel(
-                Markdown(str(result.data)),
-                title="[green]任务完成[/green]",
-                border_style="green",
-            ))
+            console.print(
+                Panel(
+                    Markdown(str(result.data)),
+                    title="[green]任务完成[/green]",
+                    border_style="green",
+                )
+            )
         else:
-            console.print(Panel(
-                f"错误: {result.error}",
-                title="[red]任务失败[/red]",
-                border_style="red",
-            ))
-    
+            console.print(
+                Panel(
+                    f"错误: {result.error}",
+                    title="[red]任务失败[/red]",
+                    border_style="red",
+                )
+            )
+
     asyncio.run(_run())
 
 
@@ -751,22 +776,24 @@ def selfcheck(
     fix: bool = typer.Option(False, "--fix", help="自动修复发现的问题"),
 ):
     """运行自检"""
+
     async def _selfcheck():
         agent = get_agent()
         await agent.initialize()
         await run_selfcheck(agent)
-    
+
     asyncio.run(_selfcheck())
 
 
 @app.command()
 def status():
     """显示 Agent 状态"""
+
     async def _status():
         agent = get_agent()
         await agent.initialize()
         await show_status(agent)
-    
+
     asyncio.run(_status())
 
 
@@ -776,40 +803,40 @@ def compile(
 ):
     """
     编译 identity 文件
-    
+
     将 SOUL.md, AGENT.md, USER.md 编译为精简摘要，
     降低约 55% 的 token 消耗。
-    
+
     编译产物保存在 identity/compiled/ 目录。
     """
-    from .prompt.compiler import compile_all, check_compiled_outdated
-    
+    from .prompt.compiler import check_compiled_outdated, compile_all
+
     identity_dir = settings.identity_path
-    
+
     # 检查是否需要编译
     if not force and not check_compiled_outdated(identity_dir):
         console.print("[yellow]编译产物已是最新，使用 --force 强制重新编译[/yellow]")
         return
-    
+
     console.print("[bold]正在编译 identity 文件...[/bold]")
-    
+
     try:
         results = compile_all(identity_dir)
-        
+
         # 显示结果
         table = Table(title="编译结果")
         table.add_column("源文件", style="cyan")
         table.add_column("产物", style="green")
         table.add_column("大小", style="yellow")
-        
+
         for name, path in results.items():
             if path.exists():
                 size = len(path.read_text(encoding="utf-8"))
                 table.add_row(f"{name}.md", path.name, f"{size} 字符")
-        
+
         console.print(table)
         console.print(f"\n[green]✓[/green] 编译完成，产物保存在 {identity_dir / 'compiled'}")
-        
+
     except Exception as e:
         console.print(f"[red]编译失败: {e}[/red]")
         raise typer.Exit(1)
@@ -822,20 +849,20 @@ def prompt_debug(
 ):
     """
     显示 prompt 调试信息
-    
+
     显示系统提示词的各部分 token 统计，
     帮助调试和优化 prompt。
     """
-    from .prompt.builder import get_prompt_debug_info
     from .prompt.budget import estimate_tokens
-    
+    from .prompt.builder import get_prompt_debug_info
+
     async def _debug():
         agent = get_agent()
         await agent.initialize()
-        
+
         console.print(f"[bold]Prompt 调试信息[/bold] (任务: {task or '无'})")
         console.print()
-        
+
         if compiled:
             # 使用编译版本
             info = get_prompt_debug_info(
@@ -846,51 +873,52 @@ def prompt_debug(
                 memory_manager=agent.memory_manager,
                 task_description=task,
             )
-            
+
             # 编译产物
             table = Table(title="编译产物 (v2)")
             table.add_column("文件", style="cyan")
             table.add_column("Tokens", style="green")
-            
+
             for name, tokens in info["compiled_files"].items():
                 table.add_row(name, str(tokens))
-            
+
             console.print(table)
             console.print()
-            
+
             # 清单
             table = Table(title="清单")
             table.add_column("类型", style="cyan")
             table.add_column("Tokens", style="green")
-            
+
             for name, tokens in info["catalogs"].items():
                 table.add_row(name, str(tokens))
-            
+
             console.print(table)
             console.print()
-            
+
             # 记忆
             console.print(f"记忆: {info['memory']} tokens")
             console.print()
-            
+
             # 总计
             total = info["total"]
             budget = info["budget"]["total"]
             color = "green" if total <= budget else "red"
             console.print(f"[bold]总计: [{color}]{total}[/{color}] / {budget} tokens[/bold]")
-            
+
         else:
             # 使用全文版本
             from .core.identity import Identity
+
             identity = Identity()
             identity.load()
-            
+
             full_prompt = identity.get_system_prompt()
             full_tokens = estimate_tokens(full_prompt)
-            
+
             console.print(f"全文版本: {full_tokens} tokens")
             console.print()
-            
+
             # 对比
             info = get_prompt_debug_info(
                 identity_dir=settings.identity_path,
@@ -901,13 +929,13 @@ def prompt_debug(
                 task_description=task,
             )
             compiled_total = info["total"]
-            
+
             savings = full_tokens - compiled_total
             savings_pct = (savings / full_tokens * 100) if full_tokens > 0 else 0
-            
+
             console.print(f"编译版本: {compiled_total} tokens")
             console.print(f"[green]节省: {savings} tokens ({savings_pct:.1f}%)[/green]")
-    
+
     asyncio.run(_debug())
 
 
@@ -915,71 +943,70 @@ def prompt_debug(
 def serve():
     """
     启动服务模式 (无 CLI，只运行 IM 通道)
-    
+
     用于后台运行，只处理 IM 消息。
     支持单 Agent 和多 Agent 协同模式。
     """
     import signal
     import warnings
-    
+
     # 压制 Windows asyncio 关闭时的 ResourceWarning
     warnings.filterwarnings("ignore", category=ResourceWarning, module="asyncio")
-    
+
     # 用于优雅关闭的标志
     shutdown_event = None
     agent_or_master = None
     shutdown_triggered = False
-    
+
     async def _serve():
         nonlocal shutdown_event, agent_or_master, shutdown_triggered
         shutdown_event = asyncio.Event()
-        
+
         mode_text = "多 Agent 协同模式" if is_orchestration_enabled() else "单 Agent 模式"
-        console.print(Panel(
-            f"[bold]OpenAkita 服务模式[/bold]\n\n"
-            f"模式: {mode_text}\n"
-            "只运行 IM 通道，不启动 CLI 交互。\n"
-            "按 Ctrl+C 停止服务。",
-            title="Serve Mode",
-            border_style="blue",
-        ))
-        
+        console.print(
+            Panel(
+                f"[bold]OpenAkita 服务模式[/bold]\n\n"
+                f"模式: {mode_text}\n"
+                "只运行 IM 通道，不启动 CLI 交互。\n"
+                "按 Ctrl+C 停止服务。",
+                title="Serve Mode",
+                border_style="blue",
+            )
+        )
+
         # 根据配置选择模式
         if is_orchestration_enabled():
             master = get_master_agent()
-            
+
             console.print("[bold green]正在启动 MasterAgent...[/bold green]")
             await master.start()
-            
-            worker_count = len([
-                a for a in master.registry.list_all()
-                if a.agent_type == "worker"
-            ])
+
+            worker_count = len([a for a in master.registry.list_all() if a.agent_type == "worker"])
             console.print(f"[green]✓[/green] MasterAgent 已启动 (Workers: {worker_count})")
-            
+
             agent_or_master = master
         else:
             agent = get_agent()
-            
+
             console.print("[bold green]正在初始化 Agent...[/bold green]")
             await agent.initialize()
             console.print(f"[green]✓[/green] Agent 已初始化 (技能: {agent.skill_registry.count})")
-            
+
             agent_or_master = agent
-        
+
         # 启动 IM 通道
         console.print("[bold green]正在启动 IM 通道...[/bold green]")
         im_channels = await start_im_channels(agent_or_master)
-        
+
         if not im_channels:
             console.print("[red]✗[/red] 没有启用任何 IM 通道！")
             console.print("请在 .env 中配置 IM 通道（如 TELEGRAM_ENABLED=true）")
             return
-        
+
         console.print(f"[green]✓[/green] IM 通道已启动: {', '.join(im_channels)}")
         console.print()
         console.print("[bold]服务运行中...[/bold] 按 Ctrl+C 停止")
-        
+
         # 保持运行，使用 Event 来优雅关闭
         try:
             await shutdown_event.wait()
@@ -994,13 +1021,13 @@ def serve():
                     await asyncio.wait_for(stop_im_channels(), timeout=5.0)
                     if is_orchestration_enabled() and agent_or_master:
                         await asyncio.wait_for(agent_or_master.stop(), timeout=5.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.warning("Shutdown timeout, forcing exit")
                 except Exception as e:
                     # 忽略停止过程中的异常（常见于 Windows asyncio）
                     logger.debug(f"Exception during shutdown (ignored): {e}")
                 console.print("[green]✓[/green] 服务已停止")
-    
+
     def signal_handler(signum, frame):
         """信号处理器，用于优雅关闭"""
         nonlocal shutdown_triggered
@@ -1013,13 +1040,13 @@ def serve():
                 loop.call_soon_threadsafe(shutdown_event.set)
             except RuntimeError:
                 pass
-    
+
     # 设置信号处理
     if sys.platform == "win32":
         # Windows 上使用 signal.signal
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
-    
+
     try:
         asyncio.run(_serve())
     except KeyboardInterrupt:

@@ -51,7 +51,6 @@ SHELL_TESTS = [
         expected="length>=1",
         tags=["shell", "basic"],
     ),
-    
     # 文件操作命令
     TestCase(
         id="tool_shell_010",
@@ -67,7 +66,9 @@ SHELL_TESTS = [
         category="tools",
         subcategory="shell",
         description="写入文件",
-        input={"command": "echo 'test content' > /tmp/test_openakita.txt && cat /tmp/test_openakita.txt"},
+        input={
+            "command": "echo 'test content' > /tmp/test_openakita.txt && cat /tmp/test_openakita.txt"
+        },
         expected="contains:test content",
         tags=["shell", "file"],
     ),
@@ -76,11 +77,12 @@ SHELL_TESTS = [
         category="tools",
         subcategory="shell",
         description="追加文件",
-        input={"command": "echo 'appended' >> /tmp/test_openakita.txt && tail -1 /tmp/test_openakita.txt"},
+        input={
+            "command": "echo 'appended' >> /tmp/test_openakita.txt && tail -1 /tmp/test_openakita.txt"
+        },
         expected="contains:appended",
         tags=["shell", "file"],
     ),
-    
     # Python 命令
     TestCase(
         id="tool_shell_020",
@@ -96,7 +98,7 @@ SHELL_TESTS = [
         category="tools",
         subcategory="shell",
         description="Python 计算",
-        input={"command": "python -c \"print(2 + 2)\""},
+        input={"command": 'python -c "print(2 + 2)"'},
         expected="4",
         tags=["shell", "python"],
     ),
@@ -109,7 +111,6 @@ SHELL_TESTS = [
         expected="length>=10",
         tags=["shell", "python", "pip"],
     ),
-    
     # Git 命令
     TestCase(
         id="tool_shell_030",
@@ -120,7 +121,6 @@ SHELL_TESTS = [
         expected="contains:git version",
         tags=["shell", "git"],
     ),
-    
     # 网络命令
     TestCase(
         id="tool_shell_040",
@@ -133,6 +133,7 @@ SHELL_TESTS = [
         timeout=10,
     ),
 ]
+
 
 def get_tests() -> list[TestCase]:
     return SHELL_TESTS

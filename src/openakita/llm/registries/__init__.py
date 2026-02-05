@@ -4,10 +4,10 @@
 用于从各个 LLM 服务商获取模型列表和能力信息。
 """
 
-from .base import ProviderRegistry, ProviderInfo, ModelInfo
 from .anthropic import AnthropicRegistry
-from .openai import OpenAIRegistry
+from .base import ModelInfo, ProviderInfo, ProviderRegistry
 from .dashscope import DashScopeRegistry
+from .openai import OpenAIRegistry
 from .openrouter import OpenRouterRegistry
 from .siliconflow import SiliconFlowRegistry
 

@@ -103,6 +103,17 @@ risks:
 - Full tool access and conversation context
 - Executes task with clear understanding
 
+### Model Switching & Tool-State Isolation
+
+When timeout/errors trigger model/endpoint failover, OpenAkita treats all stateful tool context as **unknown** to avoid inheriting stale assumptions across models.
+
+- **Context reset**: discard prior `tool_use/tool_result` chain and keep only human user messages (or the original task message in the task loop).
+- **Barrier injection**: append a “tool-state revalidation barrier” message requiring re-checks before using stateful tools:
+  - Browser: `browser_status`
+  - MCP: `list_mcp_servers`
+  - Desktop: `desktop_window` / `desktop_inspect`
+- **Per-conversation override cleanup**: when a per-conversation `conversation_id` override is used, it is restored via `restore_default_model(conversation_id=...)` in a `finally` block to avoid affecting subsequent sessions.
+
 ### 3. Brain Module (`core/brain.py`)
 
 The Brain handles all LLM interactions:

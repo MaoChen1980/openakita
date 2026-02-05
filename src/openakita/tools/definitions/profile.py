@@ -31,17 +31,11 @@ PROFILE_TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "key": {
-                    "type": "string",
-                    "description": "档案项键名"
-                },
-                "value": {
-                    "type": "string",
-                    "description": "用户提供的信息值"
-                }
+                "key": {"type": "string", "description": "档案项键名"},
+                "value": {"type": "string", "description": "用户提供的信息值"},
             },
-            "required": ["key", "value"]
-        }
+            "required": ["key", "value"],
+        },
     },
     {
         "name": "skip_profile_question",
@@ -54,14 +48,9 @@ PROFILE_TOOLS = [
 - 用户表示不愿透露某信息""",
         "input_schema": {
             "type": "object",
-            "properties": {
-                "key": {
-                    "type": "string",
-                    "description": "要跳过的档案项键名"
-                }
-            },
-            "required": ["key"]
-        }
+            "properties": {"key": {"type": "string", "description": "要跳过的档案项键名"}},
+            "required": ["key"],
+        },
     },
     {
         "name": "get_user_profile",
@@ -76,9 +65,6 @@ PROFILE_TOOLS = [
 **适用场景**：
 - 检查已知的用户信息
 - 个性化响应""",
-        "input_schema": {
-            "type": "object",
-            "properties": {}
-        }
+        "input_schema": {"type": "object", "properties": {}},
     },
 ]

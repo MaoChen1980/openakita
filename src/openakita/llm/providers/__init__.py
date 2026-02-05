@@ -6,8 +6,8 @@ LLM Provider 实现
 - OpenAI: GPT 系列，以及兼容 OpenAI API 的服务（DashScope、Kimi、OpenRouter 等）
 """
 
-from .base import LLMProvider
 from .anthropic import AnthropicProvider
+from .base import LLMProvider
 from .openai import OpenAIProvider
 
 __all__ = [

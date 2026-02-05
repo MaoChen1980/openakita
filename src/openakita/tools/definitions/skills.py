@@ -28,10 +28,7 @@ SKILLS_TOOLS = [
 - 查看可用技能
 - 为任务查找合适的技能
 - 验证技能安装状态""",
-        "input_schema": {
-            "type": "object",
-            "properties": {}
-        }
+        "input_schema": {"type": "object", "properties": {}},
     },
     {
         "name": "get_skill_info",
@@ -50,11 +47,9 @@ SKILLS_TOOLS = [
 - 学习技能参数""",
         "input_schema": {
             "type": "object",
-            "properties": {
-                "skill_name": {"type": "string", "description": "技能名称"}
-            },
-            "required": ["skill_name"]
-        }
+            "properties": {"skill_name": {"type": "string", "description": "技能名称"}},
+            "required": ["skill_name"],
+        },
     },
     {
         "name": "run_skill_script",
@@ -74,10 +69,10 @@ SKILLS_TOOLS = [
             "properties": {
                 "skill_name": {"type": "string", "description": "技能名称"},
                 "script_name": {"type": "string", "description": "脚本文件名（如 get_time.py）"},
-                "args": {"type": "array", "items": {"type": "string"}, "description": "命令行参数"}
+                "args": {"type": "array", "items": {"type": "string"}, "description": "命令行参数"},
             },
-            "required": ["skill_name", "script_name"]
-        }
+            "required": ["skill_name", "script_name"],
+        },
     },
     {
         "name": "get_skill_reference",
@@ -94,10 +89,14 @@ SKILLS_TOOLS = [
             "type": "object",
             "properties": {
                 "skill_name": {"type": "string", "description": "技能名称"},
-                "ref_name": {"type": "string", "description": "参考文档名称（默认 REFERENCE.md）", "default": "REFERENCE.md"}
+                "ref_name": {
+                    "type": "string",
+                    "description": "参考文档名称（默认 REFERENCE.md）",
+                    "default": "REFERENCE.md",
+                },
             },
-            "required": ["skill_name"]
-        }
+            "required": ["skill_name"],
+        },
     },
     {
         "name": "install_skill",
@@ -118,15 +117,18 @@ SKILLS_TOOLS = [
             "properties": {
                 "source": {"type": "string", "description": "Git 仓库 URL 或 SKILL.md 文件 URL"},
                 "name": {"type": "string", "description": "技能名称（可选，自动从 SKILL.md 提取）"},
-                "subdir": {"type": "string", "description": "Git 仓库中技能所在的子目录路径（可选）"},
+                "subdir": {
+                    "type": "string",
+                    "description": "Git 仓库中技能所在的子目录路径（可选）",
+                },
                 "extra_files": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "额外需要下载的文件 URL 列表"
-                }
+                    "description": "额外需要下载的文件 URL 列表",
+                },
             },
-            "required": ["source"]
-        }
+            "required": ["source"],
+        },
     },
     {
         "name": "load_skill",
@@ -150,8 +152,8 @@ SKILLS_TOOLS = [
             "properties": {
                 "skill_name": {"type": "string", "description": "技能名称（即 skills/ 下的目录名）"}
             },
-            "required": ["skill_name"]
-        }
+            "required": ["skill_name"],
+        },
     },
     {
         "name": "reload_skill",
@@ -171,10 +173,8 @@ SKILLS_TOOLS = [
 **注意**：只能重新加载已加载过的技能""",
         "input_schema": {
             "type": "object",
-            "properties": {
-                "skill_name": {"type": "string", "description": "技能名称"}
-            },
-            "required": ["skill_name"]
-        }
+            "properties": {"skill_name": {"type": "string", "description": "技能名称"}},
+            "required": ["skill_name"],
+        },
     },
 ]

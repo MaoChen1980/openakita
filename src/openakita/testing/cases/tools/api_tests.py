@@ -79,7 +79,6 @@ API_TESTS = [
         tags=["api", "rest", "put"],
         timeout=15,
     ),
-    
     # 状态码测试
     TestCase(
         id="tool_api_010",
@@ -120,7 +119,6 @@ API_TESTS = [
         tags=["api", "redirect"],
         timeout=10,
     ),
-    
     # 请求头测试
     TestCase(
         id="tool_api_020",
@@ -153,6 +151,7 @@ API_TESTS = [
         timeout=10,
     ),
 ]
+
 
 def get_tests() -> list[TestCase]:
     return API_TESTS

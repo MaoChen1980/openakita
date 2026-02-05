@@ -29,10 +29,10 @@ MCP_TOOLS = [
             "properties": {
                 "server": {"type": "string", "description": "MCP 服务器标识符"},
                 "tool_name": {"type": "string", "description": "工具名称"},
-                "arguments": {"type": "object", "description": "工具参数", "default": {}}
+                "arguments": {"type": "object", "description": "工具参数", "default": {}},
             },
-            "required": ["server", "tool_name"]
-        }
+            "required": ["server", "tool_name"],
+        },
     },
     {
         "name": "list_mcp_servers",
@@ -48,10 +48,7 @@ MCP_TOOLS = [
 **适用场景**：
 - 查看可用的 MCP 服务器
 - 验证服务器连接""",
-        "input_schema": {
-            "type": "object",
-            "properties": {}
-        }
+        "input_schema": {"type": "object", "properties": {}},
     },
     {
         "name": "get_mcp_instructions",
@@ -68,10 +65,8 @@ MCP_TOOLS = [
 - 示例和最佳实践""",
         "input_schema": {
             "type": "object",
-            "properties": {
-                "server": {"type": "string", "description": "服务器标识符"}
-            },
-            "required": ["server"]
-        }
+            "properties": {"server": {"type": "string", "description": "服务器标识符"}},
+            "required": ["server"],
+        },
     },
 ]

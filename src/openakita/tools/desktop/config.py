@@ -6,18 +6,18 @@ Windows 桌面自动化 - 配置管理
 
 import os
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
 class CaptureConfig:
     """截图配置"""
+
     default_monitor: int = 0
     compression_quality: int = 85
     max_width: int = 1920
     max_height: int = 1080
     cache_ttl: float = 1.0  # 截图缓存时间（秒）
-    
+
     @classmethod
     def from_env(cls) -> "CaptureConfig":
         return cls(
@@ -32,10 +32,11 @@ class CaptureConfig:
 @dataclass
 class UIAConfig:
     """UIAutomation 配置"""
+
     timeout: float = 5.0
     retry_interval: float = 0.5
     max_retries: int = 3
-    
+
     @classmethod
     def from_env(cls) -> "UIAConfig":
         return cls(
@@ -48,13 +49,14 @@ class UIAConfig:
 @dataclass
 class VisionConfig:
     """视觉识别配置"""
+
     enabled: bool = True
     model: str = "qwen3-vl-plus"
     fallback_model: str = "qwen-vl-plus"
     ocr_model: str = "qwen-vl-ocr"
     max_retries: int = 2
     timeout: float = 30.0
-    
+
     @classmethod
     def from_env(cls) -> "VisionConfig":
         return cls(
@@ -70,12 +72,13 @@ class VisionConfig:
 @dataclass
 class ActionConfig:
     """操作配置"""
+
     click_delay: float = 0.1
     type_interval: float = 0.03
     move_duration: float = 0.15
     failsafe: bool = True
     pause_between_actions: float = 0.1
-    
+
     @classmethod
     def from_env(cls) -> "ActionConfig":
         return cls(
@@ -90,17 +93,18 @@ class ActionConfig:
 @dataclass
 class DesktopConfig:
     """桌面自动化总配置"""
+
     enabled: bool = True
     capture: CaptureConfig = field(default_factory=CaptureConfig)
     uia: UIAConfig = field(default_factory=UIAConfig)
     vision: VisionConfig = field(default_factory=VisionConfig)
     actions: ActionConfig = field(default_factory=ActionConfig)
-    
+
     # 日志配置
     log_actions: bool = True
     log_screenshots: bool = False  # 是否保存截图到日志
-    log_dir: Optional[str] = None
-    
+    log_dir: str | None = None
+
     @classmethod
     def from_env(cls) -> "DesktopConfig":
         """从环境变量加载配置"""
@@ -114,7 +118,7 @@ class DesktopConfig:
             log_screenshots=os.getenv("DESKTOP_LOG_SCREENSHOTS", "false").lower() == "true",
             log_dir=os.getenv("DESKTOP_LOG_DIR"),
         )
-    
+
     @classmethod
     def default(cls) -> "DesktopConfig":
         """返回默认配置"""
@@ -122,7 +126,7 @@ class DesktopConfig:
 
 
 # 全局配置实例
-_config: Optional[DesktopConfig] = None
+_config: DesktopConfig | None = None
 
 
 def get_config() -> DesktopConfig:

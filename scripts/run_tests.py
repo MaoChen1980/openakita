@@ -15,6 +15,7 @@ from openakita.tools.file import FileTool
 from openakita.tools.web import WebTool
 from openakita.testing.judge import Judge
 from openakita.core.agent import Agent
+from openakita.prompt.retriever import retrieve_memory
 
 
 async def test_shell():
@@ -103,8 +104,10 @@ async def test_qa():
     
     tests = [
         ("1+1等于几？", "contains:2", "基础数学"),
-        ("Python 的作者是谁？", "contains:Guido", "编程知识"),
-        ("HTTP 404 是什么意思？", "contains:找不到", "HTTP 状态码"),
+        # 兼容中文/英文名
+        ("Python 的作者是谁？", "regex:(Guido|吉多)", "编程知识"),
+        # LLM 输出可能使用“找不到/未找到/Not Found”等同义表达，使用 regex 提升稳定性
+        ("HTTP 404 是什么意思？", "regex:(找不到|未找到|Not\\s*Found)", "HTTP 状态码"),
     ]
     
     passed = 0
@@ -124,6 +127,51 @@ async def test_qa():
     
     print(f"\n  QA 测试: {passed}/{len(tests)} 通过")
     return passed, len(tests)
+
+async def test_prompt_and_memory():
+    """测试 prompt 分段与 memory 注入关键行为"""
+    print("\n" + "=" * 60)
+    print("Prompt/Memory 测试")
+    print("=" * 60)
+    
+    passed = 0
+    total = 2
+    
+    # 1) retrieve_memory：query 为空也应返回 core memory（至少不为空）
+    print("\n  测试: retrieve_memory 空 query 注入 core memory")
+    tmp_dir = Path("data/temp/test_memory")
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    mem_path = tmp_dir / "MEMORY.md"
+    mem_path.write_text("# Core Memory\n\nTEST_CORE\n", encoding="utf-8")
+    
+    class _FakeVectorStore:
+        enabled = False
+    
+    class _FakeMemoryManager:
+        memory_md_path = mem_path
+        vector_store = _FakeVectorStore()
+        _memories = {}
+    
+    mem_text = retrieve_memory(query="", memory_manager=_FakeMemoryManager(), max_tokens=200)
+    if "TEST_CORE" in mem_text:
+        print("  结果: ✓ PASS")
+        passed += 1
+    else:
+        print("  结果: ✗ FAIL")
+    
+    # 2) Agent tools：不应暴露 send_to_chat，应包含 deliver_artifacts
+    print("\n  测试: Agent 工具列表不暴露 send_to_chat，包含 deliver_artifacts")
+    agent = Agent()
+    await agent.initialize()
+    tool_names = {t.get("name") for t in getattr(agent, "_tools", []) if isinstance(t, dict)}
+    if "send_to_chat" not in tool_names and "deliver_artifacts" in tool_names:
+        print("  结果: ✓ PASS")
+        passed += 1
+    else:
+        print(f"  结果: ✗ FAIL (send_to_chat={'send_to_chat' in tool_names}, deliver_artifacts={'deliver_artifacts' in tool_names})")
+    
+    print(f"\n  Prompt/Memory 测试: {passed}/{total} 通过")
+    return passed, total
 
 
 async def main():
@@ -146,6 +194,11 @@ async def main():
     
     # QA 测试
     p, t = await test_qa()
+    total_passed += p
+    total_tests += t
+    
+    # Prompt/Memory 测试
+    p, t = await test_prompt_and_memory()
     total_passed += p
     total_tests += t
     

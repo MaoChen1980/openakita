@@ -7,7 +7,7 @@ Windows 桌面自动化 - 视觉分析提示词
 
 class PromptTemplates:
     """提示词模板集合"""
-    
+
     # 查找元素
     FIND_ELEMENT = """你是一个 Windows 桌面 UI 分析专家。请分析这张截图，找到用户描述的元素。
 
@@ -229,12 +229,12 @@ class PromptTemplates:
     def get_find_element_prompt(cls, description: str) -> str:
         """获取查找元素的提示词"""
         return cls.FIND_ELEMENT.format(description=description)
-    
+
     @classmethod
     def get_answer_question_prompt(cls, question: str) -> str:
         """获取回答问题的提示词"""
         return cls.ANSWER_QUESTION.format(question=question)
-    
+
     @classmethod
     def get_verify_action_prompt(
         cls,

@@ -8,11 +8,10 @@ Plan 模式处理器
 - complete_plan: 完成计划
 """
 
-import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from ...core.agent import Agent
@@ -89,10 +88,10 @@ def get_plan_handler_for_session(session_id: str) -> Optional["PlanHandler"]:
 def should_require_plan(user_message: str) -> bool:
     """
     检测用户请求是否需要 Plan 模式（多步骤任务检测）
-    
+
     建议 18：提高阈值，只在"多工具协作或明显多步"时启用
     简单任务直接执行，不要过度计划
-    
+
     触发条件：
     1. 包含 5+ 个动作词（明显的复杂任务）
     2. 包含 3+ 个动作词 + 连接词（明确的多步骤）
@@ -100,28 +99,50 @@ def should_require_plan(user_message: str) -> bool:
     """
     if not user_message:
         return False
-    
+
     msg = user_message.lower()
-    
+
     # 动作词列表
     action_words = [
-        "打开", "搜索", "截图", "发给", "发送", "写", "创建", "执行", "运行",
-        "读取", "查看", "保存", "下载", "上传", "复制", "粘贴", "删除",
-        "编辑", "修改", "更新", "安装", "配置", "设置", "启动", "关闭"
+        "打开",
+        "搜索",
+        "截图",
+        "发给",
+        "发送",
+        "写",
+        "创建",
+        "执行",
+        "运行",
+        "读取",
+        "查看",
+        "保存",
+        "下载",
+        "上传",
+        "复制",
+        "粘贴",
+        "删除",
+        "编辑",
+        "修改",
+        "更新",
+        "安装",
+        "配置",
+        "设置",
+        "启动",
+        "关闭",
     ]
-    
+
     # 连接词（表示多步骤）
     connector_words = ["然后", "接着", "之后", "并且", "再", "最后"]
-    
+
     # 统计动作词数量
     action_count = sum(1 for word in action_words if word in msg)
-    
+
     # 检查连接词
     has_connector = any(word in msg for word in connector_words)
-    
+
     # 检查逗号分隔的多个动作
     comma_separated = "，" in msg or "," in msg
-    
+
     # 判断条件（建议 18：提高阈值）：
     # 1. 有 5 个以上动作词（明显复杂任务）
     # 2. 有 3 个以上动作词 + 连接词（明确多步骤）
@@ -130,28 +151,25 @@ def should_require_plan(user_message: str) -> bool:
         return True
     if action_count >= 3 and has_connector:
         return True
-    if action_count >= 3 and comma_separated:
-        return True
-    
-    return False
+    return bool(action_count >= 3 and comma_separated)
 
 
 class PlanHandler:
     """Plan 模式处理器"""
-    
+
     TOOLS = [
         "create_plan",
         "update_plan_step",
         "get_plan_status",
         "complete_plan",
     ]
-    
+
     def __init__(self, agent: "Agent"):
         self.agent = agent
-        self.current_plan: Optional[dict] = None
+        self.current_plan: dict | None = None
         self.plan_dir = Path("data/plans")
         self.plan_dir.mkdir(parents=True, exist_ok=True)
-    
+
     async def handle(self, tool_name: str, params: dict[str, Any]) -> str:
         """处理工具调用"""
         if tool_name == "create_plan":
@@ -164,18 +182,18 @@ class PlanHandler:
             return await self._complete_plan(params)
         else:
             return f"❌ Unknown plan tool: {tool_name}"
-    
+
     async def _create_plan(self, params: dict) -> str:
         """创建任务计划"""
         plan_id = f"plan_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        
+
         steps = params.get("steps", [])
         for step in steps:
             step["status"] = "pending"
             step["result"] = ""
             step["started_at"] = None
             step["completed_at"] = None
-        
+
         self.current_plan = {
             "id": plan_id,
             "task_summary": params.get("task_summary", ""),
@@ -183,133 +201,138 @@ class PlanHandler:
             "status": "in_progress",
             "created_at": datetime.now().isoformat(),
             "completed_at": None,
-            "logs": []
+            "logs": [],
         }
-        
+
         # 注册活跃的 Plan（用于强制 Plan 模式检查）
-        session_id = getattr(self.agent, 'session_id', None)
-        if session_id:
-            register_active_plan(session_id, plan_id)
-            register_plan_handler(session_id, self)  # 注册 handler 以便查询 Plan 状态
-        
+        conversation_id = getattr(self.agent, "_current_conversation_id", None) or getattr(
+            self.agent, "_current_session_id", None
+        )
+        if conversation_id:
+            register_active_plan(conversation_id, plan_id)
+            register_plan_handler(conversation_id, self)  # 注册 handler 以便查询 Plan 状态
+
         # 保存到文件
         self._save_plan_markdown()
-        
+
         # 记录日志
         self._add_log(f"计划创建：{params.get('task_summary', '')}")
-        
+
         # 生成计划展示消息
         plan_message = self._format_plan_message()
-        
-        # 通知用户（如果有 IM 会话）
+
+        # 进度事件由网关统一发送（节流/合并）
         try:
-            from ...core.agent import Agent
-            if Agent._current_im_session and Agent._current_im_gateway:
-                await Agent._current_im_gateway.send_to_session(
-                    Agent._current_im_session, 
-                    plan_message
+            session = getattr(self.agent, "_current_session", None)
+            gateway = (
+                session.get_metadata("_gateway")
+                if session and hasattr(session, "get_metadata")
+                else None
+            )
+            if gateway and hasattr(gateway, "emit_progress_event"):
+                await gateway.emit_progress_event(
+                    session, f"📋 已创建计划：{params.get('task_summary', '')}\n{plan_message}"
                 )
         except Exception as e:
-            logger.warning(f"Failed to send plan message: {e}")
-        
+            logger.warning(f"Failed to emit plan progress: {e}")
+
         return f"✅ 计划已创建：{plan_id}\n\n{plan_message}"
-    
+
     async def _update_step(self, params: dict) -> str:
         """更新步骤状态"""
         if not self.current_plan:
             return "❌ 当前没有活动的计划，请先调用 create_plan"
-        
+
         step_id = params.get("step_id", "")
         status = params.get("status", "")
         result = params.get("result", "")
-        
+
         # 查找并更新步骤
         step_found = False
         for step in self.current_plan["steps"]:
             if step["id"] == step_id:
                 step["status"] = status
                 step["result"] = result
-                
+
                 if status == "in_progress" and not step.get("started_at"):
                     step["started_at"] = datetime.now().isoformat()
                 elif status in ["completed", "failed", "skipped"]:
                     step["completed_at"] = datetime.now().isoformat()
-                
+
                 step_found = True
                 break
-        
+
         if not step_found:
             return f"❌ 未找到步骤：{step_id}"
-        
+
         # 保存更新
         self._save_plan_markdown()
-        
+
         # 记录日志
-        status_emoji = {
-            "in_progress": "🔄",
-            "completed": "✅",
-            "failed": "❌",
-            "skipped": "⏭️"
-        }.get(status, "📌")
-        
+        status_emoji = {"in_progress": "🔄", "completed": "✅", "failed": "❌", "skipped": "⏭️"}.get(
+            status, "📌"
+        )
+
         self._add_log(f"{status_emoji} {step_id}: {result or status}")
-        
+
         # 通知用户（每个状态变化都通知）
         # 计算进度
         steps = self.current_plan["steps"]
         completed_count = sum(1 for s in steps if s["status"] in ["completed", "failed", "skipped"])
         total_count = len(steps)
-        
+
         # 构建通知消息
-        status_text = {
+        {
             "in_progress": "开始执行",
             "completed": "完成",
             "failed": "失败",
-            "skipped": "跳过"
+            "skipped": "跳过",
         }.get(status, status)
-        
+
         # 查找步骤描述
         step_desc = ""
         for s in steps:
             if s["id"] == step_id:
                 step_desc = s.get("description", "")
                 break
-        
+
         message = f"{status_emoji} **[{completed_count}/{total_count}]** {step_desc or step_id}"
         if status == "completed" and result:
             message += f"\n   结果：{result}"
         elif status == "failed":
             message += f"\n   ❌ 错误：{result or '未知错误'}"
-        
+
         try:
-            from ...core.agent import Agent
-            if Agent._current_im_session and Agent._current_im_gateway:
-                await Agent._current_im_gateway.send_to_session(
-                    Agent._current_im_session, 
-                    message
-                )
+            session = getattr(self.agent, "_current_session", None)
+            gateway = (
+                session.get_metadata("_gateway")
+                if session and hasattr(session, "get_metadata")
+                else None
+            )
+            if gateway and hasattr(gateway, "emit_progress_event"):
+                await gateway.emit_progress_event(session, message)
         except Exception as e:
-            logger.warning(f"Failed to send step update: {e}")
-        
+            logger.warning(f"Failed to emit step progress: {e}")
+
         return f"步骤 {step_id} 状态已更新为 {status}"
-    
+
     def _get_status(self) -> str:
         """获取计划状态"""
         if not self.current_plan:
             return "当前没有活动的计划"
-        
+
         plan = self.current_plan
         steps = plan["steps"]
-        
+
         completed = sum(1 for s in steps if s["status"] == "completed")
         failed = sum(1 for s in steps if s["status"] == "failed")
         pending = sum(1 for s in steps if s["status"] == "pending")
         in_progress = sum(1 for s in steps if s["status"] == "in_progress")
-        
-        status_text = f"""## 计划状态：{plan['task_summary']}
 
-**计划ID**: {plan['id']}
-**状态**: {plan['status']}
+        status_text = f"""## 计划状态：{plan["task_summary"]}
+
+**计划ID**: {plan["id"]}
+**状态**: {plan["status"]}
 **进度**: {completed}/{len(steps)} 完成
 
 ### 步骤列表
@@ -317,42 +340,42 @@ class PlanHandler:
 | 步骤 | 描述 | 状态 | 结果 |
 |------|------|------|------|
 """
-        
+
         for step in steps:
             status_emoji = {
                 "pending": "⬜",
                 "in_progress": "🔄",
                 "completed": "✅",
                 "failed": "❌",
-                "skipped": "⏭️"
+                "skipped": "⏭️",
             }.get(step["status"], "❓")
-            
+
             status_text += f"| {step['id']} | {step['description']} | {status_emoji} | {step.get('result', '-')} |\n"
-        
+
         status_text += f"\n**统计**: ✅ {completed} 完成, ❌ {failed} 失败, ⬜ {pending} 待执行, 🔄 {in_progress} 执行中"
-        
+
         return status_text
-    
+
     async def _complete_plan(self, params: dict) -> str:
         """完成计划"""
         if not self.current_plan:
             return "❌ 当前没有活动的计划"
-        
+
         summary = params.get("summary", "")
-        
+
         self.current_plan["status"] = "completed"
         self.current_plan["completed_at"] = datetime.now().isoformat()
         self.current_plan["summary"] = summary
-        
+
         # 统计
         steps = self.current_plan["steps"]
         completed = sum(1 for s in steps if s["status"] == "completed")
         failed = sum(1 for s in steps if s["status"] == "failed")
-        
+
         # 保存最终状态
         self._save_plan_markdown()
         self._add_log(f"计划完成：{summary}")
-        
+
         # 生成完成消息
         complete_message = f"""🎉 **任务完成！**
 
@@ -363,93 +386,99 @@ class PlanHandler:
 - 成功：{completed}
 - 失败：{failed}
 """
-        
-        # 通知用户
+
+        # 完成事件由网关统一发送（节流/合并）
         try:
-            from ...core.agent import Agent
-            if Agent._current_im_session and Agent._current_im_gateway:
-                await Agent._current_im_gateway.send_to_session(
-                    Agent._current_im_session, 
-                    complete_message
-                )
+            session = getattr(self.agent, "_current_session", None)
+            gateway = (
+                session.get_metadata("_gateway")
+                if session and hasattr(session, "get_metadata")
+                else None
+            )
+            if gateway and hasattr(gateway, "emit_progress_event"):
+                await gateway.emit_progress_event(session, complete_message)
         except Exception as e:
-            logger.warning(f"Failed to send complete message: {e}")
-        
+            logger.warning(f"Failed to emit complete progress: {e}")
+
         # 清理当前计划
         plan_id = self.current_plan["id"]
         self.current_plan = None
-        
+
         # 注销活跃的 Plan
-        session_id = getattr(self.agent, 'session_id', None)
-        if session_id:
-            unregister_active_plan(session_id)
-        
+        conversation_id = getattr(self.agent, "_current_conversation_id", None) or getattr(
+            self.agent, "_current_session_id", None
+        )
+        if conversation_id:
+            unregister_active_plan(conversation_id)
+
         return f"✅ 计划 {plan_id} 已完成\n\n{complete_message}"
-    
+
     def _format_plan_message(self) -> str:
         """格式化计划展示消息"""
         if not self.current_plan:
             return ""
-        
+
         plan = self.current_plan
         steps = plan["steps"]
-        
-        message = f"""📋 **任务计划**：{plan['task_summary']}
+
+        message = f"""📋 **任务计划**：{plan["task_summary"]}
 
 """
         for i, step in enumerate(steps):
             prefix = "├─" if i < len(steps) - 1 else "└─"
-            message += f"{prefix} {i+1}. {step['description']}\n"
-        
+            message += f"{prefix} {i + 1}. {step['description']}\n"
+
         message += "\n开始执行..."
-        
+
         return message
-    
+
     def _save_plan_markdown(self) -> None:
         """保存计划到 Markdown 文件"""
         if not self.current_plan:
             return
-        
+
         plan = self.current_plan
         plan_file = self.plan_dir / f"{plan['id']}.md"
-        
-        content = f"""# 任务计划：{plan['task_summary']}
 
-**计划ID**: {plan['id']}
-**创建时间**: {plan['created_at']}
-**状态**: {plan['status']}
-**完成时间**: {plan.get('completed_at', '-')}
+        content = f"""# 任务计划：{plan["task_summary"]}
+
+**计划ID**: {plan["id"]}
+**创建时间**: {plan["created_at"]}
+**状态**: {plan["status"]}
+**完成时间**: {plan.get("completed_at", "-")}
 
 ## 步骤列表
 
 | ID | 描述 | 工具 | 状态 | 结果 |
 |----|------|------|------|------|
 """
-        
+
         for step in plan["steps"]:
             status_emoji = {
                 "pending": "⬜",
                 "in_progress": "🔄",
                 "completed": "✅",
                 "failed": "❌",
-                "skipped": "⏭️"
+                "skipped": "⏭️",
             }.get(step["status"], "❓")
-            
+
             tool = step.get("tool", "-")
             result = step.get("result", "-")
-            
-            content += f"| {step['id']} | {step['description']} | {tool} | {status_emoji} | {result} |\n"
-        
+
+            content += (
+                f"| {step['id']} | {step['description']} | {tool} | {status_emoji} | {result} |\n"
+            )
+
         content += "\n## 执行日志\n\n"
         for log in plan.get("logs", []):
             content += f"- {log}\n"
-        
+
         if plan.get("summary"):
             content += f"\n## 完成总结\n\n{plan['summary']}\n"
-        
+
         plan_file.write_text(content, encoding="utf-8")
         logger.info(f"[Plan] Saved to: {plan_file}")
-    
+
     def _add_log(self, message: str) -> None:
         """添加日志"""
         if self.current_plan:

@@ -8,15 +8,15 @@
 - 媒体处理
 """
 
-from .types import (
-    MessageType,
-    UnifiedMessage,
-    MessageContent,
-    MediaFile,
-    OutgoingMessage,
-)
 from .base import ChannelAdapter
 from .gateway import MessageGateway
+from .types import (
+    MediaFile,
+    MessageContent,
+    MessageType,
+    OutgoingMessage,
+    UnifiedMessage,
+)
 
 __all__ = [
     # 类型

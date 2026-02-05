@@ -16,9 +16,6 @@
   - doc_search.py: 文档搜索 (30个)
 """
 
-from pathlib import Path
-from typing import Callable
-
 # 延迟导入以避免循环依赖
 _test_modules = {
     "qa.basic": "qa/basic.py",
@@ -37,34 +34,34 @@ _test_modules = {
 def load_all_tests():
     """加载所有测试用例"""
     from .qa.basic import get_tests as qa_basic
-    from .qa.reasoning import get_tests as qa_reasoning
     from .qa.multiturn import get_tests as qa_multiturn
-    from .tools.shell_tests import get_tests as tools_shell
-    from .tools.file_tests import get_tests as tools_file
-    from .tools.api_tests import get_tests as tools_api
-    from .tools.browser_tests import get_tests as tools_browser
-    from .search.web_search import get_tests as search_web
+    from .qa.reasoning import get_tests as qa_reasoning
     from .search.code_search import get_tests as search_code
     from .search.doc_search import get_tests as search_doc
-    
+    from .search.web_search import get_tests as search_web
+    from .tools.api_tests import get_tests as tools_api
+    from .tools.browser_tests import get_tests as tools_browser
+    from .tools.file_tests import get_tests as tools_file
+    from .tools.shell_tests import get_tests as tools_shell
+
     all_tests = []
-    
+
     # QA 测试 (100)
     all_tests.extend(qa_basic())
     all_tests.extend(qa_reasoning())
     all_tests.extend(qa_multiturn())
-    
+
     # 工具测试 (100)
     all_tests.extend(tools_shell())
     all_tests.extend(tools_file())
     all_tests.extend(tools_api())
     all_tests.extend(tools_browser())
-    
+
     # 搜索测试 (100)
     all_tests.extend(search_web())
     all_tests.extend(search_code())
     all_tests.extend(search_doc())
-    
+
     return all_tests
 
 
@@ -72,23 +69,26 @@ def load_tests_by_category(category: str):
     """按类别加载测试用例"""
     if category == "qa":
         from .qa.basic import get_tests as qa_basic
-        from .qa.reasoning import get_tests as qa_reasoning
         from .qa.multiturn import get_tests as qa_multiturn
+        from .qa.reasoning import get_tests as qa_reasoning
+
         return qa_basic() + qa_reasoning() + qa_multiturn()
-    
+
     elif category == "tools":
-        from .tools.shell_tests import get_tests as tools_shell
-        from .tools.file_tests import get_tests as tools_file
         from .tools.api_tests import get_tests as tools_api
         from .tools.browser_tests import get_tests as tools_browser
+        from .tools.file_tests import get_tests as tools_file
+        from .tools.shell_tests import get_tests as tools_shell
+
         return tools_shell() + tools_file() + tools_api() + tools_browser()
-    
+
     elif category == "search":
-        from .search.web_search import get_tests as search_web
         from .search.code_search import get_tests as search_code
         from .search.doc_search import get_tests as search_doc
+        from .search.web_search import get_tests as search_web
+
         return search_web() + search_code() + search_doc()
-    
+
     return []
 
 

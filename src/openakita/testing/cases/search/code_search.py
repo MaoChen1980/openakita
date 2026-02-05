@@ -72,7 +72,6 @@ CODE_SEARCH_TESTS = [
         expected="length>=5",
         tags=["code", "search", "async"],
     ),
-    
     # 文件搜索
     TestCase(
         id="search_file_001",
@@ -113,7 +112,6 @@ CODE_SEARCH_TESTS = [
         expected="length>=4",
         tags=["file", "search", "markdown"],
     ),
-    
     # 语义搜索（预留）
     TestCase(
         id="search_semantic_001",
@@ -142,6 +140,7 @@ CODE_SEARCH_TESTS = [
         tags=["semantic", "search"],
     ),
 ]
+
 
 def get_tests() -> list[TestCase]:
     return CODE_SEARCH_TESTS

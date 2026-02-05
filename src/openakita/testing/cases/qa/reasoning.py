@@ -51,7 +51,6 @@ REASONING_TESTS = [
         expected="contains:75%",
         tags=["logic", "probability"],
     ),
-    
     # 代码理解
     TestCase(
         id="qa_code_001",
@@ -98,7 +97,6 @@ REASONING_TESTS = [
         expected="contains:log",
         tags=["code", "algorithm"],
     ),
-    
     # 多步推理
     TestCase(
         id="qa_multi_001",
@@ -127,7 +125,6 @@ REASONING_TESTS = [
         expected="contains:1",
         tags=["multi_step", "math"],
     ),
-    
     # 类比推理
     TestCase(
         id="qa_analogy_001",
@@ -148,6 +145,7 @@ REASONING_TESTS = [
         tags=["analogy"],
     ),
 ]
+
 
 def get_tests() -> list[TestCase]:
     return REASONING_TESTS

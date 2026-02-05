@@ -23,32 +23,26 @@ import sys
 # 平台检查
 if sys.platform != "win32":
     raise ImportError(
-        f"Desktop automation module is Windows-only. "
-        f"Current platform: {sys.platform}"
+        f"Desktop automation module is Windows-only. Current platform: {sys.platform}"
     )
 
 # 核心类型
-from .types import (
-    UIElement,
-    WindowInfo,
-    BoundingBox,
-    ActionResult,
-    ElementLocation,
-    VisionResult,
-    ControlType,
-    MouseButton,
-    ScrollDirection,
-    FindMethod,
-    WindowAction,
-)
+# 操作
+from .actions import KeyboardController, MouseController, get_keyboard, get_mouse
+
+# 缓存
+from .cache import ElementCache, clear_cache, get_cache
+
+# 截图
+from .capture import ScreenCapture, get_capture, screenshot, screenshot_base64
 
 # 配置
 from .config import (
-    DesktopConfig,
+    ActionConfig,
     CaptureConfig,
+    DesktopConfig,
     UIAConfig,
     VisionConfig,
-    ActionConfig,
     get_config,
     set_config,
 )
@@ -56,27 +50,31 @@ from .config import (
 # 主控制器
 from .controller import DesktopController, get_controller
 
-# 截图
-from .capture import ScreenCapture, get_capture, screenshot, screenshot_base64
-
-# 操作
-from .actions import MouseController, KeyboardController, get_mouse, get_keyboard
-
-# UIAutomation
-from .uia import UIAClient, UIAElement, UIAElementWrapper, UIAInspector, get_uia_client
-
-# 视觉识别
-from .vision import VisionAnalyzer, PromptTemplates, get_vision_analyzer
-
-# 缓存
-from .cache import ElementCache, get_cache, clear_cache
-
 # Agent 工具
 from .tools import (
     DESKTOP_TOOLS,
     DesktopToolHandler,
     register_desktop_tools,
 )
+from .types import (
+    ActionResult,
+    BoundingBox,
+    ControlType,
+    ElementLocation,
+    FindMethod,
+    MouseButton,
+    ScrollDirection,
+    UIElement,
+    VisionResult,
+    WindowAction,
+    WindowInfo,
+)
+
+# UIAutomation
+from .uia import UIAClient, UIAElement, UIAElementWrapper, UIAInspector, get_uia_client
+
+# 视觉识别
+from .vision import PromptTemplates, VisionAnalyzer, get_vision_analyzer
 
 __all__ = [
     # 类型

@@ -26,17 +26,11 @@ SYSTEM_TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "enabled": {
-                    "type": "boolean",
-                    "description": "是否启用 thinking 模式"
-                },
-                "reason": {
-                    "type": "string",
-                    "description": "简要说明原因"
-                }
+                "enabled": {"type": "boolean", "description": "是否启用 thinking 模式"},
+                "reason": {"type": "string", "description": "简要说明原因"},
             },
-            "required": ["enabled", "reason"]
-        }
+            "required": ["enabled", "reason"],
+        },
     },
     {
         "name": "get_session_logs",
@@ -60,15 +54,15 @@ SYSTEM_TOOLS = [
                 "count": {
                     "type": "integer",
                     "description": "返回的日志条数（默认 20，最大 200）",
-                    "default": 20
+                    "default": 20,
                 },
                 "level": {
                     "type": "string",
                     "enum": ["DEBUG", "INFO", "WARNING", "ERROR"],
-                    "description": "过滤日志级别（可选，ERROR 可快速定位问题）"
-                }
-            }
-        }
+                    "description": "过滤日志级别（可选，ERROR 可快速定位问题）",
+                },
+            },
+        },
     },
     {
         "name": "get_tool_info",
@@ -84,10 +78,8 @@ SYSTEM_TOOLS = [
 在调用不熟悉的工具前，先用此工具了解其完整用法、参数说明和示例。""",
         "input_schema": {
             "type": "object",
-            "properties": {
-                "tool_name": {"type": "string", "description": "工具名称"}
-            },
-            "required": ["tool_name"]
-        }
+            "properties": {"tool_name": {"type": "string", "description": "工具名称"}},
+            "required": ["tool_name"],
+        },
     },
 ]

@@ -12,20 +12,20 @@ OpenAkita 记忆系统
 - 按需注入: 根据任务相关性注入记忆
 """
 
-from .manager import MemoryManager
-from .extractor import MemoryExtractor
 from .consolidator import MemoryConsolidator
+from .extractor import MemoryExtractor
+from .manager import MemoryManager
 from .types import (
-    Memory,
-    MemoryType,
-    MemoryPriority,
     ConversationTurn,
+    Memory,
+    MemoryPriority,
+    MemoryType,
     SessionSummary,
 )
 
 __all__ = [
     "MemoryManager",
-    "MemoryExtractor", 
+    "MemoryExtractor",
     "MemoryConsolidator",
     "Memory",
     "MemoryType",

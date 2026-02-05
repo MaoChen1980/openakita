@@ -12,7 +12,6 @@ Prompt Budget - Token 预算裁剪模块
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -23,64 +22,66 @@ CHARS_PER_TOKEN = 4  # 保守估计，中文约 1.5-2，英文约 4
 @dataclass
 class BudgetConfig:
     """Token 预算配置"""
-    
+
     # 各部分预算（tokens）
-    identity_budget: int = 600    # soul + agent.core + agent.tooling + policies
-    catalogs_budget: int = 1500   # tools + skills + mcp 清单
-    user_budget: int = 300        # user.summary + runtime_facts
-    memory_budget: int = 400      # retriever 输出
-    
+    identity_budget: int = 600  # soul + agent.core + agent.tooling + policies
+    catalogs_budget: int = 1200  # tools + skills + mcp 清单（降噪：预算更紧）
+    user_budget: int = 300  # user.summary + runtime_facts
+    memory_budget: int = 500  # retriever 输出（更偏向“记忆可见性”）
+
     # 总预算（作为硬限制）
     total_budget: int = 3000
-    
+
     # 裁剪优先级（数字越小越先被裁剪）
     # 高优先级的内容会在预算不足时保留
-    priority_order: list = field(default_factory=lambda: [
-        "memory",      # 1 - 最先裁剪（可以只保留最相关的）
-        "skills",      # 2 - 只保留最近使用的
-        "mcp",         # 3 - 只保留已启用的
-        "user",        # 4 - 用户信息
-        "tools",       # 5 - 工具清单（较重要）
-        "identity",    # 6 - 身份信息（最后裁剪）
-    ])
+    priority_order: list = field(
+        default_factory=lambda: [
+            "memory",  # 1 - 最先裁剪（可以只保留最相关的）
+            "skills",  # 2 - 只保留最近使用的
+            "mcp",  # 3 - 只保留已启用的
+            "user",  # 4 - 用户信息
+            "tools",  # 5 - 工具清单（较重要）
+            "identity",  # 6 - 身份信息（最后裁剪）
+        ]
+    )
 
 
 @dataclass
 class BudgetResult:
     """预算裁剪结果"""
-    
+
     content: str
     original_tokens: int
     final_tokens: int
     truncated: bool
-    truncation_info: Optional[str] = None
+    truncation_info: str | None = None
 
 
 def estimate_tokens(text: str) -> int:
     """
     估算文本的 token 数量
-    
+
     简单估算，不调用 tokenizer。
     中英文混合内容使用平均值。
-    
+
     Args:
         text: 输入文本
-    
+
     Returns:
         估算的 token 数
     """
     if not text:
         return 0
-    
+
     # 统计中文字符数量
-    chinese_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+    chinese_chars = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
     total_chars = len(text)
     english_chars = total_chars - chinese_chars
-    
+
     # 中文约 1.5 字符/token，英文约 4 字符/token
     chinese_tokens = chinese_chars / 1.5
     english_tokens = english_chars / 4
-    
+
     return int(chinese_tokens + english_tokens)
 
 
@@ -92,7 +93,7 @@ def apply_budget(
 ) -> BudgetResult:
     """
     对内容应用 token 预算
-    
+
     Args:
         content: 原始内容
         budget_tokens: 预算 token 数
@@ -101,7 +102,7 @@ def apply_budget(
             - "end": 截断末尾
             - "start": 截断开头（保留最新）
             - "middle": 保留首尾，截断中间
-    
+
     Returns:
         BudgetResult 对象
     """
@@ -112,9 +113,9 @@ def apply_budget(
             final_tokens=0,
             truncated=False,
         )
-    
+
     original_tokens = estimate_tokens(content)
-    
+
     # 预算充足，不需要裁剪
     if original_tokens <= budget_tokens:
         return BudgetResult(
@@ -123,13 +124,13 @@ def apply_budget(
             final_tokens=original_tokens,
             truncated=False,
         )
-    
+
     # 需要裁剪
     logger.info(f"Truncating {section_name}: {original_tokens} -> {budget_tokens} tokens")
-    
+
     # 估算目标字符数
     target_chars = budget_tokens * CHARS_PER_TOKEN
-    
+
     if truncate_strategy == "end":
         truncated_content = _truncate_end(content, target_chars)
     elif truncate_strategy == "start":
@@ -138,9 +139,9 @@ def apply_budget(
         truncated_content = _truncate_middle(content, target_chars)
     else:
         truncated_content = _truncate_end(content, target_chars)
-    
+
     final_tokens = estimate_tokens(truncated_content)
-    
+
     return BudgetResult(
         content=truncated_content,
         original_tokens=original_tokens,
@@ -154,14 +155,14 @@ def _truncate_end(content: str, target_chars: int) -> str:
     """从末尾截断"""
     if len(content) <= target_chars:
         return content
-    
+
     truncated = content[:target_chars]
-    
+
     # 尝试在最后一个完整行处截断
-    last_newline = truncated.rfind('\n')
+    last_newline = truncated.rfind("\n")
     if last_newline > target_chars * 0.8:
         truncated = truncated[:last_newline]
-    
+
     return truncated + "\n...(已截断)"
 
 
@@ -169,15 +170,15 @@ def _truncate_start(content: str, target_chars: int) -> str:
     """从开头截断（保留最新内容）"""
     if len(content) <= target_chars:
         return content
-    
+
     start = len(content) - target_chars
     truncated = content[start:]
-    
+
     # 尝试在第一个完整行处截断
-    first_newline = truncated.find('\n')
+    first_newline = truncated.find("\n")
     if first_newline > 0 and first_newline < len(truncated) * 0.2:
-        truncated = truncated[first_newline + 1:]
-    
+        truncated = truncated[first_newline + 1 :]
+
     return "...(已截断)\n" + truncated
 
 
@@ -185,21 +186,21 @@ def _truncate_middle(content: str, target_chars: int) -> str:
     """截断中间，保留首尾"""
     if len(content) <= target_chars:
         return content
-    
+
     # 保留首 40% 和尾 40%
     keep_each = int(target_chars * 0.4)
     head = content[:keep_each]
     tail = content[-keep_each:]
-    
+
     # 尝试在完整行处截断
-    last_newline_head = head.rfind('\n')
+    last_newline_head = head.rfind("\n")
     if last_newline_head > keep_each * 0.7:
         head = head[:last_newline_head]
-    
-    first_newline_tail = tail.find('\n')
+
+    first_newline_tail = tail.find("\n")
     if first_newline_tail > 0 and first_newline_tail < len(tail) * 0.3:
-        tail = tail[first_newline_tail + 1:]
-    
+        tail = tail[first_newline_tail + 1 :]
+
     return head + "\n...(中间已截断)...\n" + tail
 
 
@@ -209,18 +210,18 @@ def apply_budget_to_sections(
 ) -> dict[str, BudgetResult]:
     """
     对多个区域应用预算
-    
+
     按优先级顺序裁剪，确保总预算不超限。
-    
+
     Args:
         sections: 区域名称 -> 内容
         config: 预算配置
-    
+
     Returns:
         区域名称 -> BudgetResult
     """
     results = {}
-    
+
     # 按区域分配预算
     budget_map = {
         "soul": config.identity_budget // 4,
@@ -234,15 +235,15 @@ def apply_budget_to_sections(
         "runtime_facts": config.user_budget // 2,
         "memory": config.memory_budget,
     }
-    
+
     # 截断策略
     strategy_map = {
-        "memory": "start",      # 记忆保留最新
-        "skills": "end",        # 技能截断末尾
-        "mcp": "end",           # MCP 截断末尾
-        "tools": "end",         # 工具截断末尾
+        "memory": "start",  # 记忆保留最新
+        "skills": "end",  # 技能截断末尾
+        "mcp": "end",  # MCP 截断末尾
+        "tools": "end",  # 工具截断末尾
     }
-    
+
     # 应用预算
     total_tokens = 0
     for name, content in sections.items():
@@ -254,19 +255,19 @@ def apply_budget_to_sections(
                 truncated=False,
             )
             continue
-        
+
         budget = budget_map.get(name, 200)  # 默认 200 tokens
         strategy = strategy_map.get(name, "end")
-        
+
         result = apply_budget(content, budget, name, strategy)
         results[name] = result
         total_tokens += result.final_tokens
-    
+
     # 检查总预算
     if total_tokens > config.total_budget:
         logger.warning(
             f"Total tokens ({total_tokens}) exceeds budget ({config.total_budget}), "
             f"further truncation may be needed"
         )
-    
+
     return results

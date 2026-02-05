@@ -52,7 +52,6 @@ QA_BASIC_TESTS = [
         expected="contains:12",
         tags=["math", "sqrt"],
     ),
-    
     # 编程知识
     TestCase(
         id="qa_prog_001",
@@ -99,7 +98,6 @@ QA_BASIC_TESTS = [
         expected="regex:\\{.*name.*\\}",
         tags=["json", "format"],
     ),
-    
     # 常识问答
     TestCase(
         id="qa_common_001",
@@ -147,6 +145,7 @@ QA_BASIC_TESTS = [
         tags=["common", "physics"],
     ),
 ]
+
 
 # 导出
 def get_tests() -> list[TestCase]:

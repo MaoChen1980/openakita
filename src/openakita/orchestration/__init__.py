@@ -39,18 +39,18 @@
     └──────────┘ └──────────┘ └──────────┘
 """
 
-from .messages import (
-    AgentMessage,
-    MessageType,
-    CommandType,
-    AgentStatus,
-    AgentInfo,
-)
-from .registry import AgentRegistry
 from .bus import AgentBus, BusConfig
 from .master import MasterAgent
-from .worker import WorkerAgent
+from .messages import (
+    AgentInfo,
+    AgentMessage,
+    AgentStatus,
+    CommandType,
+    MessageType,
+)
 from .monitor import AgentMonitor
+from .registry import AgentRegistry
+from .worker import WorkerAgent
 
 __all__ = [
     # 消息协议

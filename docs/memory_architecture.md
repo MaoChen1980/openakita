@@ -249,17 +249,15 @@ data/memory/
 │   ├── 2026-01-30.json
 │   └── 2026-01-31.json
 └── conversation_history/      # 原始对话历史（按日期）
-    ├── 2026-01-30/
-    │   ├── session_001.jsonl
-    │   └── session_002.jsonl
-    └── 2026-01-31/
-        └── session_003.jsonl
+    ├── {conversation_safe_id}.jsonl
+    ├── {conversation_safe_id}.jsonl
+    └── ...
 
 data/scheduler/
 └── task_sessions/             # 定时任务专属 Session
     └── {task_id}.json
 
-identity/MEMORY.md             # 精华摘要
+identity/MEMORY.md             # 精华摘要（核心记忆，系统提示每次注入）
 ```
 
 ## 九、容量限制
