@@ -541,7 +541,7 @@ ruff check src/
     </td>
     <td>
       <b>💬 微信群</b> - 中文用户即时交流<br/><br/>
-      <b>🎮 Discord</b> - <a href="https://discord.gg/openakita">加入 Discord</a>（即将开放）<br/><br/>
+      <b>🎮 Discord</b> - <a href="https://discord.gg/Mkpd3rsm">加入 Discord</a><br/><br/>
       <b>🐦 X (Twitter)</b> - <a href="https://x.com/openakita">@openakita</a><br/><br/>
       <b>📧 邮箱</b> - <a href="mailto:zacon365@gmail.com">zacon365@gmail.com</a>
     </td>

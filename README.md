@@ -569,7 +569,7 @@ Join our community for help, discussions, and updates!
     </td>
     <td>
       <b>💬 WeChat</b> - Chinese community chat<br/><br/>
-      <b>🎮 Discord</b> - <a href="https://discord.gg/openakita">Join Discord</a> (Coming soon)<br/><br/>
+      <b>🎮 Discord</b> - <a href="https://discord.gg/Mkpd3rsm">Join Discord</a><br/><br/>
       <b>🐦 X (Twitter)</b> - <a href="https://x.com/openakita">@openakita</a><br/><br/>
       <b>📧 Email</b> - <a href="mailto:zacon365@gmail.com">zacon365@gmail.com</a>
     </td>
