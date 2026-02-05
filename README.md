@@ -554,6 +554,34 @@ ruff check src/
 mypy src/
 ```
 
+## Community
+
+Join our community for help, discussions, and updates!
+
+### Instant Communication
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/assets/wecaht_group.jpg" width="200" alt="WeChat Group QR Code" /><br/>
+      <b>WeChat Group</b><br/>
+      <sub>Scan to join (Chinese)</sub>
+    </td>
+    <td>
+      <b>💬 WeChat</b> - Chinese community chat<br/><br/>
+      <b>🎮 Discord</b> - <a href="https://discord.gg/openakita">Join Discord</a> (Coming soon)<br/><br/>
+      <b>📧 Email</b> - <a href="mailto:zacon365@gmail.com">zacon365@gmail.com</a>
+    </td>
+  </tr>
+</table>
+
+### Project Resources
+
+- 📖 [Documentation](docs/) - Complete guides
+- 🐛 [Issues](https://github.com/openakita/openakita/issues) - Bug reports & feature requests
+- 💬 [Discussions](https://github.com/openakita/openakita/discussions) - Q&A and ideas
+- ⭐ [Star us](https://github.com/openakita/openakita) - Show your support
+
 ## Acknowledgments
 
 - [Anthropic Claude](https://www.anthropic.com/claude) — LLM Engine

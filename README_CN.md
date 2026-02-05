@@ -528,10 +528,31 @@ ruff check src/
 
 ## 社区
 
-- 📖 [文档](docs/)
-- 🐛 [问题追踪](https://github.com/openakita/openakita/issues)
-- 💬 [讨论区](https://github.com/openakita/openakita/discussions)
-- 📧 [邮箱](mailto:zacon365@gmail.com)
+加入我们的社区，获取帮助、分享经验、参与讨论！
+
+### 即时交流
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/assets/wecaht_group.jpg" width="200" alt="微信群二维码" /><br/>
+      <b>微信交流群</b><br/>
+      <sub>扫码加入中文社区</sub>
+    </td>
+    <td>
+      <b>💬 微信群</b> - 中文用户即时交流<br/><br/>
+      <b>🎮 Discord</b> - <a href="https://discord.gg/openakita">加入 Discord</a>（即将开放）<br/><br/>
+      <b>📧 邮箱</b> - <a href="mailto:zacon365@gmail.com">zacon365@gmail.com</a>
+    </td>
+  </tr>
+</table>
+
+### 项目互动
+
+- 📖 [文档](docs/) - 完整使用指南
+- 🐛 [问题追踪](https://github.com/openakita/openakita/issues) - 报告 Bug、请求功能
+- 💬 [讨论区](https://github.com/openakita/openakita/discussions) - 技术讨论、问答
+- ⭐ [Star 项目](https://github.com/openakita/openakita) - 支持我们
 
 ## 致谢
 
