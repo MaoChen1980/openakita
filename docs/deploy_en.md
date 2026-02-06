@@ -2,32 +2,43 @@
 
 [中文版](./deploy.md)
 
-> Complete deployment guide from scratch
+> Complete deployment guide covering PyPI installation, source installation, LLM configuration, and IM channel setup
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [System Requirements](#system-requirements)
-- [Dependencies](#dependencies)
-- [Quick Deploy](#quick-deploy)
-- [Manual Deployment](#manual-deployment)
+- [Installation Methods](#installation-methods)
+  - [Method 1: PyPI Install (Recommended)](#method-1-pypi-install-recommended)
+  - [Method 2: One-Click Deploy Script](#method-2-one-click-deploy-script)
+  - [Method 3: Source Install](#method-3-source-install)
 - [Configuration](#configuration)
+  - [Configuration Files Overview](#configuration-files-overview)
+  - [Environment Variables (.env)](#environment-variables-env)
+  - [LLM Endpoint Configuration (llm_endpoints.json)](#llm-endpoint-configuration-llm_endpointsjson)
+  - [IM Channel Configuration](#im-channel-configuration)
+  - [Identity Configuration (identity/)](#identity-configuration-identity)
+  - [Memory System Configuration](#memory-system-configuration)
+  - [Multi-Agent Orchestration](#multi-agent-orchestration)
 - [Starting Services](#starting-services)
+- [Publishing to PyPI](#publishing-to-pypi)
+- [Production Deployment](#production-deployment)
 - [FAQ](#faq)
+- [Upgrading & Uninstalling](#upgrading--uninstalling)
 
 ---
 
 ## System Requirements
 
-### Hardware Requirements
+### Hardware
 
 | Item | Minimum | Recommended |
 |------|---------|-------------|
 | CPU | 2 cores | 4+ cores |
 | Memory | 2 GB | 4+ GB |
 | Disk | 5 GB | 20+ GB |
-| Network | Access to API endpoints | Stable connection |
+| Network | Access to API endpoints | Stable, low-latency |
 
-### Software Requirements
+### Software
 
 | Software | Version | Purpose |
 |----------|---------|---------|
@@ -46,401 +57,607 @@
 
 ---
 
-## Dependencies
+## Installation Methods
 
-### Python Third-Party Dependencies
+### Method 1: PyPI Install (Recommended)
 
-```
-# Core LLM
-anthropic>=0.40.0          # Claude API
-openai>=1.0.0              # OpenAI compatible endpoint
-
-# MCP Protocol
-mcp>=1.0.0
-
-# CLI/UI
-rich>=13.7.0
-prompt-toolkit>=3.0.43
-typer>=0.12.0
-
-# Async HTTP
-httpx>=0.27.0
-aiofiles>=24.1.0
-
-# Database
-aiosqlite>=0.20.0
-
-# Data Validation
-pydantic>=2.5.0
-pydantic-settings>=2.1.0
-
-# Git Operations
-gitpython>=3.1.40
-
-# Browser Automation
-playwright>=1.40.0
-
-# Configuration
-pyyaml>=6.0.1
-python-dotenv>=1.0.0
-
-# Utilities
-tenacity>=8.2.3
-
-# Memory System - Vector Search
-sentence-transformers>=2.2.0  # Local embedding model
-chromadb>=0.4.0               # Vector database
-
-# Multi-Agent Orchestration
-pyzmq>=25.0.0                 # ZeroMQ inter-process communication
-
-# IM Channels (optional)
-python-telegram-bot>=21.0  # Telegram
-```
-
-### Vector Search Configuration
-
-The memory system uses vector search for semantic matching, requiring additional setup:
-
-#### First Launch
-
-The embedding model (~100MB) will be downloaded automatically on first launch.
-
-Model cache location:
-- Windows: `C:\Users\<user>\.cache\huggingface\`
-- Linux/Mac: `~/.cache/huggingface/`
-
-#### Pre-download Model (Optional)
-
-For offline deployment, pre-download the model:
+The simplest way to get started:
 
 ```bash
-python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('shibing624/text2vec-base-chinese')"
-```
-
-#### GPU Acceleration (Optional)
-
-With NVIDIA GPU, install CUDA version of PyTorch:
-
-```bash
-pip install torch --index-url https://download.pytorch.org/whl/cu118
-```
-
-Set in `.env`:
-```
-EMBEDDING_DEVICE=cuda
-```
-
-#### Data Directory
-
-Vector index is stored in `data/memory/chromadb/`. Ensure write permissions.
-
-### System Tools
-
-| Tool | Purpose | Installation |
-|------|---------|--------------|
-| Git | Code management, GitPython | System package manager |
-| Browser kernel | Playwright | `playwright install` |
-
----
-
-## Quick Deploy
-
-### One-Click Deploy (Recommended)
-
-**Windows (PowerShell):**
-```powershell
-# Download and run deployment script
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/openakita/openakita/main/scripts/deploy.ps1" -OutFile "scripts/deploy.ps1"
-.\scripts\deploy.ps1
-```
-
-Or use local script:
-```powershell
-.\scripts\deploy.ps1
-```
-
-**Linux/macOS (Bash):**
-```bash
-# Download and run deployment script
-curl -O https://raw.githubusercontent.com/openakita/openakita/main/scripts/deploy.sh
-chmod +x scripts/deploy.sh
-./scripts/deploy.sh
-```
-
-Or use local script:
-```bash
-chmod +x scripts/deploy.sh
-./scripts/deploy.sh
-```
-
----
-
-## Manual Deployment
-
-### 1. Install Python 3.11+
-
-#### Windows
-
-**Method A: Official Download**
-```powershell
-# 1. Visit https://www.python.org/downloads/
-# 2. Download Python 3.11 or higher
-# 3. Check "Add Python to PATH" during installation
-# 4. Verify installation
-python --version  # Should show Python 3.11.x or higher
-```
-
-**Method B: winget**
-```powershell
-winget install Python.Python.3.11
-# Restart terminal and verify
-python --version
-```
-
-**Method C: Scoop**
-```powershell
-scoop install python
-python --version
-```
-
-#### Linux (Ubuntu/Debian)
-
-```bash
-# Update package list
-sudo apt update
-
-# Install Python 3.11
-sudo apt install -y python3.11 python3.11-venv python3.11-dev python3-pip
-
-# Set default Python (optional)
-sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
-
-# Verify
-python3.11 --version
-```
-
-#### Linux (CentOS/RHEL)
-
-```bash
-# Enable EPEL and CRB repositories
-sudo dnf install -y epel-release
-sudo dnf config-manager --set-enabled crb
-
-# Install Python 3.11
-sudo dnf install -y python3.11 python3.11-pip python3.11-devel
-
-# Verify
-python3.11 --version
-```
-
-#### macOS
-
-```bash
-# Using Homebrew
-brew install python@3.11
-
-# Verify
-python3.11 --version
-```
-
-### 2. Install Git
-
-#### Windows
-```powershell
-winget install Git.Git
-# Or visit https://git-scm.com/download/win
-```
-
-#### Linux
-```bash
-sudo apt install -y git  # Ubuntu/Debian
-sudo dnf install -y git  # CentOS/RHEL
-```
-
-#### macOS
-```bash
-brew install git
-```
-
-### 3. Clone Repository
-
-```bash
-git clone https://github.com/openakita/openakita.git
-cd openakita
-```
-
-### 4. Create Virtual Environment
-
-```bash
-# Windows
+# 1. Create virtual environment
 python -m venv venv
-.\venv\Scripts\activate
+source venv/bin/activate  # Linux/macOS
+# or .\venv\Scripts\activate  # Windows
 
-# Linux/macOS
-python3.11 -m venv venv
-source venv/bin/activate
+# 2. Install OpenAkita (core)
+pip install openakita
+
+# 3. Install optional features
+pip install openakita[feishu]     # + Feishu (Lark) support
+pip install openakita[whisper]    # + Voice recognition
+pip install openakita[browser]    # + Browser AI agent
+pip install openakita[windows]    # + Windows desktop automation
+pip install openakita[all]        # Install all optional features
+
+# 4. Run setup wizard
+openakita init
+
+# 5. Start
+openakita
 ```
 
-### 5. Install Dependencies
+### Method 2: One-Click Deploy Script
 
-```bash
-# Upgrade pip
-pip install --upgrade pip
-
-# Install project dependencies
-pip install -e .
-
-# Or use requirements.txt
-pip install -r requirements.txt
-```
-
-### 6. Install Playwright Browsers
-
-```bash
-# Install browser kernels
-playwright install
-
-# Or install only Chromium (smaller)
-playwright install chromium
-
-# Install system dependencies (Linux)
-playwright install-deps
-```
-
-### 7. Configure Environment Variables
-
-```bash
-# Copy example config
-cp .env.example .env
-
-# Edit configuration
-# Windows: notepad .env
-# Linux/macOS: nano .env or vim .env
-```
-
-Required configuration:
-```ini
-# Required - Anthropic API Key
-ANTHROPIC_API_KEY=sk-your-api-key-here
-
-# Optional - Custom API endpoint
-ANTHROPIC_BASE_URL=https://api.anthropic.com
-
-# Optional - Telegram bot
-TELEGRAM_ENABLED=true
-TELEGRAM_BOT_TOKEN=your-bot-token
-```
-
-### 8. Initialize Data Directory
+Automatically installs Python, Git, dependencies, and everything else:
 
 **Linux/macOS:**
 ```bash
-mkdir -p data data/sessions data/media
+git clone https://github.com/openakita/openakita.git
+cd openakita
+chmod +x scripts/deploy.sh
+./scripts/deploy.sh
 ```
 
 **Windows (PowerShell):**
 ```powershell
-New-Item -ItemType Directory -Force -Path data, data\sessions, data\media
+git clone https://github.com/openakita/openakita.git
+cd openakita
+.\scripts\deploy.ps1
 ```
 
-**Windows (CMD):**
-```cmd
-mkdir data data\sessions data\media
-```
+The script will automatically:
+1. Detect and install Python 3.11+
+2. Detect and install Git
+3. Create virtual environment
+4. Install dependencies (auto-fallback to Chinese mirror if needed)
+5. Optionally install Playwright browsers
+6. Optionally download Whisper voice model
+7. Initialize `.env` and `data/llm_endpoints.json`
+8. Create all required data directories
+9. Verify installation
+10. Optionally create systemd service (Linux)
 
-### 9. Verify Installation
+### Method 3: Source Install
 
 ```bash
-# Run Agent
-openakita
+# 1. Clone repository
+git clone https://github.com/openakita/openakita.git
+cd openakita
 
-# Or run module directly
-python -m openakita
+# 2. Create virtual environment
+python -m venv venv
+source venv/bin/activate  # Linux/macOS
+# or .\venv\Scripts\activate  # Windows
+
+# 3. Upgrade pip
+pip install --upgrade pip
+
+# 4. Install project (development mode)
+pip install -e ".[all,dev]"
+
+# 5. Install Playwright browsers (optional)
+playwright install chromium
+
+# 6. Copy configuration files
+cp .env.example .env
+cp data/llm_endpoints.json.example data/llm_endpoints.json
+
+# 7. Edit configuration
+# Edit .env to fill in API Keys and IM channel settings
+# Edit data/llm_endpoints.json to configure LLM endpoints
+
+# 8. Run setup wizard (or configure manually)
+openakita init
+
+# 9. Start
+openakita
 ```
 
 ---
 
 ## Configuration
 
-### Complete Environment Variables
+### Configuration Files Overview
+
+```
+project-root/
+├── .env                          # Environment variables (API Keys, IM Tokens, etc.)
+├── data/
+│   └── llm_endpoints.json        # LLM multi-endpoint config (models, priority, capability routing)
+└── identity/
+    ├── SOUL.md                   # Agent core personality
+    ├── AGENT.md                  # Agent behavior specification
+    ├── USER.md                   # User profile (auto-learned)
+    └── MEMORY.md                 # Core memory (auto-updated)
+```
+
+**Configuration priority:** Environment variables > `.env` file > Code defaults
+
+### Environment Variables (.env)
+
+Copy the example file and edit:
+
+```bash
+cp .env.example .env
+```
+
+#### Required
+
+```ini
+# At least one LLM API Key is required
+ANTHROPIC_API_KEY=sk-your-api-key-here
+```
+
+> **Tip:** If you don't use Anthropic, you can configure other API Keys (e.g. `DASHSCOPE_API_KEY`)
+> as long as they are properly referenced in `data/llm_endpoints.json`.
+
+#### Full Environment Variable Reference
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ANTHROPIC_API_KEY` | ✅ | - | Claude API key |
-| `ANTHROPIC_BASE_URL` | ❌ | `https://api.anthropic.com` | API endpoint |
-| `DEFAULT_MODEL` | ❌ | `claude-opus-4-5-20251101-thinking` | Model name |
-| `MAX_TOKENS` | ❌ | `8192` | Max output tokens |
-| `AGENT_NAME` | ❌ | `OpenAkita` | Agent name |
-| `MAX_ITERATIONS` | ❌ | `100` | Ralph loop max iterations |
-| `AUTO_CONFIRM` | ❌ | `false` | Auto-confirm dangerous operations |
-| `DATABASE_PATH` | ❌ | `data/agent.db` | Database path |
-| `LOG_LEVEL` | ❌ | `INFO` | Log level |
-| `GITHUB_TOKEN` | ❌ | - | GitHub Token |
+| **LLM Configuration** | | | |
+| `ANTHROPIC_API_KEY` | ⚡ | - | Anthropic Claude API Key |
+| `ANTHROPIC_BASE_URL` | | `https://api.anthropic.com` | API endpoint (supports proxies) |
+| `DEFAULT_MODEL` | | `claude-opus-4-5-20251101-thinking` | Default model |
+| `MAX_TOKENS` | | `8192` | Max output tokens |
+| `KIMI_API_KEY` | | - | Kimi (Moonshot) API Key |
+| `DASHSCOPE_API_KEY` | | - | Qwen (DashScope) API Key |
+| `MINIMAX_API_KEY` | | - | MiniMax API Key |
+| `DEEPSEEK_API_KEY` | | - | DeepSeek API Key |
+| `OPENROUTER_API_KEY` | | - | OpenRouter API Key |
+| `SILICONFLOW_API_KEY` | | - | SiliconFlow API Key |
+| `LLM_ENDPOINTS_CONFIG` | | `data/llm_endpoints.json` | LLM endpoint config file path |
+| **Agent Configuration** | | | |
+| `AGENT_NAME` | | `OpenAkita` | Agent name |
+| `MAX_ITERATIONS` | | `100` | Ralph loop max iterations |
+| `AUTO_CONFIRM` | | `false` | Auto-confirm dangerous operations |
+| `DATABASE_PATH` | | `data/agent.db` | Database path |
+| `LOG_LEVEL` | | `INFO` | Log level |
+| **Network Proxy** | | | |
+| `HTTP_PROXY` | | - | HTTP proxy |
+| `HTTPS_PROXY` | | - | HTTPS proxy |
+| `ALL_PROXY` | | - | Global proxy (highest priority) |
+| `FORCE_IPV4` | | `false` | Force IPv4 |
+| **IM Channels** | | | |
+| `TELEGRAM_ENABLED` | | `false` | Enable Telegram |
+| `TELEGRAM_BOT_TOKEN` | | - | Telegram Bot Token |
+| `TELEGRAM_PROXY` | | - | Telegram-specific proxy |
+| `FEISHU_ENABLED` | | `false` | Enable Feishu (Lark) |
+| `FEISHU_APP_ID` | | - | Feishu App ID |
+| `FEISHU_APP_SECRET` | | - | Feishu App Secret |
+| `WEWORK_ENABLED` | | `false` | Enable WeCom |
+| `WEWORK_CORP_ID` | | - | Corp ID |
+| `WEWORK_AGENT_ID` | | - | Application Agent ID |
+| `WEWORK_SECRET` | | - | Application Secret |
+| `DINGTALK_ENABLED` | | `false` | Enable DingTalk |
+| `DINGTALK_APP_KEY` | | - | DingTalk App Key |
+| `DINGTALK_APP_SECRET` | | - | DingTalk App Secret |
+| `QQ_ENABLED` | | `false` | Enable QQ |
+| `QQ_ONEBOT_URL` | | `ws://127.0.0.1:8080` | OneBot WebSocket URL |
+| **Memory System** | | | |
+| `EMBEDDING_MODEL` | | `shibing624/text2vec-base-chinese` | Embedding model |
+| `EMBEDDING_DEVICE` | | `cpu` | Compute device (cpu/cuda) |
+| `MEMORY_HISTORY_DAYS` | | `30` | History retention days |
+| **Voice Recognition** | | | |
+| `WHISPER_MODEL` | | `base` | Whisper model size |
+| **GitHub** | | | |
+| `GITHUB_TOKEN` | | - | For searching/downloading skills |
+
+### LLM Endpoint Configuration (llm_endpoints.json)
+
+This is the **core configuration file** of OpenAkita, supporting multi-endpoint, automatic failover, and capability-based routing.
+
+#### Configuration Methods
+
+**Method A: Interactive Wizard (Recommended)**
+```bash
+python -m openakita.llm.setup.cli
+```
+
+The wizard supports:
+- Selecting from known provider list
+- Automatically fetching available models
+- Testing endpoint connectivity
+- Setting priorities
+- Saving configuration
+
+**Method B: Manual Edit**
+```bash
+cp data/llm_endpoints.json.example data/llm_endpoints.json
+# Then edit the file
+```
+
+#### Configuration Structure
+
+```json
+{
+  "endpoints": [
+    {
+      "name": "claude-primary",          // Endpoint name (unique identifier)
+      "provider": "anthropic",           // Provider identifier
+      "api_type": "anthropic",           // API protocol: anthropic or openai
+      "base_url": "https://api.anthropic.com",  // API base URL
+      "api_key_env": "ANTHROPIC_API_KEY",       // API Key env variable name
+      "model": "claude-opus-4-5-20251101-thinking",
+      "priority": 1,                     // Priority (1 = highest)
+      "max_tokens": 8192,               // Max output tokens
+      "timeout": 60,                     // Timeout (seconds)
+      "capabilities": ["text", "vision", "tools"],  // Capability declaration
+      "extra_params": {},                // Extra API parameters
+      "note": "Anthropic Official API"   // Note
+    }
+  ],
+  "settings": {
+    "retry_count": 2,                    // Retries per endpoint
+    "retry_delay_seconds": 2,            // Retry delay (seconds)
+    "health_check_interval": 60,         // Health check interval (seconds)
+    "fallback_on_error": true            // Auto-failover to backup endpoint
+  }
+}
+```
+
+#### Field Reference
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | ✅ | Unique endpoint name |
+| `provider` | string | ✅ | Provider: `anthropic` / `openai` / `dashscope` / `moonshot` / `minimax` / `deepseek` / `zhipu` / `openrouter` / `siliconflow` |
+| `api_type` | string | ✅ | API protocol: `anthropic` (native) or `openai` (OpenAI-compatible) |
+| `base_url` | string | ✅ | API base URL |
+| `api_key_env` | string | ✅ | Environment variable name for API Key (actual value set in `.env`) |
+| `model` | string | ✅ | Model name |
+| `priority` | int | ✅ | Priority — lower number = higher priority |
+| `max_tokens` | int | | Max output tokens, default 8192 |
+| `timeout` | int | | Request timeout in seconds, default 60 |
+| `capabilities` | list | | Capability list: `text` / `vision` / `video` / `tools` / `thinking` |
+| `extra_params` | dict | | Extra parameters passed to the API |
+| `note` | string | | Description note |
+
+#### Capability Routing
+
+| Capability | Description | Typical Models |
+|------------|-------------|----------------|
+| `text` | Text conversation | All models |
+| `vision` | Image understanding | Claude 3.5+, GPT-4V, Qwen-VL |
+| `video` | Video understanding | Kimi, Gemini |
+| `tools` | Tool/function calling | Claude 3+, GPT-4+, Qwen |
+| `thinking` | Deep reasoning | O1, DeepSeek-R1, QwQ, Claude Thinking |
+
+When a user sends an image, the system automatically selects an endpoint with `vision` capability; for video, it selects one with `video` capability.
+
+#### Failover Mechanism
+
+1. Endpoints are tried in `priority` order (lowest first)
+2. On failure, automatically switches to the next endpoint
+3. Failed endpoints enter a **3-minute cooldown** period
+4. Endpoints automatically recover after cooldown
+
+#### Provider Configuration Examples
+
+**Anthropic (Claude)**
+```json
+{
+  "name": "claude",
+  "provider": "anthropic",
+  "api_type": "anthropic",
+  "base_url": "https://api.anthropic.com",
+  "api_key_env": "ANTHROPIC_API_KEY",
+  "model": "claude-sonnet-4-20250514",
+  "priority": 1,
+  "capabilities": ["text", "vision", "tools"]
+}
+```
+
+**Qwen (DashScope / Alibaba Cloud)**
+```json
+{
+  "name": "qwen",
+  "provider": "dashscope",
+  "api_type": "openai",
+  "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "api_key_env": "DASHSCOPE_API_KEY",
+  "model": "qwen3-max",
+  "priority": 2,
+  "capabilities": ["text", "tools", "thinking"],
+  "extra_params": {"enable_thinking": true}
+}
+```
+
+**Kimi (Moonshot AI)**
+```json
+{
+  "name": "kimi",
+  "provider": "moonshot",
+  "api_type": "openai",
+  "base_url": "https://api.moonshot.cn/v1",
+  "api_key_env": "KIMI_API_KEY",
+  "model": "kimi-k2.5",
+  "priority": 3,
+  "capabilities": ["text", "vision", "video", "tools"],
+  "extra_params": {"thinking": {"type": "enabled"}}
+}
+```
+
+**DeepSeek**
+```json
+{
+  "name": "deepseek",
+  "provider": "deepseek",
+  "api_type": "openai",
+  "base_url": "https://api.deepseek.com/v1",
+  "api_key_env": "DEEPSEEK_API_KEY",
+  "model": "deepseek-chat",
+  "priority": 4,
+  "capabilities": ["text", "tools"]
+}
+```
+
+**OpenRouter (Multi-model Aggregator)**
+```json
+{
+  "name": "openrouter-gemini",
+  "provider": "openrouter",
+  "api_type": "openai",
+  "base_url": "https://openrouter.ai/api/v1",
+  "api_key_env": "OPENROUTER_API_KEY",
+  "model": "google/gemini-2.5-pro",
+  "priority": 5,
+  "capabilities": ["text", "vision", "video", "tools"]
+}
+```
+
+**MiniMax (Anthropic Protocol)**
+```json
+{
+  "name": "minimax",
+  "provider": "minimax",
+  "api_type": "anthropic",
+  "base_url": "https://api.minimaxi.com/anthropic",
+  "api_key_env": "MINIMAX_API_KEY",
+  "model": "MiniMax-M2.1",
+  "priority": 6,
+  "capabilities": ["text", "tools"]
+}
+```
+
+**Using a Proxy / Relay Service**
+
+If direct access to Anthropic is difficult, use a relay service:
+```json
+{
+  "name": "claude-proxy",
+  "provider": "anthropic",
+  "api_type": "anthropic",
+  "base_url": "https://your-proxy-domain.com",
+  "api_key_env": "ANTHROPIC_API_KEY",
+  "model": "claude-sonnet-4-20250514",
+  "priority": 1,
+  "capabilities": ["text", "vision", "tools"]
+}
+```
 
 ### IM Channel Configuration
 
-| Variable | Description |
-|----------|-------------|
-| `TELEGRAM_ENABLED` | Enable Telegram (true/false) |
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token |
-| `FEISHU_ENABLED` | Enable Feishu |
-| `FEISHU_APP_ID` | Feishu App ID |
-| `FEISHU_APP_SECRET` | Feishu App Secret |
-| `WEWORK_ENABLED` | Enable WeCom |
-| `WEWORK_CORP_ID` | Corp ID |
-| `WEWORK_AGENT_ID` | Agent ID |
-| `WEWORK_SECRET` | Secret |
-| `DINGTALK_ENABLED` | Enable DingTalk |
-| `DINGTALK_APP_KEY` | App Key |
-| `DINGTALK_APP_SECRET` | App Secret |
-| `QQ_ENABLED` | Enable QQ |
-| `QQ_ONEBOT_URL` | OneBot WebSocket URL |
+OpenAkita supports 5 major IM platforms, all enabled via `.env`:
+
+| Platform | Status | Protocol | Extra Dependency |
+|----------|--------|----------|-----------------|
+| Telegram | ✅ Stable | Bot API | Built-in |
+| Feishu (Lark) | ✅ Stable | WebSocket | `pip install openakita[feishu]` |
+| WeCom (WeWork) | ✅ Stable | HTTP API | None |
+| DingTalk | ✅ Stable | HTTP API | None |
+| QQ | 🧪 Beta | OneBot WS | Requires OneBot server |
+
+#### Telegram
+
+1. Create a Bot at [@BotFather](https://t.me/BotFather) and get the Token
+2. Configure `.env`:
+```ini
+TELEGRAM_ENABLED=true
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
+# Users in mainland China must configure a proxy
+TELEGRAM_PROXY=http://127.0.0.1:7890
+```
+3. On first use, the Agent generates a pairing code in `data/telegram/pairing/` (visible in console output)
+
+#### Feishu (Lark)
+
+1. Create an app at [Feishu Open Platform](https://open.feishu.cn/)
+2. Enable Bot capability and add message-related permissions
+3. Configure `.env`:
+```ini
+FEISHU_ENABLED=true
+FEISHU_APP_ID=cli_xxxxx
+FEISHU_APP_SECRET=xxxxx
+```
+4. The Feishu adapter uses WebSocket long connection by default (recommended) — no callback URL needed
+
+#### WeCom (WeWork)
+
+1. Create an internal app at [WeCom Admin Console](https://work.weixin.qq.com/)
+2. Get Corp ID, Agent ID, and Secret
+3. Configure `.env`:
+```ini
+WEWORK_ENABLED=true
+WEWORK_CORP_ID=ww_xxxxx
+WEWORK_AGENT_ID=1000002
+WEWORK_SECRET=xxxxx
+```
+
+#### DingTalk
+
+1. Create an internal app at [DingTalk Open Platform](https://open.dingtalk.com/)
+2. Enable Bot capability
+3. Configure `.env`:
+```ini
+DINGTALK_ENABLED=true
+DINGTALK_APP_KEY=dingxxxxx
+DINGTALK_APP_SECRET=xxxxx
+```
+
+#### QQ (OneBot)
+
+Requires a running OneBot implementation (e.g. [NapCat](https://github.com/NapNeko/NapCatQQ)):
+```ini
+QQ_ENABLED=true
+QQ_ONEBOT_URL=ws://127.0.0.1:8080
+```
+
+#### Running Modes
+
+IM channels support two running modes:
+
+```bash
+# Mode 1: CLI + IM (interactive mode with IM channels running simultaneously)
+openakita
+
+# Mode 2: IM-only service (background service, no CLI)
+openakita serve
+```
+
+### Identity Configuration (identity/)
+
+Identity files define the Agent's personality, behavior, and memory:
+
+```bash
+# Create from example files
+cp identity/SOUL.md.example identity/SOUL.md
+cp identity/AGENT.md.example identity/AGENT.md
+cp identity/USER.md.example identity/USER.md
+cp identity/MEMORY.md.example identity/MEMORY.md
+```
+
+| File | Description | Auto-Updated |
+|------|-------------|--------------|
+| `SOUL.md` | Core personality and philosophy | No (manual) |
+| `AGENT.md` | Behavior specification and workflows | No (manual) |
+| `USER.md` | User profile | Yes (Agent auto-learns) |
+| `MEMORY.md` | Core memory | Yes (daily consolidation) |
+
+> Running `openakita init` will automatically create these files.
 
 ### Memory System Configuration
 
-| Variable | Description |
-|----------|-------------|
-| `EMBEDDING_MODEL` | Embedding model name (default: shibing624/text2vec-base-chinese) |
-| `EMBEDDING_DEVICE` | Compute device (cpu or cuda) |
-| `MEMORY_HISTORY_DAYS` | Days to retain conversation history |
-| `MEMORY_MAX_HISTORY_FILES` | Max history files |
-| `MEMORY_MAX_HISTORY_SIZE_MB` | Max history storage size (MB) |
+The memory system uses vector search for semantic matching:
 
-### Multi-Agent Orchestration Configuration
+```ini
+# Configure in .env
+EMBEDDING_MODEL=shibing624/text2vec-base-chinese  # Recommended for Chinese
+EMBEDDING_DEVICE=cpu                                # Set to cuda if GPU available
+```
 
-| Variable | Description |
-|----------|-------------|
-| `ORCHESTRATION_ENABLED` | Enable multi-agent orchestration (true/false) |
-| `ORCHESTRATION_BUS_ADDRESS` | ZMQ bus address |
-| `ORCHESTRATION_PUB_ADDRESS` | ZMQ pub address |
-| `ORCHESTRATION_MIN_WORKERS` | Minimum worker count |
-| `ORCHESTRATION_MAX_WORKERS` | Maximum worker count |
-| `ORCHESTRATION_HEARTBEAT_INTERVAL` | Heartbeat interval (seconds) |
+**First launch** will automatically download the embedding model (~100MB).
+
+**Offline deployment** — pre-download:
+```bash
+python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('shibing624/text2vec-base-chinese')"
+```
+
+**GPU acceleration** (optional):
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu118
+# Set EMBEDDING_DEVICE=cuda in .env
+```
+
+### Multi-Agent Orchestration
+
+Enable the MasterAgent + Worker architecture for complex tasks:
+
+```ini
+# Configure in .env
+ORCHESTRATION_ENABLED=true
+ORCHESTRATION_BUS_ADDRESS=tcp://127.0.0.1:5555
+ORCHESTRATION_PUB_ADDRESS=tcp://127.0.0.1:5556
+ORCHESTRATION_MIN_WORKERS=1
+ORCHESTRATION_MAX_WORKERS=5
+```
 
 ---
 
 ## Starting Services
 
-### Interactive Mode
+### Interactive Mode (Development/Testing)
 
 ```bash
-# Start interactive CLI
-openakita
-
-# Or
-python -m openakita
+openakita           # Interactive CLI (with IM channels running simultaneously)
+python -m openakita # Same
 ```
 
-### Telegram Bot Service
+### Service Mode (Production)
 
 ```bash
-# Using dedicated script
-python scripts/run_telegram_bot.py
-
-# Or run in background
-nohup python scripts/run_telegram_bot.py > telegram.log 2>&1 &
+openakita serve     # IM-only service, no CLI interaction
 ```
+
+### Single Task
+
+```bash
+openakita run "Analyze the code structure of the current directory"
+```
+
+### Other Commands
+
+```bash
+openakita init              # Run setup wizard
+openakita status            # Show Agent status
+openakita selfcheck         # Run self-check
+openakita compile           # Compile identity files (reduces token usage)
+openakita prompt-debug      # Show prompt debug info
+openakita --version         # Show version
+```
+
+---
+
+## Publishing to PyPI
+
+The project has a fully configured PyPI publishing pipeline:
+
+### Manual Publishing
+
+```bash
+# 1. Install build tools
+pip install build twine
+
+# 2. Build package
+python -m build
+
+# 3. Check package
+twine check dist/*
+
+# 4. Upload to PyPI
+twine upload dist/*
+# Or upload to TestPyPI
+twine upload --repository testpypi dist/*
+```
+
+### Automated Publishing (GitHub Actions)
+
+Push a version tag to automatically publish:
+
+```bash
+# 1. Update version in pyproject.toml
+# 2. Create tag
+git tag v1.2.2
+git push origin v1.2.2
+# 3. GitHub Actions automatically builds and publishes to PyPI
+```
+
+> Requires `PYPI_API_TOKEN` configured in GitHub repository Settings > Secrets.
+
+### Verifying Installation
+
+```bash
+# Install from PyPI
+pip install openakita
+
+# Verify
+openakita --version
+python -c "import openakita; print(openakita.__version__)"
+```
+
+---
+
+## Production Deployment
 
 ### Using systemd (Linux Recommended)
 
@@ -448,7 +665,7 @@ Create service file `/etc/systemd/system/openakita.service`:
 
 ```ini
 [Unit]
-Description=OpenAkita Telegram Bot
+Description=OpenAkita AI Agent Service
 After=network.target
 
 [Service]
@@ -456,142 +673,173 @@ Type=simple
 User=your-user
 WorkingDirectory=/path/to/openakita
 Environment="PATH=/path/to/openakita/venv/bin"
-ExecStart=/path/to/openakita/venv/bin/python scripts/run_telegram_bot.py
+ExecStart=/path/to/openakita/venv/bin/openakita serve
 Restart=always
 RestartSec=10
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Start service:
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable openakita
 sudo systemctl start openakita
 sudo systemctl status openakita
+
+# View logs
+journalctl -u openakita -f
 ```
 
-### Using Docker (Optional)
+### Using Docker
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY pyproject.toml .
+RUN pip install --no-cache-dir -e ".[feishu]"
+
+# Copy project files
+COPY . .
+
+# Install Playwright
+RUN playwright install chromium && playwright install-deps chromium
+
+CMD ["openakita", "serve"]
+```
 
 ```bash
-# Build image
 docker build -t openakita .
-
-# Run container
 docker run -d \
   --name openakita \
   -v $(pwd)/.env:/app/.env \
   -v $(pwd)/data:/app/data \
+  -v $(pwd)/identity:/app/identity \
   openakita
+```
+
+### Using nohup (Simple Background)
+
+```bash
+source venv/bin/activate
+nohup openakita serve > logs/serve.log 2>&1 &
+echo $! > openakita.pid
 ```
 
 ---
 
 ## FAQ
 
+### Q: How to choose an LLM?
+
+Recommended strategy (in `data/llm_endpoints.json`):
+- **Primary:** Claude Sonnet/Opus (most comprehensive capabilities)
+- **Backup 1:** Qwen qwen3-max (fast access in China, supports reasoning)
+- **Backup 2:** Kimi k2.5 (supports video understanding)
+- **Backup 3:** DeepSeek Chat (best cost-performance ratio)
+
 ### Q: Wrong Python version?
 
 ```bash
-# Check version
 python --version
-
-# Windows: specify version
-py -3.11 -m venv venv
-
-# Linux: use pyenv
-pyenv install 3.11.8
-pyenv local 3.11.8
+# Windows: py -3.11 -m venv venv
+# Linux: pyenv install 3.11.8 && pyenv local 3.11.8
 ```
 
 ### Q: pip install failed?
 
 ```bash
-# Use mirror for faster download
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-# Or configure permanent mirror
+# Use Chinese mirror (for users in China)
+pip install openakita -i https://pypi.tuna.tsinghua.edu.cn/simple
+# Or set permanent mirror
 pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 ### Q: Playwright installation failed?
 
 ```bash
-# Linux install dependencies
-sudo apt install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libxkbcommon0 libxdamage1 libgbm1 libpango-1.0-0 libcairo2
-
-# Or use playwright auto-install
+# Linux: install system dependencies
 playwright install-deps
+# Or install only Chromium
+playwright install chromium
 ```
 
 ### Q: API connection timeout?
 
-Check network environment and configure custom API endpoint:
-```ini
-ANTHROPIC_BASE_URL=https://your-api-endpoint.com
-```
+1. Check if your network can reach the API endpoint
+2. Configure proxy: set `ALL_PROXY` in `.env`
+3. Use an API relay service: modify `base_url` in `llm_endpoints.json`
 
 ### Q: Telegram Bot won't start?
 
-1. Check if Token is correct
-2. Verify network can access `api.telegram.org`
-3. Check firewall settings
+1. Verify Token is correct
+2. Users in mainland China must configure `TELEGRAM_PROXY`
+3. Ensure the proxy can reach `api.telegram.org`
 
 ### Q: Out of memory?
 
 ```bash
-# Limit Python memory usage
-ulimit -v 2000000  # ~2GB
-
-# Or configure in systemd
-MemoryLimit=2G
+# Use CPU-only PyTorch (saves ~2GB)
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+# Use a smaller embedding model
+# EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
 ```
 
----
-
-## Upgrading
+### Q: How to verify LLM endpoint configuration?
 
 ```bash
-# Enter project directory
-cd openakita
-
-# Pull latest code
-git pull
-
-# Reinstall dependencies
-pip install -e .
-
-# Restart service
-sudo systemctl restart openakita
+# Use the interactive tool to test
+python -m openakita.llm.setup.cli
+# Choose "4. Test endpoint" to verify connectivity
 ```
 
 ---
 
-## Uninstalling
+## Upgrading & Uninstalling
+
+### Upgrading
+
+```bash
+# PyPI install
+pip install --upgrade openakita
+
+# Source install
+cd openakita
+git pull
+pip install -e ".[all]"
+```
+
+### Uninstalling
 
 ```bash
 # Stop service
 sudo systemctl stop openakita
 sudo systemctl disable openakita
-
-# Remove service file
 sudo rm /etc/systemd/system/openakita.service
 
-# Remove virtual environment
-rm -rf venv
+# Uninstall package
+pip uninstall openakita
 
-# Remove project directory
-cd .. && rm -rf openakita
+# Remove data (use caution)
+rm -rf data/ identity/ logs/
 ```
 
 ---
 
 ## Support
 
-- 📖 Documentation: See project README.md
-- 🐛 Issues: Submit GitHub Issue
-- 💬 Discussion: Join Telegram group
+- Documentation: See `docs/` directory for detailed docs
+- Issues: Submit a [GitHub Issue](https://github.com/openakita/openakita/issues)
+- Community: Join the Telegram group
 
 ---
 
-*Last updated: 2026-01-31*
+*Last updated: 2026-02-06*

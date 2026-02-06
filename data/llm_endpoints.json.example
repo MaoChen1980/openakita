@@ -1,4 +1,20 @@
 {
+  "_doc": "OpenAkita LLM 端点配置文件 - 复制为 llm_endpoints.json 后使用",
+  "_doc_fields": {
+    "name":         "端点名称（唯一标识）",
+    "provider":     "供应商标识：anthropic / openai / dashscope / moonshot / minimax / deepseek / zhipu / openrouter / siliconflow 等",
+    "api_type":     "API 协议类型：anthropic 或 openai（OpenAI 兼容格式）",
+    "base_url":     "API 基地址",
+    "api_key_env":  "API Key 对应的环境变量名（在 .env 中配置实际值）",
+    "model":        "模型名称",
+    "priority":     "优先级（数字越小优先级越高，1=最高）",
+    "max_tokens":   "最大输出 token 数",
+    "timeout":      "请求超时时间（秒）",
+    "capabilities": "模型能力：text(文本) / vision(图像) / video(视频) / tools(工具调用) / thinking(深度推理)",
+    "extra_params": "额外参数（传递给 API 的特殊参数）",
+    "note":         "备注说明"
+  },
+
   "endpoints": [
     {
       "name": "claude-primary",
@@ -10,8 +26,8 @@
       "priority": 1,
       "max_tokens": 8192,
       "timeout": 60,
-      "capabilities": ["text", "tools"],
-      "note": "Anthropic 官方 API"
+      "capabilities": ["text", "vision", "tools"],
+      "note": "Anthropic 官方 API（主端点）"
     },
     {
       "name": "kimi",
@@ -25,10 +41,10 @@
       "timeout": 120,
       "capabilities": ["text", "vision", "video", "tools"],
       "extra_params": {"thinking": {"type": "enabled"}},
-      "note": "月之暗面，全模态支持"
+      "note": "月之暗面 Kimi，支持视频理解，申请: https://platform.moonshot.cn/"
     },
     {
-      "name": "dashscope",
+      "name": "dashscope-qwen",
       "provider": "dashscope",
       "api_type": "openai",
       "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -37,9 +53,9 @@
       "priority": 3,
       "max_tokens": 8192,
       "timeout": 60,
-      "capabilities": ["text", "tools"],
+      "capabilities": ["text", "tools", "thinking"],
       "extra_params": {"enable_thinking": true},
-      "note": "阿里云通义千问"
+      "note": "阿里云通义千问，申请: https://dashscope.console.aliyun.com/"
     },
     {
       "name": "minimax",
@@ -52,9 +68,36 @@
       "max_tokens": 8192,
       "timeout": 60,
       "capabilities": ["text", "tools"],
-      "note": "MiniMax 备用端点"
+      "note": "MiniMax M2.1，申请: https://www.minimaxi.com/"
+    },
+    {
+      "name": "deepseek",
+      "provider": "deepseek",
+      "api_type": "openai",
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "model": "deepseek-chat",
+      "priority": 5,
+      "max_tokens": 8192,
+      "timeout": 60,
+      "capabilities": ["text", "tools"],
+      "note": "DeepSeek V3，申请: https://platform.deepseek.com/"
+    },
+    {
+      "name": "openrouter-gemini",
+      "provider": "openrouter",
+      "api_type": "openai",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "model": "google/gemini-2.5-pro",
+      "priority": 6,
+      "max_tokens": 8192,
+      "timeout": 120,
+      "capabilities": ["text", "vision", "video", "tools"],
+      "note": "OpenRouter 聚合 - Gemini，申请: https://openrouter.ai/"
     }
   ],
+
   "settings": {
     "retry_count": 2,
     "retry_delay_seconds": 2,

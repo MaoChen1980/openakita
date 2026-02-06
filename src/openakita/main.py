@@ -690,18 +690,17 @@ def main(
 
     # 如果没有子命令，进入交互模式
     if ctx.invoked_subcommand is None:
-        # 检查是否至少有一个可用的 LLM 端点（建议 1）
-        from pathlib import Path
+        # 检查是否至少有一个可用的 LLM 端点
+        from .llm.config import get_default_config_path
 
         has_endpoint = (
             settings.anthropic_api_key
-            or settings.openai_api_key
-            or Path(settings.llm_endpoints_path).exists()
+            or get_default_config_path().exists()
         )
         if not has_endpoint:
             console.print("[red]错误: 未配置任何 LLM 端点[/red]")
             console.print(
-                "请设置 ANTHROPIC_API_KEY 或 OPENAI_API_KEY，或运行 'openakita init' 配置 llm_endpoints.json"
+                "请设置 ANTHROPIC_API_KEY，或运行 'openakita init' 配置 data/llm_endpoints.json"
             )
             raise typer.Exit(1)
 
