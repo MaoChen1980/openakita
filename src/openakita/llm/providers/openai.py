@@ -36,7 +36,7 @@ from ..types import (
     Usage,
 )
 from .base import LLMProvider
-from .proxy_utils import get_httpx_transport, get_proxy_config
+from .proxy_utils import build_httpx_timeout, get_httpx_transport, get_proxy_config
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,8 @@ class OpenAIProvider(LLMProvider):
             transport = get_httpx_transport()  # IPv4-only 支持
 
             client_kwargs = {
-                "timeout": httpx.Timeout(self.config.timeout),
+                "timeout": build_httpx_timeout(self.config.timeout, default=60.0),
+                "follow_redirects": True,
             }
 
             if proxy:
@@ -137,8 +138,9 @@ class OpenAIProvider(LLMProvider):
             return self._parse_response(data)
 
         except httpx.TimeoutException as e:
-            self.mark_unhealthy(f"Timeout: {e}")
-            raise LLMError(f"Request timeout: {e}")
+            detail = f"{type(e).__name__}: {e}"
+            self.mark_unhealthy(f"Timeout: {detail}")
+            raise LLMError(f"Request timeout: {detail}")
         except httpx.RequestError as e:
             self.mark_unhealthy(f"Request error: {e}")
             raise LLMError(f"Request failed: {e}")
@@ -174,8 +176,9 @@ class OpenAIProvider(LLMProvider):
                 self.mark_healthy()
 
         except httpx.TimeoutException as e:
-            self.mark_unhealthy(f"Timeout: {e}")
-            raise LLMError(f"Stream timeout: {e}")
+            detail = f"{type(e).__name__}: {e}"
+            self.mark_unhealthy(f"Timeout: {detail}")
+            raise LLMError(f"Stream timeout: {detail}")
 
     def _build_headers(self) -> dict:
         """构建请求头"""

@@ -218,15 +218,22 @@ class LLMClient:
         require_video = self._has_videos(messages)
         require_thinking = bool(enable_thinking)
 
-        # 检测工具上下文：有工具历史时禁止 failover
-        # 原因：不同模型对工具调用格式可能不兼容，切换后可能无法正确处理
+        # 检测工具上下文：对 failover 需要更保守
+        #
+        # 关键原因：
+        # - 工具链的“连续性”不仅是消息格式兼容（OpenAI-compatible / Anthropic）
+        # - 还包含模型特定的思维链/元数据连续性（例如 MiniMax M2.1 的 interleaved thinking）
+        #   这类信息若未完整保留/回传，或中途切换到另一模型，工具调用质量会明显下降
+        #
+        # 因此默认：只要检测到工具上下文，就禁用 failover（保持同一端点/同一模型）
+        # 但允许通过配置显式开启“同协议内 failover”（默认不开启）。
         has_tool_context = self._has_tool_context(messages)
         allow_failover = not has_tool_context
 
         if has_tool_context:
             logger.debug(
-                "[LLM] Tool context detected in messages, failover disabled. "
-                "Will retry same endpoint on failure."
+                "[LLM] Tool context detected in messages; failover disabled by default "
+                "(set settings.allow_failover_with_tool_context=true to override)."
             )
 
         # 筛选支持所需能力的端点
@@ -237,6 +244,24 @@ class LLMClient:
             require_thinking=require_thinking,
             conversation_id=conversation_id,
         )
+
+        # 可选：工具上下文下启用 failover（显式配置才开启）
+        if has_tool_context and eligible:
+            if self._settings.get("allow_failover_with_tool_context", False):
+                # 默认只允许同协议内切换；避免 anthropic/openai 混用导致 tool message 不兼容
+                api_types = {p.config.api_type for p in eligible}
+                if len(api_types) == 1:
+                    allow_failover = True
+                    logger.debug(
+                        "[LLM] Tool context failover explicitly enabled; "
+                        f"api_type={next(iter(api_types))}."
+                    )
+                else:
+                    allow_failover = False
+                    logger.debug(
+                        "[LLM] Tool context failover requested but eligible endpoints have mixed "
+                        f"api_types={sorted(api_types)}; failover remains disabled."
+                    )
 
         if eligible:
             return await self._try_endpoints(eligible, request, allow_failover=allow_failover)

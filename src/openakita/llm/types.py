@@ -320,7 +320,7 @@ class EndpointConfig:
     model: str = ""  # 模型名称
     priority: int = 1  # 优先级 (越小越优先)
     max_tokens: int = 4096  # 最大输出 tokens
-    timeout: int = 60  # 超时时间 (秒)
+    timeout: int = 180  # 超时时间 (秒)
     capabilities: list[str] | None = None  # 能力列表
     extra_params: dict | None = None  # 额外参数
     note: str | None = None  # 备注
@@ -355,7 +355,7 @@ class EndpointConfig:
             model=data.get("model", ""),
             priority=data.get("priority", 1),
             max_tokens=data.get("max_tokens", 4096),
-            timeout=data.get("timeout", 60),
+            timeout=data.get("timeout", 180),
             capabilities=data.get("capabilities"),
             extra_params=data.get("extra_params"),
             note=data.get("note"),

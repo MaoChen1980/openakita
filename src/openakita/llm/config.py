@@ -170,7 +170,7 @@ def create_default_config(config_path: Path | None = None):
             model="claude-sonnet-4-20250514",
             priority=1,
             max_tokens=8192,
-            timeout=60,
+            timeout=180,
             capabilities=["text", "vision", "tools"],
         ),
         EndpointConfig(
@@ -182,7 +182,7 @@ def create_default_config(config_path: Path | None = None):
             model="qwen-plus",
             priority=2,
             max_tokens=8192,
-            timeout=60,
+            timeout=180,
             capabilities=["text", "tools", "thinking"],
             extra_params={"enable_thinking": True},
         ),
