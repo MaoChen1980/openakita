@@ -27,12 +27,38 @@ class Settings(BaseSettings):
     max_iterations: int = Field(default=100, description="Ralph 循环最大迭代次数")
     auto_confirm: bool = Field(default=False, description="是否自动确认危险操作")
 
+    # === 任务超时策略 ===
+    # 目标：避免“卡死”而不是限制长任务。推荐使用“无进展超时”。
+    # - progress_timeout_seconds: 若连续超过该时间没有任何进展（LLM返回/工具完成/迭代推进），视为卡死。
+    # - hard_timeout_seconds: 可选硬上限（默认关闭=0）。仅作为最终兜底，避免无限任务。
+    progress_timeout_seconds: int = Field(
+        default=600,
+        description="无进展超时阈值（秒）。超过该时间无进展则触发超时处理（默认 600）",
+    )
+    hard_timeout_seconds: int = Field(
+        default=0,
+        description="硬超时上限（秒，0=禁用）。仅作为最终兜底，避免无限任务",
+    )
+
+    # === ForceToolCall（工具护栏）===
+    # 当模型在“可能需要工具”的任务中只给文本不调用工具时，Agent 可追问 1 次以推动工具调用。
+    # 设为 0 可完全关闭该行为（推荐 IM 闲聊/客服式对话场景）。
+    force_tool_call_max_retries: int = Field(
+        default=1,
+        description="当模型未调用工具时，最多追问要求调用工具的次数（0=禁用）",
+    )
+
     # === 工具并行执行 ===
     # 单轮模型返回多个 tool_use/tool_calls 时，Agent 可选择并行执行工具以提升吞吐。
     # 默认 1：保持现有串行语义（最安全，尤其是带“思维链连续性”的工具链）。
     tool_max_parallel: int = Field(
         default=1,
         description="单轮并行工具调用最大并发数（默认 1=串行；>1 启用并行）",
+    )
+
+    allow_parallel_tools_with_interrupt_checks: bool = Field(
+        default=False,
+        description="是否允许在启用“工具间中断检查”时也并行执行工具（会降低中断插入粒度，默认关闭）",
     )
 
     # Thinking 模式配置
@@ -120,6 +146,12 @@ class Settings(BaseSettings):
         default="https://dashscope.aliyuncs.com/compatible-mode/v1", description="DashScope API URL"
     )
     dashscope_model: str = Field(default="qwen3-max", description="DashScope 模型")
+
+    # DashScope 图像生成 (Qwen-Image) - 同一 Key，不同接口
+    dashscope_image_api_url: str = Field(
+        default="https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
+        description="DashScope Qwen-Image 同步接口 URL（默认北京地域）",
+    )
 
     # MiniMax - 备用端点 3
     minimax_api_key: str = Field(default="", description="MiniMax API Key")

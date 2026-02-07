@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 # 默认配置
-DEFAULT_TIMEOUT_SECONDS = 300  # 超时阈值（秒）
+DEFAULT_TIMEOUT_SECONDS = 600  # 无进展超时阈值（秒）
 DEFAULT_RETROSPECT_THRESHOLD = 60  # 复盘阈值（秒）
 DEFAULT_FALLBACK_MODEL = "gpt-4o"  # 备用模型
 DEFAULT_RETRY_BEFORE_SWITCH = 3  # 切换模型前重试次数
@@ -130,6 +130,7 @@ class TaskMonitor:
         description: str,
         session_id: str | None = None,
         timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+        hard_timeout_seconds: int = 0,
         retrospect_threshold: int = DEFAULT_RETROSPECT_THRESHOLD,
         fallback_model: str = DEFAULT_FALLBACK_MODEL,
         on_timeout: Callable[["TaskMonitor"], None] | None = None,
@@ -155,6 +156,7 @@ class TaskMonitor:
         )
 
         self.timeout_seconds = timeout_seconds
+        self.hard_timeout_seconds = hard_timeout_seconds
         self.retrospect_threshold = retrospect_threshold
         self.fallback_model = fallback_model
         self.on_timeout = on_timeout
@@ -172,10 +174,12 @@ class TaskMonitor:
 
         # 2. 超时重试计数（超时检测时增加，不受 LLM 成功影响）
         self._timeout_retry_count = 0
+        self._last_progress_time: float = 0.0
 
     def start(self, model: str) -> None:
         """开始任务"""
         self.metrics.start_time = time.time()
+        self._last_progress_time = self.metrics.start_time
         self.metrics.initial_model = model
         self.metrics.final_model = model
         self._phase = TaskPhase.STARTED
@@ -189,14 +193,26 @@ class TaskMonitor:
         )
         self._phase = TaskPhase.WAITING_LLM
 
-        # 检查是否超时
-        elapsed = self.elapsed_seconds
-        if elapsed > self.timeout_seconds and not self._timeout_triggered:
+        # 每次进入新迭代视为有进展（至少系统仍在推进循环）
+        self._touch_progress()
+
+        # 检查是否“无进展超时”（避免长任务被硬切）
+        if self.progress_idle_seconds > self.timeout_seconds and not self._timeout_triggered:
+            self._handle_timeout()
+
+        # 可选硬超时兜底（默认关闭）
+        if (
+            self.hard_timeout_seconds
+            and self.hard_timeout_seconds > 0
+            and self.elapsed_seconds > self.hard_timeout_seconds
+            and not self._timeout_triggered
+        ):
             self._handle_timeout()
 
     def end_iteration(self, llm_response_preview: str = "") -> None:
         """结束迭代"""
         if self._current_iteration:
+            self._touch_progress()
             self._current_iteration.llm_response_preview = llm_response_preview
             self._current_iteration.duration_ms = int(
                 (time.time() - self.metrics.start_time) * 1000
@@ -211,6 +227,7 @@ class TaskMonitor:
         self._current_tool_start = time.time()
         self._current_tool_name = tool_name
         self._current_tool_input = str(tool_input)
+        self._touch_progress()
 
     def end_tool_call(self, result: str, success: bool = True) -> None:
         """结束工具调用"""
@@ -225,6 +242,7 @@ class TaskMonitor:
             )
             self._current_iteration.tool_calls.append(record)
         self._phase = TaskPhase.WAITING_LLM
+        self._touch_progress()
 
     def record_tool_call(
         self,
@@ -244,6 +262,7 @@ class TaskMonitor:
         """
         if not self._current_iteration:
             return
+        self._touch_progress()
         record = ToolCallRecord(
             name=tool_name,
             input_summary=str(tool_input),
@@ -366,7 +385,7 @@ class TaskMonitor:
 
         logger.warning(
             f"[TaskMonitor] Task timeout: {self.metrics.task_id}, "
-            f"elapsed={self.elapsed_seconds:.1f}s > {self.timeout_seconds}s, "
+            f"idle={self.progress_idle_seconds:.1f}s > {self.timeout_seconds}s, "
             f"timeout_retry={self._timeout_retry_count}/{self.retry_before_switch}"
         )
 
@@ -400,6 +419,17 @@ class TaskMonitor:
             return 0
         return time.time() - self.metrics.start_time
 
+    def _touch_progress(self) -> None:
+        """记录一次进展时间点（用于无进展超时判断）"""
+        self._last_progress_time = time.time()
+
+    @property
+    def progress_idle_seconds(self) -> float:
+        """距上次进展的空闲时间（秒）"""
+        if not self._last_progress_time:
+            return 0.0
+        return time.time() - self._last_progress_time
+
     @property
     def is_timeout(self) -> bool:
         """是否已超时"""
@@ -417,7 +447,7 @@ class TaskMonitor:
         """
         if self._timeout_triggered:
             return False
-        if self.elapsed_seconds <= self.timeout_seconds:
+        if self.progress_idle_seconds <= self.timeout_seconds:
             return False
         # 超时了，检查超时重试次数是否用尽
         return self._timeout_retry_count >= self.retry_before_switch

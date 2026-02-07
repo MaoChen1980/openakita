@@ -153,7 +153,6 @@ compatibility: python>=3.10
 | run_skill_script | 执行技能脚本 |
 | get_skill_reference | 获取参考文档 |
 | install_skill | 安装技能 |
-| generate_skill | 自动生成技能 |
 
 ## 三、MCP 外部服务
 
@@ -234,7 +233,7 @@ mcps/
 1. 系统工具：文件操作、命令执行、浏览器、记忆等基础能力
 2. Skills：复杂任务、特定领域能力、可复用的工作流
 3. MCP：外部服务集成（数据库、第三方 API）
-4. 找不到工具？用 generate_skill 创造一个！
+4. 找不到工具？用 skill-creator 创建一个！
 ```
 
 ## 五、实现细节

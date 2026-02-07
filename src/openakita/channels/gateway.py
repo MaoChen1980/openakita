@@ -943,15 +943,20 @@ class MessageGateway:
         if not adapter:
             return
 
-        # 处理语音消息 - 下载到本地并转文字
-        for voice in message.content.voices:
-            try:
-                if not voice.local_path:
-                    local_path = await adapter.download_media(voice)
-                    voice.local_path = str(local_path)
-                    logger.info(f"Voice downloaded: {voice.local_path}")
+        import asyncio
 
-                # 自动语音转文字（使用本地 Whisper）
+        # 并发下载/转写（避免多媒体消息逐个串行导致延迟叠加）
+        sem = asyncio.Semaphore(4)
+
+        async def _process_voice(voice) -> None:
+            try:
+                async with sem:
+                    if not voice.local_path:
+                        local_path = await adapter.download_media(voice)
+                        voice.local_path = str(local_path)
+                        logger.info(f"Voice downloaded: {voice.local_path}")
+
+                # 转写放在 download 之后；转写内部已使用线程池，不阻塞事件循环
                 if voice.local_path and not voice.transcription:
                     transcription = await self._transcribe_voice_local(voice.local_path)
                     if transcription:
@@ -959,19 +964,28 @@ class MessageGateway:
                         logger.info(f"Voice transcribed: {transcription}")
                     else:
                         voice.transcription = "[语音识别失败]"
-
             except Exception as e:
                 logger.error(f"Failed to process voice: {e}")
 
-        # 处理图片消息 - 下载到本地
-        for img in message.content.images:
+        async def _process_image(img) -> None:
             try:
-                if not img.local_path:
+                if img.local_path:
+                    return
+                async with sem:
                     local_path = await adapter.download_media(img)
                     img.local_path = str(local_path)
                     logger.info(f"Image downloaded: {img.local_path}")
             except Exception as e:
                 logger.error(f"Failed to download image: {e}")
+
+        tasks = []
+        for voice in getattr(message.content, "voices", []) or []:
+            tasks.append(_process_voice(voice))
+        for img in getattr(message.content, "images", []) or []:
+            tasks.append(_process_image(img))
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=False)
 
     async def _transcribe_voice_local(self, audio_path: str) -> str | None:
         """

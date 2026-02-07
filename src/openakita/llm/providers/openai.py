@@ -16,6 +16,7 @@ import logging
 from collections.abc import AsyncIterator
 
 import httpx
+from json import JSONDecodeError
 
 from ..converters.messages import convert_messages_to_openai
 from ..converters.tools import (
@@ -133,7 +134,18 @@ class OpenAIProvider(LLMProvider):
             if response.status_code >= 400:
                 raise LLMError(f"API error ({response.status_code}): {response.text}")
 
-            data = response.json()
+            try:
+                data = response.json()
+            except JSONDecodeError:
+                # 某些 OpenAI 兼容网关可能返回 200 但 body 为空/非 JSON（例如 HTML 错误页）
+                # 这里把关键信息打进错误文本，便于排障（base_url 是否需要 /v1 等）
+                content_type = response.headers.get("content-type", "")
+                body_preview = (response.text or "")[:500]
+                raise LLMError(
+                    "Invalid JSON response from OpenAI-compatible endpoint "
+                    f"(status={response.status_code}, content-type={content_type}, "
+                    f"body_preview={body_preview!r})"
+                )
             self.mark_healthy()
             return self._parse_response(data)
 
@@ -182,9 +194,20 @@ class OpenAIProvider(LLMProvider):
 
     def _build_headers(self) -> dict:
         """构建请求头"""
+        # 避免 Authorization: Bearer <empty> 导致 httpx 报 Illegal header value
+        api_key = (self.api_key or "").strip()
+        if not api_key:
+            hint = ""
+            if self.config.api_key_env:
+                hint = f" (env var {self.config.api_key_env} is not set)"
+            raise AuthenticationError(
+                f"Missing API key for endpoint '{self.name}'{hint}. "
+                "Set the environment variable or configure api_key/api_key_env."
+            )
+
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {api_key}",
         }
 
         # OpenRouter 需要额外的头
@@ -255,11 +278,26 @@ class OpenAIProvider(LLMProvider):
         # 原生工具调用
         tool_calls = message.get("tool_calls", [])
         if tool_calls:
-            content_blocks.extend(convert_tool_calls_from_openai(tool_calls))
-            has_tool_calls = True
+            converted = convert_tool_calls_from_openai(tool_calls)
+            if converted:
+                content_blocks.extend(converted)
+                has_tool_calls = True
             logger.info(
                 f"[TOOL_CALLS] Received {len(tool_calls)} native tool calls from {self.name}"
             )
+            # 容错日志：有 tool_calls 但未能转换（通常是兼容网关字段不规范）
+            if not converted:
+                try:
+                    first = tool_calls[0] if isinstance(tool_calls, list) and tool_calls else {}
+                    func = (first.get("function") or {}) if isinstance(first, dict) else {}
+                    logger.warning(
+                        "[TOOL_CALLS] tool_calls present but none converted "
+                        f"(first.type={getattr(first, 'get', lambda *_: None)('type') if isinstance(first, dict) else type(first)}, "
+                        f"first.function.name={func.get('name') if isinstance(func, dict) else None}, "
+                        f"first.function.arguments_type={type(func.get('arguments')).__name__ if isinstance(func, dict) else None})"
+                    )
+                except Exception:
+                    pass
 
         # 文本格式工具调用解析（降级方案）
         # 当模型不支持原生工具调用时，解析文本中的 <function_calls> 格式

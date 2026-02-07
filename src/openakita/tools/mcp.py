@@ -277,7 +277,12 @@ class MCPClient:
             )
 
         try:
-            client = self._connections[server_name]
+            conn = self._connections[server_name]
+            # connect() 保存的是一个包含 client 与 CM 的 dict；这里取出真正的 client
+            client = conn.get("client") if isinstance(conn, dict) else conn
+            if client is None:
+                return MCPCallResult(success=False, error=f"Invalid connection for server: {server_name}")
+
             result = await client.call_tool(tool_name, arguments)
 
             # 解析结果
@@ -321,7 +326,10 @@ class MCPClient:
             return MCPCallResult(success=False, error=f"Not connected: {server_name}")
 
         try:
-            client = self._connections[server_name]
+            conn = self._connections[server_name]
+            client = conn.get("client") if isinstance(conn, dict) else conn
+            if client is None:
+                return MCPCallResult(success=False, error=f"Invalid connection for server: {server_name}")
             result = await client.read_resource(uri)
 
             content = []
@@ -363,7 +371,10 @@ class MCPClient:
             return MCPCallResult(success=False, error=f"Not connected: {server_name}")
 
         try:
-            client = self._connections[server_name]
+            conn = self._connections[server_name]
+            client = conn.get("client") if isinstance(conn, dict) else conn
+            if client is None:
+                return MCPCallResult(success=False, error=f"Invalid connection for server: {server_name}")
             result = await client.get_prompt(prompt_name, arguments or {})
 
             messages = []

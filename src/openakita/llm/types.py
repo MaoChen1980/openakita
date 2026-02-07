@@ -331,7 +331,22 @@ class EndpointConfig:
 
     def has_capability(self, capability: str) -> bool:
         """检查是否有某种能力"""
-        return capability in (self.capabilities or [])
+        cap = (capability or "").lower().strip()
+        caps = {c.lower() for c in (self.capabilities or [])}
+        if cap in caps:
+            return True
+
+        # === 兼容/推断能力 ===
+        # 历史配置里可能缺少 capabilities 标注，但 extra_params/model 已能反映能力。
+        if cap == "thinking":
+            model = (self.model or "").lower()
+            if "thinking" in model:
+                return True
+            extra = self.extra_params or {}
+            if extra.get("enable_thinking") is True:
+                return True
+
+        return False
 
     def get_api_key(self) -> str | None:
         """获取 API Key (优先使用直接存储的 key，然后从环境变量获取)"""

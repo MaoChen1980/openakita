@@ -91,8 +91,10 @@ def convert_tool_calls_from_openai(tool_calls: list[dict]) -> list[ToolUseBlock]
     """
     result = []
     for tc in tool_calls:
-        if tc.get("type") == "function":
-            func = tc.get("function", {})
+        # 兼容：部分 OpenAI 兼容网关可能缺失 tc.type 字段，但仍提供 function{name,arguments}
+        func = tc.get("function") or {}
+        tc_type = tc.get("type")
+        if tc_type == "function" or (not tc_type and isinstance(func, dict) and func.get("name")):
 
             # 解析 arguments（JSON 字符串 -> dict）
             arguments = func.get("arguments", "{}")

@@ -1418,6 +1418,43 @@ class BrowserMCP:
             llm = None
             import os
 
+            class _BrowserUseLLMProxy:
+                """
+                browser-use 会直接访问 llm.provider / llm.model。
+                但 langchain_openai.ChatOpenAI 往往不允许动态挂载新属性（pydantic/slots），
+                因此用一个轻量代理对象显式提供这两个字段，其余属性/方法全部转发。
+                """
+
+                def __init__(self, inner, *, provider: str, model: str):
+                    self._inner = inner
+                    self.provider = provider
+                    self.model = model
+
+                def __getattr__(self, name: str):
+                    return getattr(self._inner, name)
+
+            def _ensure_browser_use_llm_contract(llm_obj, *, provider: str, model: str):
+                """
+                返回满足 browser-use 契约的 llm 对象（必要时会用代理包装）。
+                """
+                # 如果已经满足则直接返回
+                if hasattr(llm_obj, "provider") and hasattr(llm_obj, "model"):
+                    return llm_obj
+
+                # 先尝试直接写入（如果对象允许）
+                try:
+                    if not hasattr(llm_obj, "provider"):
+                        setattr(llm_obj, "provider", provider)
+                    if not hasattr(llm_obj, "model"):
+                        setattr(llm_obj, "model", model)
+                    if hasattr(llm_obj, "provider") and hasattr(llm_obj, "model"):
+                        return llm_obj
+                except Exception:
+                    pass
+
+                # 退化为代理包装（稳定且不依赖 inner 是否允许 set attribute）
+                return _BrowserUseLLMProxy(llm_obj, provider=provider, model=model)
+
             # 1. 使用注入的 LLM 配置（从 Agent 继承）
             if self._llm_config:
                 from langchain_openai import ChatOpenAI
@@ -1432,6 +1469,7 @@ class BrowserMCP:
                         api_key=api_key,
                         base_url=base_url,
                     )
+                    llm = _ensure_browser_use_llm_contract(llm, provider="openai", model=model)
                     logger.info(f"[BrowserTask] Using inherited LLM config: {model}")
 
             # 2. 从环境变量获取
@@ -1448,6 +1486,7 @@ class BrowserMCP:
                         api_key=api_key,
                         base_url=base_url,
                     )
+                    llm = _ensure_browser_use_llm_contract(llm, provider="openai", model=model)
                     logger.info(f"[BrowserTask] Using env LLM: {model}")
 
             # 3. 尝试 ChatBrowserUse（需要 BROWSER_USE_API_KEY）

@@ -62,8 +62,6 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
             "run_skill_script",
             "get_skill_reference",
             "install_skill",
-            "generate_skill",
-            "improve_skill",
         ],
         "Memory": ["add_memory", "search_memory", "get_memory_stats"],
         "Browser": [
@@ -97,7 +95,7 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
         ],
         "IM Channel": ["deliver_artifacts", "get_voice_file", "get_image_file", "get_chat_history"],
         "User Profile": ["update_user_profile", "skip_profile_question", "get_user_profile"],
-        "System": ["enable_thinking", "get_session_logs", "get_tool_info"],
+        "System": ["enable_thinking", "get_session_logs", "get_tool_info", "generate_image"],
         "MCP": ["call_mcp_tool", "list_mcp_servers", "get_mcp_instructions"],
     }
 

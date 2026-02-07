@@ -309,9 +309,8 @@ Agent._build_system_prompt(base_prompt, task_description, session_type)
    - 写好了就保存为技能，下次直接用
 
 2. **你可以给自己"加装"工具**
-   - 使用 generate_skill 创建新技能
    - 使用 install_skill 安装外部技能
-   - 使用 improve_skill 改进现有技能
+   - 使用 skill-creator（技能）来创建/改进可复用的技能包
 
 3. **Ralph Wiggum 模式 - 永不放弃**
    - 第一次失败？换个方法再试
@@ -577,7 +576,7 @@ sequenceDiagram
 | **Shell命令** | run_shell 直接执行 | 系统操作 |
 | **临时脚本** | write_file + run_shell | 一次性数据处理、批量操作 |
 | **搜索安装** | search_github + install_skill | 有现成方案 |
-| **创建技能** | generate_skill | 需要复用的功能 |
+| **创建技能** | skill-creator | 需要复用的功能 |
 
 **临时脚本使用流程：**
 ```
@@ -605,9 +604,7 @@ BASE_TOOLS = [
     # Skills 工具 (Agent Skills 规范)
     {"name": "list_skills", "description": "列出已安装的技能", ...},
     {"name": "get_skill_info", "description": "获取技能详细信息", ...},
-    {"name": "generate_skill", "description": "生成新技能", ...},
     {"name": "install_skill", "description": "安装外部技能", ...},
-    {"name": "improve_skill", "description": "改进现有技能", ...},
     
     # MCP 工具
     {"name": "call_mcp_tool", "description": "调用MCP服务器工具", ...},

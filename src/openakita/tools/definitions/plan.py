@@ -22,6 +22,11 @@ PLAN_TOOLS = [
 **使用流程**：
 1. create_plan → 2. 执行步骤 → 3. update_plan_step → 4. ... → 5. complete_plan
 
+**关键要求（必须遵守）**：
+- 每个步骤必须显式标注 `skills`（skill 引用列表），至少 1 个。
+- 若找不到合适 skill：在该步骤 `skills` 中包含 `skill-creator`，并在步骤描述中写清要创建的 skill 名称与预期输入/输出。
+- 系统工具也有对应 system skill（位于 skills/system/），同样要在 `skills` 中引用（例如 run-shell / browser-task / deliver-artifacts）。
+
 **示例**：
 用户："打开百度搜索天气并截图发我"
 → create_plan(steps=[打开百度, 输入关键词, 点击搜索, 截图, 发送])""",
@@ -37,6 +42,11 @@ PLAN_TOOLS = [
                             "id": {"type": "string", "description": "步骤ID，如 step_1, step_2"},
                             "description": {"type": "string", "description": "步骤描述"},
                             "tool": {"type": "string", "description": "预计使用的工具（可选）"},
+                            "skills": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "本步骤关联的 skill 名称列表（至少 1 个）。找不到合适 skill 时包含 'skill-creator'。",
+                            },
                             "depends_on": {
                                 "type": "array",
                                 "items": {"type": "string"},

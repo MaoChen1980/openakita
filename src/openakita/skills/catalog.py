@@ -50,7 +50,10 @@ Use `get_skill_info(skill_name)` to load full instructions when needed.
         skills = self.registry.list_all()
 
         if not skills:
-            return "\n## Available Skills\n\nNo skills installed. Use `generate_skill` to create new skills.\n"
+            return (
+                "\n## Available Skills\n\n"
+                "No skills installed. Use the skill creation workflow to add new skills.\n"
+            )
 
         skill_entries = []
         for skill in skills:
@@ -109,6 +112,49 @@ Use `get_skill_info(skill_name)` to load full instructions when needed.
         if not names:
             return "No skills installed."
         return f"Available skills: {', '.join(names)}"
+
+    def get_index_catalog(self) -> str:
+        """
+        获取“全量索引”版技能清单（仅名称，尽量短，但完整）。
+
+        目的：
+        - 在 token 预算受限时，也保证模型能“看到所有技能名字”，避免清单被截断成半截。
+        - 具体用法再通过 `get_skill_info(skill_name)` 渐进式披露。
+        """
+        skills = self.registry.list_all()
+        if not skills:
+            return "## Skills Index (complete)\n\nNo skills installed."
+
+        system_names: list[str] = []
+        external_names: list[str] = []
+
+        for s in skills:
+            if s.name == "send-to-chat" or s.tool_name == "send_to_chat":
+                continue
+            if getattr(s, "system", False):
+                system_names.append(s.name)
+            else:
+                external_names.append(s.name)
+
+        # 稳定排序，减少提示词抖动（也有助于缓存命中/调试）
+        system_names.sort()
+        external_names.sort()
+
+        lines: list[str] = [
+            "## Skills Index (complete)",
+            "",
+            "Use `get_skill_info(skill_name)` to load full instructions. If you need to execute scripts, use `run_skill_script(skill_name, script_name, args)`.",
+        ]
+
+        if system_names:
+            lines += ["", f"**System skills ({len(system_names)})**: {', '.join(system_names)}"]
+        if external_names:
+            lines += [
+                "",
+                f"**External skills ({len(external_names)})**: {', '.join(external_names)}",
+            ]
+
+        return "\n".join(lines)
 
     def get_skill_summary(self, skill_name: str) -> str | None:
         """

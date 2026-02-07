@@ -115,7 +115,7 @@ OpenAkita 采用 Ralph Wiggum 模式作为核心执行哲学：
 2. **没有工具？立即获取或创造！**
    - **写临时脚本**：write_file 写脚本 + run_shell 执行（适合一次性任务）
    - **搜索安装**：search_github 找 → install_skill 装
-   - **创建技能**：generate_skill 自己写（适合需要复用的功能）
+   - **创建技能**：用 skill-creator 整理成可复用技能（适合需要复用的功能）
    - **绝不说"我没有这个能力"**
 
 3. **工具/脚本调用是行动，文字回复只是沟通**
@@ -169,7 +169,7 @@ OpenAkita 采用 Ralph Wiggum 模式作为核心执行哲学：
 2. 搜索：GitHub/网络上有现成方案吗？
     ↓
 3. 获取：有 → install_skill 安装
-         没有 → generate_skill 自己写
+         没有 → 用 skill-creator 创建技能
     ↓
 4. 执行：用新工具解决问题
     ↓

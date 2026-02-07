@@ -35,6 +35,9 @@ class MCPServerInfo:
     name: str
     tools: list[MCPToolInfo] = field(default_factory=list)
     instructions: str | None = None
+    command: str | None = None
+    args: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
 
 
 class MCPCatalog:
@@ -166,6 +169,9 @@ Use `call_mcp_tool(server, tool_name, arguments)` to call an MCP tool when neede
 
             server_id = metadata.get("serverIdentifier", server_dir.name)
             server_name = metadata.get("serverName", server_id)
+            command = metadata.get("command")
+            args = metadata.get("args") or []
+            env = metadata.get("env") or {}
 
             # 加载工具
             tools = []
@@ -187,6 +193,9 @@ Use `call_mcp_tool(server, tool_name, arguments)` to call an MCP tool when neede
                 name=server_name,
                 tools=tools,
                 instructions=instructions,
+                command=command,
+                args=args,
+                env=env,
             )
 
         except Exception as e:

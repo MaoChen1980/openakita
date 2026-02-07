@@ -62,12 +62,12 @@ class AutoInstaller:
             if result.success:
                 return result
 
-        # 都失败了，建议使用 generate_skill
+        # 都失败了，建议走“创建技能”的工作流
         return InstallResult(
             success=False,
             capability=gap.name,
             method="none",
-            details="无法自动安装，建议使用 generate_skill 生成自定义技能",
+            details="无法自动安装，建议创建一个自定义技能来补齐该能力",
             error="无法找到或安装此能力",
         )
 

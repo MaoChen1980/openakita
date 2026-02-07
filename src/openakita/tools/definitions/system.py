@@ -82,4 +82,77 @@ SYSTEM_TOOLS = [
             "required": ["tool_name"],
         },
     },
+    {
+        "name": "generate_image",
+        "description": "Generate an image from a text prompt using the configured image model API, saving to a local .png file. Use when user asks for image generation, posters, illustrations, or visual concepts that must be rendered as an actual image file.",
+        "detail": """文生图：根据提示词生成图片并保存为本地 PNG 文件。
+
+说明：
+- 默认使用通义 Qwen-Image（如 `qwen-image-max`）。
+- 需要在环境变量中配置 `DASHSCOPE_API_KEY`（与通义其它模型共用同一个 Key）。
+- 生成结果会返回一个临时 URL（通常 24 小时有效），本工具会自动下载并落盘到本地文件。
+
+输出：
+- 返回 JSON 字符串，包含 `saved_to`（本地路径）与 `image_url`（临时链接）。
+
+交付：
+- 如需把图片发到 IM，请再调用 `deliver_artifacts`，并以回执作为交付证据。""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "prompt": {"type": "string", "description": "正向提示词（期望生成的内容）"},
+                "model": {
+                    "type": "string",
+                    "description": "模型名称（默认 qwen-image-max）",
+                    "default": "qwen-image-max",
+                },
+                "negative_prompt": {"type": "string", "description": "反向提示词（可选）"},
+                "size": {
+                    "type": "string",
+                    "description": "输出分辨率，格式 宽*高（如 1664*928）",
+                    "default": "1664*928",
+                },
+                "prompt_extend": {
+                    "type": "boolean",
+                    "description": "是否启用提示词智能改写（默认 true）",
+                    "default": True,
+                },
+                "watermark": {
+                    "type": "boolean",
+                    "description": "是否添加水印（默认 false）",
+                    "default": False,
+                },
+                "seed": {
+                    "type": "integer",
+                    "description": "随机种子（0~2147483647，可选）",
+                },
+                "output_path": {
+                    "type": "string",
+                    "description": "保存路径（可选）。不填则保存到 data/generated_images/ 下自动命名",
+                },
+            },
+            "required": ["prompt"],
+        },
+    },
+    {
+        "name": "set_task_timeout",
+        "description": "Adjust current task timeout policy. Use when the task is expected to take long, or when the system is too aggressive switching models. Prefer increasing timeout for long-running tasks with steady progress; decrease to catch hangs sooner.",
+        "detail": """动态调整当前任务的超时策略（主要用于避免“卡死检测”误触发）。\n\n- 本项目的超时重点是：**检测无进展卡死**，而不是限制长任务。\n- 你可以在长任务开始前，或发现任务被频繁触发超时警告时，调高超时秒数。\n\n注意：该设置只影响当前会话正在执行的任务，不影响全局配置。""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "progress_timeout_seconds": {
+                    "type": "integer",
+                    "description": "无进展超时阈值（秒）。连续超过该时间没有任何进展则触发超时处理。建议 600~3600。",
+                },
+                "hard_timeout_seconds": {
+                    "type": "integer",
+                    "description": "硬超时上限（秒，0=禁用）。仅最终兜底。",
+                    "default": 0,
+                },
+                "reason": {"type": "string", "description": "简要说明调整原因"},
+            },
+            "required": ["progress_timeout_seconds", "reason"],
+        },
+    },
 ]

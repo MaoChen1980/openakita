@@ -388,6 +388,9 @@ class Agent:
         self._task_cancelled = False  # 任务是否被用户取消
         self._cancel_reason = ""  # 取消原因
 
+        # 当前任务监控器（仅在 IM 任务执行期间设置；供 system 工具动态调整超时策略）
+        self._current_task_monitor = None
+
         # 状态
         self._initialized = False
         self._running = False
@@ -436,8 +439,14 @@ class Agent:
         if not tool_calls:
             return [], executed_tool_names, delivery_receipts
 
-        # 若启用中断检查，保持串行语义更可控
-        parallel_enabled = settings.tool_max_parallel > 1 and not allow_interrupt_checks
+        # 并行执行会降低“工具间中断检查”的插入粒度（并行时没有天然的工具间隙）
+        # 默认：启用中断检查 => 串行；可通过配置显式允许并行。
+        allow_parallel_with_interrupts = bool(
+            getattr(settings, "allow_parallel_tools_with_interrupt_checks", False)
+        )
+        parallel_enabled = settings.tool_max_parallel > 1 and (
+            (not allow_interrupt_checks) or allow_parallel_with_interrupts
+        )
 
         async def _run_one(tc: dict, idx: int) -> tuple[int, dict, str | None, list | None]:
             tool_name = tc.get("name", "")
@@ -578,6 +587,58 @@ class Agent:
         base_prompt = self.identity.get_system_prompt()
         self._context.system = self._build_system_prompt(base_prompt, use_compiled=True)
 
+        # === 启动预热（把昂贵但可复用的初始化提前到启动阶段）===
+        # 目标：避免首条用户消息才加载 embedding/向量库、生成清单等，导致 IM 首响应显著变慢。
+        try:
+            # 1) 预热清单缓存（避免每次 build_system_prompt 都重新生成）
+            # 注意：这些方法内部已有缓存；这里调用一次确保缓存命中。
+            with contextlib.suppress(Exception):
+                self.tool_catalog.get_catalog()
+            with contextlib.suppress(Exception):
+                self.skill_catalog.get_catalog()
+            with contextlib.suppress(Exception):
+                self.mcp_catalog.get_catalog()
+
+            # 2) 预热向量库（embedding 模型 + ChromaDB）
+            # 放到线程中执行，避免阻塞事件循环；初始化完成后后续搜索会明显更快。
+            await asyncio.to_thread(lambda: bool(self.memory_manager.vector_store.enabled))
+        except Exception as e:
+            # 预热失败不应影响启动（例如 chromadb 未安装时会自动禁用）
+            logger.debug(f"[Prewarm] skipped/failed: {e}")
+
+        # === browser_task 依赖的 LLM 配置注入 ===
+        # browser_task（browser-use）需要一个 OpenAI-compatible LLM（langchain_openai.ChatOpenAI）。
+        # 项目本身使用 LLMClient（可多端点/故障切换），这里复用当前可用的 openai 协议端点配置。
+        try:
+            if getattr(self, "browser_mcp", None):
+                llm_client = getattr(self.brain, "_llm_client", None)
+                provider = None
+                if llm_client:
+                    # 优先使用当前健康端点；若不是 openai 协议，则退化为任意健康 openai 协议端点
+                    current = llm_client.get_current_model()
+                    if current and current.name in llm_client.providers:
+                        p = llm_client.providers[current.name]
+                        if getattr(p.config, "api_type", "") == "openai" and p.is_healthy:
+                            provider = p
+                    if provider is None:
+                        for p in llm_client.providers.values():
+                            if getattr(p.config, "api_type", "") == "openai" and p.is_healthy:
+                                provider = p
+                                break
+
+                if provider:
+                    api_key = provider.config.get_api_key()
+                    if api_key:
+                        self.browser_mcp.set_llm_config(
+                            {
+                                "model": provider.config.model,
+                                "api_key": api_key,
+                                "base_url": provider.config.base_url.rstrip("/"),
+                            }
+                        )
+        except Exception as e:
+            logger.debug(f"[BrowserMCP] LLM config injection skipped/failed: {e}")
+
         self._initialized = True
         logger.info(
             f"Agent '{self.name}' initialized with "
@@ -662,7 +723,13 @@ class Agent:
         self.handler_registry.register(
             "system",
             create_system_handler(self),
-            ["get_tool_info", "get_session_logs", "enable_thinking"],
+            [
+                "get_tool_info",
+                "get_session_logs",
+                "enable_thinking",
+                "set_task_timeout",
+                "generate_image",
+            ],
         )
 
         # IM 渠道
@@ -1080,6 +1147,29 @@ class Agent:
                 if count > 0:
                     total_count += count
                     logger.info(f"Loaded {count} MCP servers from {dir_path}")
+
+        # 将扫描到的 MCP 服务器同步注册到 MCPClient（否则“目录可见但不可调用”）
+        # 目录（mcp_catalog）负责发现与提示词披露；执行（mcp_client）负责真实连接与调用。
+        try:
+            from ..tools.mcp import MCPServerConfig
+
+            for server in getattr(self.mcp_catalog, "_servers", []) or []:
+                # server 是 MCPServerInfo，包含 command/args/env（来自 SERVER_METADATA.json）
+                if not getattr(server, "identifier", None):
+                    continue
+                if not getattr(server, "command", None):
+                    continue
+                self.mcp_client.add_server(
+                    MCPServerConfig(
+                        name=server.identifier,
+                        command=server.command,
+                        args=list(getattr(server, "args", []) or []),
+                        env=dict(getattr(server, "env", {}) or {}),
+                        description=getattr(server, "name", "") or "",
+                    )
+                )
+        except Exception as e:
+            logger.warning(f"Failed to register MCP servers into MCPClient: {e}")
 
         # 启动内置 MCP 服务器
         await self._start_builtin_mcp_servers()
@@ -2118,11 +2208,14 @@ search_github → install_skill → 使用
                 task_id=f"{session_id}_{datetime.now().strftime('%H%M%S')}",
                 description=message,
                 session_id=session_id,
-                timeout_seconds=300,  # 超时阈值：300秒
+                timeout_seconds=settings.progress_timeout_seconds,
+                hard_timeout_seconds=settings.hard_timeout_seconds,
                 retrospect_threshold=60,  # 复盘阈值：60秒
                 fallback_model="gpt-4o",  # 超时后切换的备用模型
             )
             task_monitor.start(self.brain.model)
+            # 暴露给系统工具：允许 LLM 动态调整超时策略
+            self._current_task_monitor = task_monitor
 
             # === 两段式 Prompt 第二阶段：主模型处理 ===
             response_text = await self._chat_with_tools_and_context(
@@ -2156,6 +2249,8 @@ search_github → install_skill → 使用
                 reset_im_context(im_tokens)
             # 清除当前会话引用
             self._current_session = None
+            # 清除当前任务监控器引用
+            self._current_task_monitor = None
 
     async def _compile_prompt(self, user_message: str) -> tuple[str, str]:
         """
@@ -2563,12 +2658,39 @@ NEXT: 建议的下一步（如有）"""
 
         # 追问计数器：当 LLM 没有调用工具时，最多追问几次
         no_tool_call_count = 0
-        max_no_tool_retries = 1  # 建议22: 降低强制追问次数  # 最多追问 2 次
+        base_force_retries = max(0, int(getattr(settings, "force_tool_call_max_retries", 1)))
+
+        def _effective_force_retries() -> int:
+            """
+            计算本任务的“有效 ForceToolCall 重试次数”。
+
+            规则：
+            - 默认取 settings.force_tool_call_max_retries
+            - 一旦 session 存在活跃 Plan（多步骤任务），至少提升到 1，避免“空输出”直接结束
+            """
+            retries = base_force_retries
+            try:
+                from ..tools.handlers.plan import has_active_plan, is_plan_required
+
+                sid = getattr(self, "_current_conversation_id", None) or getattr(
+                    self, "_current_session_id", None
+                )
+                if sid and (has_active_plan(sid) or is_plan_required(sid)):
+                    retries = max(retries, 1)
+            except Exception:
+                pass
+            return max(0, int(retries))
+
+        max_no_tool_retries = _effective_force_retries()  # 建议22: 降低强制追问次数
         tools_executed_in_task = False  # 本轮任务是否已执行过工具
 
         # TaskVerify incomplete counter (prevent infinite loop)
         verify_incomplete_count = 0
         max_verify_retries = 3
+
+        # 工具已执行但 LLM 没给任何可见文本确认：额外再试 1 次（不计入 ForceToolCall 配额）
+        no_confirmation_text_count = 0
+        max_confirmation_text_retries = 1
 
         # Track executed tool names for task completion verification
         executed_tool_names: list[str] = []
@@ -2820,12 +2942,34 @@ NEXT: 建议的下一步（如有）"""
                             )
                             continue
                     else:
-                        # LLM 没有返回文本，可能还需要继续操作，让它继续
+                        # LLM 没有返回任何可见文本：优先强制再问 1 次，让模型给出用户可见的确认/总结
                         logger.info(
-                            "[ForceToolCall] Tools executed but no confirmation text, continuing..."
+                            "[ForceToolCall] Tools executed but no confirmation text, requesting confirmation..."
                         )
-                        # 不直接返回，继续下面的 ForceToolCall 逻辑
+                        no_confirmation_text_count += 1
+                        if no_confirmation_text_count <= max_confirmation_text_retries:
+                            working_messages.append(
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "[系统] 你已执行过工具，但你刚才没有输出任何用户可见的文字确认。"
+                                        "请基于已产生的 tool_result 证据，给出最终答复/交付物说明；"
+                                        "若仍需工具，请直接调用，不要空回复。"
+                                    ),
+                                }
+                            )
+                            continue
+                        # 多次空回复：直接中断并提示异常（不要再用“我理解了您的请求”）
+                        logger.error(
+                            "[ForceToolCall] LLM returned empty confirmation after tools executed; aborting"
+                        )
+                        return (
+                            "⚠️ 大模型返回异常：工具已执行，但多次未返回任何可见文本确认，任务已中断。"
+                            "请重试、或切换到更稳定的端点/模型后再继续。"
+                        )
 
+                # 动态提升：一旦存在活跃 Plan（多步骤），ForceToolCall 至少为 1
+                max_no_tool_retries = _effective_force_retries()
                 no_tool_call_count += 1
 
                 # 如果还有追问次数，强制要求调用工具
@@ -2847,13 +2991,17 @@ NEXT: 建议的下一步（如有）"""
                     working_messages.append(
                         {
                             "role": "user",
-                            "content": "[系统] 如果任务需要工具，请调用相应工具。如果是对话型请求或工具不可用，可以直接文字回复。",
+                            "content": "[系统] 若确实需要工具，请调用相应工具；若不需要工具（纯对话/问答），请直接回答，不要复述系统规则。",
                         }
                     )
                     continue  # 继续循环，让 LLM 调用工具
 
                 # 追问次数用尽，接受响应
-                return strip_thinking_tags(text_content) or "我理解了您的请求。"
+                cleaned_text = strip_thinking_tags(text_content)
+                return cleaned_text or (
+                    "⚠️ 大模型返回异常：未产生可用输出（无工具调用且无文本）。任务已中断。"
+                    "请重试、或更换端点/模型后再执行。"
+                )
 
             # 有工具调用，添加助手消息
             # MiniMax M2.1 Interleaved Thinking 支持：
@@ -3254,7 +3402,8 @@ NEXT: 建议的下一步（如有）"""
             task_id=task.id,
             description=task.description,
             session_id=task.session_id,
-            timeout_seconds=300,  # 超时阈值：300秒
+            timeout_seconds=settings.progress_timeout_seconds,
+            hard_timeout_seconds=settings.hard_timeout_seconds,
             retrospect_threshold=60,  # 复盘阈值：60秒
             fallback_model="gpt-4o",  # 超时后切换的备用模型
             retry_before_switch=3,  # 切换前重试 3 次
@@ -3311,7 +3460,7 @@ NEXT: 建议的下一步（如有）"""
 
         # 追问计数器：当 LLM 没有调用工具时，最多追问几次
         no_tool_call_count = 0
-        max_no_tool_retries = 1  # 建议22: 降低强制追问次数  # 最多追问 2 次
+        max_no_tool_retries = max(0, int(getattr(settings, "force_tool_call_max_retries", 1)))
 
         try:
             while iteration < max_tool_iterations:
@@ -3491,7 +3640,7 @@ NEXT: 建议的下一步（如有）"""
                         messages.append(
                             {
                                 "role": "user",
-                                "content": "[系统] 如果任务需要工具，请调用相应工具。如果是对话型请求或工具不可用，可以直接文字回复。",
+                                "content": "[系统] 若确实需要工具，请调用相应工具；若不需要工具（纯对话/问答），请直接回答，不要复述系统规则。",
                             }
                         )
                         continue  # 继续循环，让 LLM 调用工具

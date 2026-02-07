@@ -10,7 +10,7 @@
 - load_skill: 加载新创建的技能
 - reload_skill: 重新加载已修改的技能
 
-注意: generate_skill 和 improve_skill 功能已移至外部技能 skill-creator
+说明：技能创建/封装等工作流建议使用专门的技能（外部技能）完成。
 """
 
 import logging

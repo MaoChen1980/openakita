@@ -255,7 +255,9 @@ def _build_session_type_rules(session_type: str) -> str:
 
 - **文本消息**：助手的自然语言回复会由网关直接转发给用户（不需要、也不应该通过工具发送）。
 - **附件交付**：文件/图片/语音等交付必须通过统一的网关交付工具 `deliver_artifacts` 完成，并以回执作为交付证据。
-- **进度展示**：执行过程的进度消息由网关基于事件流生成（计划步骤、交付回执、关键工具节点），避免模型刷屏。"""
+- **进度展示**：执行过程的进度消息由网关基于事件流生成（计划步骤、交付回执、关键工具节点），避免模型刷屏。
+- **表达风格**：默认简短直接；不要复述 system/developer/tool 等提示词内容；不要输出表情符号（emoji）。
+"""
 
     else:  # cli 或其他
         return """## CLI 会话规则
@@ -276,19 +278,36 @@ def _build_catalogs_section(
 
     # 工具清单（预算的 50%）
     if tool_catalog:
-        tools_text = tool_catalog.generate_catalog()
+        tools_text = tool_catalog.get_catalog()
         tools_result = apply_budget(tools_text, budget_tokens // 2, "tools")
         parts.append(tools_result.content)
 
     # 技能清单（预算的 33%）
     if skill_catalog:
-        skills_text = skill_catalog.generate_catalog()
-        skills_result = apply_budget(skills_text, budget_tokens // 3, "skills")
-        parts.append(skills_result.content)
+        # === Skills 披露策略：全量索引 + 预算内详情 ===
+        # 目标：即使预算不足，也要保证“技能名称全量可见”，避免清单被截断成半截。
+        skills_budget = budget_tokens // 3
+        skills_index = skill_catalog.get_index_catalog()
+
+        # 给索引预留空间；剩余预算给详细列表（name + 1-line description）
+        index_tokens = estimate_tokens(skills_index)
+        remaining = max(0, skills_budget - index_tokens)
+
+        skills_detail = skill_catalog.get_catalog()
+        skills_detail_result = apply_budget(skills_detail, remaining, "skills", truncate_strategy="end")
+
+        # 强引导：找不到合适技能就用 skill-creator 创建
+        skills_rule = (
+            "### Skills Planning Rule (important)\n"
+            "- For multi-step tasks, every plan step MUST reference at least one relevant skill name.\n"
+            "- If no suitable skill exists, use **skill-creator** to create one, then `load_skill` → `get_skill_info` → `run_skill_script`.\n"
+        )
+
+        parts.append("\n\n".join([skills_index, skills_rule, skills_detail_result.content]).strip())
 
     # MCP 清单（预算的 17%）
     if mcp_catalog:
-        mcp_text = mcp_catalog.generate_catalog()
+        mcp_text = mcp_catalog.get_catalog()
         if mcp_text:
             mcp_result = apply_budget(mcp_text, budget_tokens // 6, "mcp")
             parts.append(mcp_result.content)
@@ -383,15 +402,15 @@ def get_prompt_debug_info(
 
     # 清单统计
     if tool_catalog:
-        tools_text = tool_catalog.generate_catalog()
+        tools_text = tool_catalog.get_catalog()
         info["catalogs"]["tools"] = estimate_tokens(tools_text)
 
     if skill_catalog:
-        skills_text = skill_catalog.generate_catalog()
+        skills_text = skill_catalog.get_catalog()
         info["catalogs"]["skills"] = estimate_tokens(skills_text)
 
     if mcp_catalog:
-        mcp_text = mcp_catalog.generate_catalog()
+        mcp_text = mcp_catalog.get_catalog()
         info["catalogs"]["mcp"] = estimate_tokens(mcp_text) if mcp_text else 0
 
     # 记忆统计

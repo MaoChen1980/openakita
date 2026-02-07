@@ -187,12 +187,26 @@ class PlanHandler:
         """创建任务计划"""
         plan_id = f"plan_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
+        # 创建 Plan 后：确保工具护栏至少追问 1 次，避免“无确认文本”直接结束
+        # 注意：chat 循环里也会基于 active plan 动态提升 effective retries，这里是额外的全局兜底。
+        try:
+            from ...config import settings as _settings
+
+            if int(getattr(_settings, "force_tool_call_max_retries", 1)) < 1:
+                _settings.force_tool_call_max_retries = 1
+                logger.info("[Plan] force_tool_call_max_retries bumped to 1 after create_plan")
+        except Exception:
+            pass
+
         steps = params.get("steps", [])
         for step in steps:
             step["status"] = "pending"
             step["result"] = ""
             step["started_at"] = None
             step["completed_at"] = None
+            # skills: 每步必须可追溯到对应 skill（系统工具也有 system skill）
+            step.setdefault("skills", [])
+            step["skills"] = self._ensure_step_skills(step)
 
         self.current_plan = {
             "id": plan_id,
@@ -217,6 +231,10 @@ class PlanHandler:
 
         # 记录日志
         self._add_log(f"计划创建：{params.get('task_summary', '')}")
+        for step in steps:
+            logger.info(
+                f"[Plan] Step {step.get('id')} tool={step.get('tool','-')} skills={step.get('skills', [])}"
+            )
 
         # 生成计划展示消息
         plan_message = self._format_plan_message()
@@ -253,6 +271,9 @@ class PlanHandler:
             if step["id"] == step_id:
                 step["status"] = status
                 step["result"] = result
+                # 保底：确保 skills 存在（兼容旧 plan 文件/旧模型输出）
+                step.setdefault("skills", [])
+                step["skills"] = self._ensure_step_skills(step)
 
                 if status == "in_progress" and not step.get("started_at"):
                     step["started_at"] = datetime.now().isoformat()
@@ -260,6 +281,9 @@ class PlanHandler:
                     step["completed_at"] = datetime.now().isoformat()
 
                 step_found = True
+                logger.info(
+                    f"[Plan] Step update {step_id} status={status} tool={step.get('tool','-')} skills={step.get('skills', [])}"
+                )
                 break
 
         if not step_found:
@@ -337,8 +361,8 @@ class PlanHandler:
 
 ### 步骤列表
 
-| 步骤 | 描述 | 状态 | 结果 |
-|------|------|------|------|
+| 步骤 | 描述 | Skills | 状态 | 结果 |
+|------|------|--------|------|------|
 """
 
         for step in steps:
@@ -350,7 +374,8 @@ class PlanHandler:
                 "skipped": "⏭️",
             }.get(step["status"], "❓")
 
-            status_text += f"| {step['id']} | {step['description']} | {status_emoji} | {step.get('result', '-')} |\n"
+            skills = ", ".join(step.get("skills", []) or [])
+            status_text += f"| {step['id']} | {step['description']} | {skills or '-'} | {status_emoji} | {step.get('result', '-')} |\n"
 
         status_text += f"\n**统计**: ✅ {completed} 完成, ❌ {failed} 失败, ⬜ {pending} 待执行, 🔄 {in_progress} 执行中"
 
@@ -426,7 +451,11 @@ class PlanHandler:
 """
         for i, step in enumerate(steps):
             prefix = "├─" if i < len(steps) - 1 else "└─"
-            message += f"{prefix} {i + 1}. {step['description']}\n"
+            skills = ", ".join(step.get("skills", []) or [])
+            if skills:
+                message += f"{prefix} {i + 1}. {step['description']}  (skills: {skills})\n"
+            else:
+                message += f"{prefix} {i + 1}. {step['description']}\n"
 
         message += "\n开始执行..."
 
@@ -449,8 +478,8 @@ class PlanHandler:
 
 ## 步骤列表
 
-| ID | 描述 | 工具 | 状态 | 结果 |
-|----|------|------|------|------|
+| ID | 描述 | Skills | 工具 | 状态 | 结果 |
+|----|------|--------|------|------|------|
 """
 
         for step in plan["steps"]:
@@ -463,10 +492,11 @@ class PlanHandler:
             }.get(step["status"], "❓")
 
             tool = step.get("tool", "-")
+            skills = ", ".join(step.get("skills", []) or [])
             result = step.get("result", "-")
 
             content += (
-                f"| {step['id']} | {step['description']} | {tool} | {status_emoji} | {result} |\n"
+                f"| {step['id']} | {step['description']} | {skills or '-'} | {tool} | {status_emoji} | {result} |\n"
             )
 
         content += "\n## 执行日志\n\n"
@@ -484,6 +514,42 @@ class PlanHandler:
         if self.current_plan:
             timestamp = datetime.now().strftime("%H:%M:%S")
             self.current_plan.setdefault("logs", []).append(f"[{timestamp}] {message}")
+
+    def _ensure_step_skills(self, step: dict) -> list[str]:
+        """
+        确保步骤的 skills 字段存在且可追溯。
+
+        规则：
+        - 如果 step 已给出 skills，保留并去重。
+        - 如果没给出 skills 但给了 tool：尝试用 tool_name 匹配 system skill（skills/system/* 的 tool-name）。
+        """
+        skills = step.get("skills") or []
+        if not isinstance(skills, list):
+            skills = []
+
+        # 若没提供 skills，则尝试从 tool 推断 system skill
+        if not skills:
+            tool = step.get("tool")
+            if tool:
+                try:
+                    for s in self.agent.skill_registry.list_all():
+                        if getattr(s, "system", False) and getattr(s, "tool_name", None) == tool:
+                            skills = [s.name]
+                            break
+                except Exception:
+                    pass
+
+        # 去重并保持稳定顺序
+        seen = set()
+        normalized: list[str] = []
+        for name in skills:
+            if not name or not isinstance(name, str):
+                continue
+            if name in seen:
+                continue
+            seen.add(name)
+            normalized.append(name)
+        return normalized
 
 
 def create_plan_handler(agent: "Agent"):
