@@ -340,7 +340,7 @@ function Install-WhisperModel {
 function Initialize-Config {
     Write-Step "初始化配置"
     
-    $envExample = Join-Path (Get-Location) ".env.example"
+    $envExample = Join-Path (Get-Location) "examples\.env.example"
     $envFile = Join-Path (Get-Location) ".env"
     
     # 1. 基础环境配置 (.env)

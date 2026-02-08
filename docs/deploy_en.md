@@ -175,7 +175,7 @@ pip install -e ".[all,dev]"
 playwright install chromium
 
 # 6. Copy configuration files
-cp .env.example .env
+cp examples/.env.example .env
 cp data/llm_endpoints.json.example data/llm_endpoints.json
 
 # 7. Edit configuration
@@ -214,7 +214,7 @@ project-root/
 Copy the example file and edit:
 
 ```bash
-cp .env.example .env
+cp examples/.env.example .env
 ```
 
 #### Required

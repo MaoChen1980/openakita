@@ -380,8 +380,8 @@ init_config() {
 }
 
 create_env_file() {
-    if [ -f ".env.example" ]; then
-        cp .env.example .env
+    if [ -f "examples/.env.example" ]; then
+        cp examples/.env.example .env
         print_success "配置文件已创建: .env"
     else
         cat > .env << 'EOF'

@@ -175,7 +175,7 @@ pip install -e ".[all,dev]"
 playwright install chromium
 
 # 6. 复制配置文件
-cp .env.example .env
+cp examples/.env.example .env
 cp data/llm_endpoints.json.example data/llm_endpoints.json
 
 # 7. 编辑配置
@@ -214,7 +214,7 @@ openakita
 复制示例文件并编辑：
 
 ```bash
-cp .env.example .env
+cp examples/.env.example .env
 ```
 
 #### 必需配置

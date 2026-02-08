@@ -110,6 +110,15 @@ function nextEnvKeyName(base: string, used: Set<string>) {
   return `${b}_${Date.now()}`;
 }
 
+function suggestEndpointName(providerSlug: string, modelId: string) {
+  const p = (providerSlug || "provider").trim() || "provider";
+  const m = (modelId || "").trim();
+  if (!m) return `${p}-primary`.slice(0, 64);
+  // keep readable, avoid path separators in names
+  const clean = m.replace(/[\\/]+/g, "-");
+  return `${p}-${clean}`.slice(0, 64);
+}
+
 type EnvMap = Record<string, string>;
 
 function parseEnv(content: string): EnvMap {
@@ -135,13 +144,14 @@ function envSet(env: EnvMap, key: string, value: string): EnvMap {
 }
 
 type StepId =
-  | "status"
   | "welcome"
   | "workspace"
   | "python"
   | "install"
   | "llm"
-  | "integrations"
+  | "im"
+  | "tools"
+  | "agent"
   | "finish";
 
 type Step = {
@@ -149,6 +159,134 @@ type Step = {
   title: string;
   desc: string;
 };
+
+function SearchSelect({
+  value,
+  onChange,
+  options,
+  placeholder,
+  disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [hoverIdx, setHoverIdx] = useState(0);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const filtered = useMemo(() => {
+    const q = (value || "").trim().toLowerCase();
+    const list = q ? options.filter((x) => x.toLowerCase().includes(q)) : options;
+    return list.slice(0, 200);
+  }, [options, value]);
+
+  useEffect(() => {
+    if (hoverIdx >= filtered.length) setHoverIdx(0);
+  }, [filtered.length, hoverIdx]);
+
+  return (
+    <div ref={rootRef} style={{ position: "relative", flex: "1 1 auto", minWidth: 520 }}>
+      <div style={{ position: "relative" }}>
+        <input
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value);
+            setOpen(true);
+          }}
+          placeholder={placeholder}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setOpen(true);
+              setHoverIdx((i) => Math.min(i + 1, Math.max(filtered.length - 1, 0)));
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setHoverIdx((i) => Math.max(i - 1, 0));
+            } else if (e.key === "Enter") {
+              if (open && filtered[hoverIdx]) {
+                e.preventDefault();
+                onChange(filtered[hoverIdx]);
+                setOpen(false);
+              }
+            } else if (e.key === "Escape") {
+              setOpen(false);
+            }
+          }}
+          disabled={disabled}
+          style={{ paddingRight: 44 }}
+        />
+        <button
+          type="button"
+          className="btnSmall"
+          onClick={() => setOpen((v) => !v)}
+          disabled={disabled}
+          style={{
+            position: "absolute",
+            right: 8,
+            top: "50%",
+            transform: "translateY(-50%)",
+            width: 34,
+            height: 30,
+            padding: 0,
+            borderRadius: 10,
+            display: "grid",
+            placeItems: "center",
+          }}
+        >
+          ▾
+        </button>
+      </div>
+      {open && !disabled ? (
+        <div
+          style={{
+            position: "absolute",
+            zIndex: 50,
+            left: 0,
+            right: 0,
+            marginTop: 6,
+            maxHeight: 280,
+            overflow: "auto",
+            border: "1px solid var(--line)",
+            borderRadius: 14,
+            background: "rgba(255,255,255,0.98)",
+            boxShadow: "0 18px 60px rgba(17, 24, 39, 0.14)",
+          }}
+          onMouseDown={(e) => {
+            // prevent input blur before click
+            e.preventDefault();
+          }}
+        >
+          {filtered.length === 0 ? (
+            <div style={{ padding: 12, color: "var(--muted)", fontWeight: 650 }}>没有匹配项</div>
+          ) : (
+            filtered.map((opt, idx) => (
+              <div
+                key={opt}
+                onMouseEnter={() => setHoverIdx(idx)}
+                onClick={() => {
+                  onChange(opt);
+                  setOpen(false);
+                }}
+                style={{
+                  padding: "10px 12px",
+                  cursor: "pointer",
+                  fontWeight: 650,
+                  background: idx === hoverIdx ? "rgba(14, 165, 233, 0.10)" : "transparent",
+                  borderTop: idx === 0 ? "none" : "1px solid rgba(17,24,39,0.06)",
+                }}
+              >
+                {opt}
+              </div>
+            ))
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 const PIP_INDEX_PRESETS: { id: "official" | "tuna" | "aliyun" | "custom"; label: string; url: string }[] = [
   { id: "official", label: "官方 PyPI（默认）", url: "" },
@@ -179,11 +317,6 @@ export function App() {
   const steps: Step[] = useMemo(
     () => [
       {
-        id: "status",
-        title: "状态面板",
-        desc: "运行状态与监控入口",
-      },
-      {
         id: "welcome",
         title: "开始",
         desc: "确认环境与整体流程",
@@ -209,9 +342,19 @@ export function App() {
         desc: "拉取模型列表并写入端点",
       },
       {
-        id: "integrations",
-        title: "工具与集成",
-        desc: "IM / MCP / 桌面 / 代理等全覆盖",
+        id: "im",
+        title: "IM 通道",
+        desc: "启用并配置 Telegram/飞书/企业微信/钉钉/QQ",
+      },
+      {
+        id: "tools",
+        title: "工具与技能",
+        desc: "Skills / MCP / 桌面自动化 / 代理等",
+      },
+      {
+        id: "agent",
+        title: "Agent 与系统",
+        desc: "记忆 / 会话 / 调度 / 多 Agent",
       },
       {
         id: "finish",
@@ -222,8 +365,10 @@ export function App() {
     [],
   );
 
-  const [stepId, setStepId] = useState<StepId>("status");
-  const currentStepIdx = useMemo(() => steps.findIndex((s) => s.id === stepId), [steps, stepId]);
+  const [view, setView] = useState<"wizard" | "status">("wizard");
+  const [stepId, setStepId] = useState<StepId>("welcome");
+  const currentStepIdxRaw = useMemo(() => steps.findIndex((s) => s.id === stepId), [steps, stepId]);
+  const currentStepIdx = currentStepIdxRaw < 0 ? 0 : currentStepIdxRaw;
   const isFirst = currentStepIdx <= 0;
   const isLast = currentStepIdx >= steps.length - 1;
 
@@ -235,8 +380,13 @@ export function App() {
   const [pythonCandidates, setPythonCandidates] = useState<PythonCandidate[]>([]);
   const [selectedPythonIdx, setSelectedPythonIdx] = useState<number>(-1);
   const [venvStatus, setVenvStatus] = useState<string>("");
+  const [installLog, setInstallLog] = useState<string>("");
+  const [installLiveLog, setInstallLiveLog] = useState<string>("");
+  const [installProgress, setInstallProgress] = useState<{ stage: string; percent: number } | null>(null);
   const [extras, setExtras] = useState<string>("all");
   const [indexUrl, setIndexUrl] = useState<string>("");
+  const [pipIndexPresetId, setPipIndexPresetId] = useState<"official" | "tuna" | "aliyun" | "custom">("official");
+  const [customIndexUrl, setCustomIndexUrl] = useState<string>("");
   const [venvReady, setVenvReady] = useState(false);
   const [openakitaInstalled, setOpenakitaInstalled] = useState(false);
   const [installSource, setInstallSource] = useState<InstallSource>("pypi");
@@ -263,8 +413,26 @@ export function App() {
   const [endpointName, setEndpointName] = useState<string>("");
   const [endpointPriority, setEndpointPriority] = useState<number>(1);
   const [savedEndpoints, setSavedEndpoints] = useState<EndpointDraft[]>([]);
+  const [apiKeyEnvTouched, setApiKeyEnvTouched] = useState(false);
+  const [endpointNameTouched, setEndpointNameTouched] = useState(false);
+  const [llmAdvancedOpen, setLlmAdvancedOpen] = useState(false);
+
+  // Edit endpoint modal (do not reuse the "add" form)
   const [editingOriginalName, setEditingOriginalName] = useState<string | null>(null);
-  const isEditingEndpoint = editingOriginalName !== null;
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const isEditingEndpoint = editModalOpen && editingOriginalName !== null;
+  const [llmNextModalOpen, setLlmNextModalOpen] = useState(false);
+  const [editDraft, setEditDraft] = useState<{
+    name: string;
+    priority: number;
+    providerSlug: string;
+    apiType: "openai" | "anthropic";
+    baseUrl: string;
+    apiKeyEnv: string;
+    apiKeyValue: string; // optional; blank means don't change
+    modelId: string;
+    caps: string[];
+  } | null>(null);
   const dragNameRef = useRef<string | null>(null);
 
   // status panel data
@@ -274,8 +442,16 @@ export function App() {
     { name: string; provider: string; apiType: string; baseUrl: string; model: string; keyEnv: string; keyPresent: boolean }[]
   >([]);
   const [skillSummary, setSkillSummary] = useState<{ count: number; systemCount: number; externalCount: number } | null>(null);
+  const [skillsDetail, setSkillsDetail] = useState<
+    { name: string; description: string; system: boolean; enabled?: boolean; tool_name?: string | null; category?: string | null; path?: string | null }[] | null
+  >(null);
+  const [skillsSelection, setSkillsSelection] = useState<Record<string, boolean>>({});
+  const [skillsTouched, setSkillsTouched] = useState(false);
+  const [secretShown, setSecretShown] = useState<Record<string, boolean>>({});
   const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(null);
   const [serviceStatus, setServiceStatus] = useState<{ running: boolean; pid: number | null; pidFile: string } | null>(null);
+  const [serviceLog, setServiceLog] = useState<{ path: string; content: string; truncated: boolean } | null>(null);
+  const [serviceLogError, setServiceLogError] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string>("");
   const [openakitaVersion, setOpenakitaVersion] = useState<string>("");
 
@@ -333,7 +509,7 @@ export function App() {
     let unlisten: null | (() => void) = null;
     (async () => {
       unlisten = await listen("open_status", async () => {
-        setStepId("status");
+        setView("status");
         try {
           await refreshStatus();
         } catch {
@@ -347,17 +523,53 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentWorkspaceId, venvDir]);
 
+  // streaming pip logs (install step)
+  useEffect(() => {
+    let unlisten: null | (() => void) = null;
+    (async () => {
+      unlisten = await listen("pip_install_event", (ev) => {
+        const p = ev.payload as any;
+        if (!p || typeof p !== "object") return;
+        if (p.kind === "stage") {
+          const stage = String(p.stage || "");
+          const percent = Number(p.percent || 0);
+          if (stage) setInstallProgress({ stage, percent: Math.max(0, Math.min(100, percent)) });
+          return;
+        }
+        if (p.kind === "line") {
+          const text = String(p.text || "");
+          if (!text) return;
+          setInstallLiveLog((prev) => {
+            const next = prev + text;
+            // keep tail to avoid huge memory usage
+            const max = 80_000;
+            return next.length > max ? next.slice(next.length - max) : next;
+          });
+        }
+      });
+    })();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
+
   const canUsePython = useMemo(() => {
     if (selectedPythonIdx < 0) return false;
     return pythonCandidates[selectedPythonIdx]?.isUsable ?? false;
   }, [pythonCandidates, selectedPythonIdx]);
 
-  const pipIndexPresetId = useMemo<"official" | "tuna" | "aliyun" | "custom">(() => {
+  // Keep preset <-> index-url consistent
+  useEffect(() => {
     const t = indexUrl.trim();
-    if (!t) return "official";
-    const hit = PIP_INDEX_PRESETS.find((p) => p.url && p.url === t);
-    return hit ? hit.id : "custom";
-  }, [indexUrl]);
+    if (pipIndexPresetId === "custom") {
+      if (customIndexUrl !== indexUrl) setCustomIndexUrl(indexUrl);
+      return;
+    }
+    const preset = PIP_INDEX_PRESETS.find((p) => p.id === pipIndexPresetId);
+    const target = (preset?.url || "").trim();
+    if (target !== t) setIndexUrl(preset?.url || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipIndexPresetId]);
 
   const done = useMemo(() => {
     const d = new Set<StepId>();
@@ -365,10 +577,11 @@ export function App() {
     if (currentWorkspaceId) d.add("workspace");
     if (canUsePython) d.add("python");
     if (openakitaInstalled) d.add("install");
-    if (models.length > 0 && selectedModelId) d.add("llm");
+    // LLM 步骤：只要工作区已有端点，就视为完成（允许用户跳过“拉模型/选模型/新增端点”）
+    if (savedEndpoints.length > 0) d.add("llm");
     // integrations/finish are completion-oriented; keep manual.
     return d;
-  }, [info, currentWorkspaceId, canUsePython, openakitaInstalled, models.length, selectedModelId]);
+  }, [info, currentWorkspaceId, canUsePython, openakitaInstalled, savedEndpoints.length]);
 
   // Keep boolean flags in sync with the visible status string (best-effort).
   useEffect(() => {
@@ -482,18 +695,24 @@ export function App() {
     }
     setError(null);
     setNotice(null);
+    setInstallLiveLog("");
+    setInstallProgress({ stage: "准备开始", percent: 1 });
     setBusy("创建 venv 并安装 openakita...");
     try {
       // 1) create venv (idempotent)
+      setInstallProgress({ stage: "创建 venv", percent: 10 });
       setVenvStatus("创建 venv 中...");
       const py = pythonCandidates[selectedPythonIdx].command;
       await invoke<string>("create_venv", { pythonCommand: py, venvDir });
       setVenvReady(true);
       setOpenakitaInstalled(false);
       setVenvStatus(`venv 就绪：${venvDir}`);
+      setInstallProgress({ stage: "venv 就绪", percent: 30 });
 
       // 2) pip install
+      setInstallProgress({ stage: "pip 安装", percent: 35 });
       setVenvStatus("安装 openakita 中（pip）...");
+      setInstallLog("");
       const ex = extras.trim();
       const extrasPart = ex ? `[${ex}]` : "";
       const spec = (() => {
@@ -520,13 +739,15 @@ export function App() {
         }
         return `openakita${extrasPart}`;
       })();
-      await invoke("pip_install", {
+      const log = await invoke<string>("pip_install", {
         venvDir,
         packageSpec: spec,
         indexUrl: indexUrl.trim() ? indexUrl.trim() : null,
       });
+      setInstallLog(String(log || ""));
       setOpenakitaInstalled(true);
       setVenvStatus(`安装完成：${spec}`);
+      setInstallProgress({ stage: "安装完成", percent: 100 });
       setNotice("openakita 已安装，可以读取服务商列表并配置端点");
 
       // 3) verify by attempting to list providers (makes failures visible early)
@@ -539,6 +760,7 @@ export function App() {
       const msg = String(e);
       setError(msg);
       setVenvStatus(`安装失败：${msg}`);
+      setInstallLog("");
       if (msg.includes("缺少 Setup Center 所需模块") || msg.includes("No module named 'openakita.setup_center'")) {
         setNotice("你安装到的 openakita 不包含 Setup Center 模块。建议切换“安装来源”为 GitHub 或 本地源码，然后重新安装。");
       }
@@ -579,7 +801,6 @@ export function App() {
 
   useEffect(() => {
     if (!selectedProvider) return;
-    if (isEditingEndpoint) return;
     const t = (selectedProvider.api_type as "openai" | "anthropic") || "openai";
     setApiType(t);
     setBaseUrl(selectedProvider.default_base_url || "");
@@ -588,14 +809,30 @@ export function App() {
     for (const ep of savedEndpoints) {
       if (ep.api_key_env) used.add(ep.api_key_env);
     }
-    setApiKeyEnv((prev) => prev || nextEnvKeyName(suggested, used));
-    setEndpointName((prev) => prev || `${selectedProvider.slug}-${selectedModelId || "model"}`.slice(0, 64));
-  }, [selectedProvider, selectedModelId, envDraft, savedEndpoints, isEditingEndpoint]);
+    // When provider changes, auto-switch env var name to match provider (unless user manually edited it).
+    if (!apiKeyEnvTouched) {
+      setApiKeyEnv(nextEnvKeyName(suggested, used));
+    }
+    // Endpoint name should follow provider+model by default (unless user manually edited it).
+    const autoName = suggestEndpointName(selectedProvider.slug, selectedModelId);
+    if (!endpointNameTouched) {
+      setEndpointName(autoName);
+    }
+  }, [selectedProvider, selectedModelId, envDraft, savedEndpoints, apiKeyEnvTouched, endpointNameTouched]);
+
+  // When user switches provider via dropdown, reset auto-naming to follow the new provider.
+  useEffect(() => {
+    if (!providerSlug) return;
+    if (editModalOpen) return;
+    setApiKeyEnvTouched(false);
+    setEndpointNameTouched(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providerSlug]);
 
   async function doFetchModels() {
     setError(null);
     setModels([]);
-    setSelectedModelId("");
+    setSelectedModelId(""); // clear search / selection
     setBusy("拉取模型列表...");
     try {
       const raw = await invoke<string>("openakita_list_models", {
@@ -607,7 +844,8 @@ export function App() {
       });
       const parsed = JSON.parse(raw) as ListedModel[];
       setModels(parsed);
-      setSelectedModelId(parsed[0]?.id ?? "");
+      // 不要默认选中/填入任何模型，避免“自动出现一个搜索结果”造成误导
+      setSelectedModelId("");
       setNotice(`拉取到模型：${parsed.length} 个`);
       setCapTouched(false);
     } finally {
@@ -752,22 +990,92 @@ export function App() {
     const ep = savedEndpoints.find((e) => e.name === name);
     if (!ep) return;
     setEditingOriginalName(name);
-    setEndpointName(ep.name);
-    setEndpointPriority(normalizePriority(ep.priority, 1));
-    setProviderSlug(ep.provider || "");
-    setApiType((ep.api_type as any) || "openai");
-    setBaseUrl(ep.base_url || "");
-    setApiKeyEnv(ep.api_key_env || "");
-    setSelectedModelId(ep.model || "");
-    setNotice(`正在编辑端点：${name}`);
+    setEditDraft({
+      name: ep.name,
+      priority: normalizePriority(ep.priority, 1),
+      providerSlug: ep.provider || "",
+      apiType: (ep.api_type as any) || "openai",
+      baseUrl: ep.base_url || "",
+      apiKeyEnv: ep.api_key_env || "",
+      apiKeyValue: "",
+      modelId: ep.model || "",
+      caps: Array.isArray(ep.capabilities) && ep.capabilities.length ? ep.capabilities : ["text"],
+    });
+    setEditModalOpen(true);
+    setNotice(null);
   }
 
   function resetEndpointEditor() {
     setEditingOriginalName(null);
-    setEndpointName("");
-    setEndpointPriority(1);
-    setApiKeyValue("");
-    setNotice("已退出编辑模式");
+    setEditDraft(null);
+    setEditModalOpen(false);
+  }
+
+  async function doSaveEditedEndpoint() {
+    if (!currentWorkspaceId) {
+      setError("请先创建/选择一个当前工作区");
+      return;
+    }
+    if (!editDraft || !editingOriginalName) return;
+    if (!editDraft.name.trim()) {
+      setError("端点名称不能为空");
+      return;
+    }
+    if (!editDraft.modelId.trim()) {
+      setError("模型不能为空");
+      return;
+    }
+    if (!editDraft.apiKeyEnv.trim()) {
+      setError("API Key 环境变量名不能为空");
+      return;
+    }
+    setBusy("保存修改...");
+    setError(null);
+    try {
+      // Update env only if user provided a value (avoid accidental overwrite)
+      if (editDraft.apiKeyValue.trim()) {
+        await ensureEnvLoaded(currentWorkspaceId);
+        setEnvDraft((e) => envSet(e, editDraft.apiKeyEnv.trim(), editDraft.apiKeyValue.trim()));
+        await invoke("workspace_update_env", {
+          workspaceId: currentWorkspaceId,
+          entries: [{ key: editDraft.apiKeyEnv.trim(), value: editDraft.apiKeyValue.trim() }],
+        });
+      }
+
+      const { endpoints, settings } = await readEndpointsJson();
+      const used = new Set(endpoints.map((e: any) => String(e?.name || "")).filter(Boolean));
+      if (editDraft.name.trim() !== editingOriginalName && used.has(editDraft.name.trim())) {
+        throw new Error(`端点名称已存在：${editDraft.name.trim()}（请换一个）`);
+      }
+      const idx = endpoints.findIndex((e: any) => String(e?.name || "") === editingOriginalName);
+      const next = {
+        name: editDraft.name.trim().slice(0, 64),
+        provider: editDraft.providerSlug || "custom",
+        api_type: editDraft.apiType,
+        base_url: editDraft.baseUrl.trim(),
+        api_key_env: editDraft.apiKeyEnv.trim(),
+        model: editDraft.modelId.trim(),
+        priority: normalizePriority(editDraft.priority, 1),
+        max_tokens: 8192,
+        timeout: 180,
+        capabilities: editDraft.caps?.length ? editDraft.caps : ["text"],
+        extra_params:
+          (editDraft.caps || []).includes("thinking") && editDraft.providerSlug === "dashscope"
+            ? { enable_thinking: true }
+            : undefined,
+      };
+      if (idx >= 0) endpoints[idx] = next;
+      else endpoints.push(next);
+      endpoints.sort((a: any, b: any) => (Number(a?.priority) || 999) - (Number(b?.priority) || 999));
+      await writeEndpointsJson(endpoints, settings);
+      setNotice("端点已更新");
+      resetEndpointEditor();
+      await loadSavedEndpoints();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
   }
 
   useEffect(() => {
@@ -919,7 +1227,11 @@ export function App() {
   async function saveEnvKeys(keys: string[]) {
     if (!currentWorkspaceId) throw new Error("未设置当前工作区");
     await ensureEnvLoaded(currentWorkspaceId);
-    const entries = keys.map((k) => ({ key: k, value: envDraft[k] ?? "" }));
+    // 只写入“已存在于 envDraft 的键”（即：用户实际填写/修改过，或工作区 .env 里原本就有）。
+    // 这样可以避免把大量未填写的可选字段写成 KEY= 空值，污染 .env 并导致类型解析报错。
+    const entries = keys
+      .filter((k) => Object.prototype.hasOwnProperty.call(envDraft, k))
+      .map((k) => ({ key: k, value: envDraft[k] ?? "" }));
     await invoke("workspace_update_env", { workspaceId: currentWorkspaceId, entries });
   }
 
@@ -928,14 +1240,14 @@ export function App() {
     const map: Record<string, string> = {
       openai: "https://platform.openai.com/api-keys",
       anthropic: "https://console.anthropic.com/settings/keys",
-      moonshot: "https://platform.moonshot.cn/",
-      kimi: "https://platform.moonshot.cn/",
-      "kimi-cn": "https://platform.moonshot.ai/",
-      "kimi-int": "https://platform.moonshot.ai/",
+      moonshot: "https://platform.moonshot.cn/console",
+      kimi: "https://platform.moonshot.cn/console",
+      "kimi-cn": "https://platform.moonshot.cn/console",
+      "kimi-int": "https://platform.moonshot.ai/console/api-keys",
       dashscope: "https://dashscope.console.aliyun.com/",
-      minimax: "https://www.minimaxi.com/",
-      "minimax-cn": "https://www.minimaxi.com/",
-      "minimax-int": "https://intl.minimaxi.com/",
+      minimax: "https://platform.minimaxi.com/user-center/basic-information/interface-key",
+      "minimax-cn": "https://platform.minimaxi.com/user-center/basic-information/interface-key",
+      "minimax-int": "https://platform.minimax.io/user-center/basic-information/interface-key",
       deepseek: "https://platform.deepseek.com/",
       openrouter: "https://openrouter.ai/",
       siliconflow: "https://siliconflow.cn/",
@@ -950,10 +1262,6 @@ export function App() {
     setNotice(null);
     setError(null);
     // lightweight guardrails
-    if (stepId === "status") {
-      setStepId("welcome");
-      return;
-    }
     if (stepId === "workspace" && !currentWorkspaceId) {
       setError("请先创建或选择一个当前工作区。");
       return;
@@ -966,9 +1274,17 @@ export function App() {
       setError("请先创建 venv 并完成 pip 安装 openakita。");
       return;
     }
-    if (stepId === "llm" && (!selectedModelId || models.length === 0)) {
-      setError("请先拉取模型列表并选择一个模型，然后写入端点配置。");
+    if (stepId === "llm" && savedEndpoints.length === 0) {
+      // 只有“没有任何端点”才硬拦截
+      setError("当前工作区还没有任何 LLM 端点。请先新增至少 1 个端点，再进入下一步。");
       return;
+    }
+    if (stepId === "llm" && (!selectedModelId || models.length === 0)) {
+      // 已有端点时，不硬拦截：改为弹窗提醒用户选择“新增端点”或“继续下一步”
+      if (savedEndpoints.length > 0) {
+        setLlmNextModalOpen(true);
+        return;
+      }
     }
     setStepId(steps[Math.min(currentStepIdx + 1, steps.length - 1)].id);
   }
@@ -976,10 +1292,6 @@ export function App() {
   function goPrev() {
     setNotice(null);
     setError(null);
-    if (stepId === "welcome") {
-      setStepId("status");
-      return;
-    }
     setStepId(steps[Math.max(currentStepIdx - 1, 0)].id);
   }
 
@@ -997,6 +1309,7 @@ export function App() {
       if (!currentWorkspaceId) {
         setEndpointSummary([]);
         setSkillSummary(null);
+        setSkillsDetail(null);
         return;
       }
       await ensureEnvLoaded(currentWorkspaceId);
@@ -1034,8 +1347,20 @@ export function App() {
         const systemCount = skills.filter((s) => !!s.system).length;
         const externalCount = skills.length - systemCount;
         setSkillSummary({ count: skills.length, systemCount, externalCount });
+        setSkillsDetail(
+          skills.map((s) => ({
+            name: String(s?.name || ""),
+            description: String(s?.description || ""),
+            system: !!s?.system,
+            enabled: typeof s?.enabled === "boolean" ? s.enabled : undefined,
+            tool_name: s?.tool_name ?? null,
+            category: s?.category ?? null,
+            path: s?.path ?? null,
+          })),
+        );
       } catch {
         setSkillSummary(null);
+        setSkillsDetail(null);
       }
 
       try {
@@ -1060,6 +1385,139 @@ export function App() {
     }
   }
 
+  async function refreshServiceLog(workspaceId: string) {
+    try {
+      const chunk = await invoke<{ path: string; content: string; truncated: boolean }>("openakita_service_log", {
+        workspaceId,
+        tailBytes: 60000,
+      });
+      setServiceLog(chunk);
+      setServiceLogError(null);
+    } catch (e) {
+      setServiceLog(null);
+      setServiceLogError(String(e));
+    }
+  }
+
+  // 状态面板：服务运行时自动刷新日志
+  useEffect(() => {
+    if (view !== "status") return;
+    if (!currentWorkspaceId) return;
+    if (!serviceStatus?.running) return;
+    let cancelled = false;
+    void (async () => {
+      if (!cancelled) await refreshServiceLog(currentWorkspaceId);
+    })();
+    const t = window.setInterval(() => {
+      if (cancelled) return;
+      void refreshServiceLog(currentWorkspaceId);
+    }, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, [view, currentWorkspaceId, serviceStatus?.running]);
+
+  // Skills selection default sync (only when user hasn't changed it)
+  useEffect(() => {
+    if (!skillsDetail) return;
+    if (skillsTouched) return;
+    const m: Record<string, boolean> = {};
+    for (const s of skillsDetail) {
+      if (!s?.name) continue;
+      if (s.system) m[s.name] = true;
+      else m[s.name] = typeof s.enabled === "boolean" ? s.enabled : true;
+    }
+    setSkillsSelection(m);
+  }, [skillsDetail, skillsTouched]);
+
+  // 自动获取 skills：进入“工具与技能”页就拉一次（且仅在尚未拿到 skillsDetail 时）
+  useEffect(() => {
+    if (view !== "wizard") return;
+    if (stepId !== "tools") return;
+    if (!currentWorkspaceId) return;
+    if (!!busy) return;
+    if (skillsDetail) return;
+    if (!openakitaInstalled) return;
+    void doRefreshSkills();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, stepId, currentWorkspaceId, openakitaInstalled, skillsDetail]);
+
+  async function doRefreshSkills() {
+    if (!currentWorkspaceId) {
+      setError("请先设置当前工作区");
+      return;
+    }
+    setError(null);
+    setBusy("读取 skills...");
+    try {
+      const skillsRaw = await invoke<string>("openakita_list_skills", { venvDir, workspaceId: currentWorkspaceId });
+      const skillsParsed = JSON.parse(skillsRaw) as { count: number; skills: any[] };
+      const skills = Array.isArray(skillsParsed.skills) ? skillsParsed.skills : [];
+      const systemCount = skills.filter((s) => !!s.system).length;
+      const externalCount = skills.length - systemCount;
+      setSkillSummary({ count: skills.length, systemCount, externalCount });
+      setSkillsDetail(
+        skills.map((s) => ({
+          name: String(s?.name || ""),
+          description: String(s?.description || ""),
+          system: !!s?.system,
+          enabled: typeof s?.enabled === "boolean" ? s.enabled : undefined,
+          tool_name: s?.tool_name ?? null,
+          category: s?.category ?? null,
+          path: s?.path ?? null,
+        })),
+      );
+      setNotice("已刷新 skills 列表");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function doSaveSkillsSelection() {
+    if (!currentWorkspaceId) {
+      setError("请先设置当前工作区");
+      return;
+    }
+    if (!skillsDetail) {
+      setError("未读取到 skills 列表（请先刷新 skills）");
+      return;
+    }
+    setError(null);
+    setBusy("保存 skills 启用状态...");
+    try {
+      const externalAllowlist = skillsDetail
+        .filter((s) => !s.system && !!s.name)
+        .filter((s) => !!skillsSelection[s.name])
+        .map((s) => s.name);
+
+      const content =
+        JSON.stringify(
+          {
+            version: 1,
+            external_allowlist: externalAllowlist,
+            updated_at: new Date().toISOString(),
+          },
+          null,
+          2,
+        ) + "\n";
+
+      await invoke("workspace_write_file", {
+        workspaceId: currentWorkspaceId,
+        relativePath: "data/skills.json",
+        content,
+      });
+      setSkillsTouched(false);
+      setNotice("已保存：data/skills.json（系统技能默认启用；外部技能按你的选择启用）");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const headerRight = (
     <div className="row">
       {appVersion ? <span className="pill">Setup Center：<b>v{appVersion}</b></span> : null}
@@ -1070,6 +1528,28 @@ export function App() {
       <span className="pill">
         venv：<span>{venvDir || "—"}</span>
       </span>
+      <button
+        onClick={async () => {
+          setView("wizard");
+          setStepId("welcome");
+        }}
+        disabled={!!busy}
+      >
+        安装向导
+      </button>
+      <button
+        onClick={async () => {
+          setView("status");
+          try {
+            await refreshStatus();
+          } catch {
+            // ignore
+          }
+        }}
+        disabled={!!busy}
+      >
+        状态面板
+      </button>
       <button onClick={() => refreshAll()} disabled={!!busy}>
         刷新
       </button>
@@ -1081,7 +1561,8 @@ export function App() {
   );
 
   function renderStatus() {
-    const ws = workspaces.find((w) => w.id === currentWorkspaceId) || null;
+    const effectiveWsId = currentWorkspaceId || workspaces[0]?.id || null;
+    const ws = workspaces.find((w) => w.id === effectiveWsId) || workspaces[0] || null;
     const im = [
       { k: "TELEGRAM_ENABLED", name: "Telegram", required: ["TELEGRAM_BOT_TOKEN"] },
       { k: "FEISHU_ENABLED", name: "飞书", required: ["FEISHU_APP_ID", "FEISHU_APP_SECRET"] },
@@ -1164,7 +1645,7 @@ export function App() {
             <div className="cardHint" style={{ marginTop: 8 }}>
               这是“关闭终端仍常驻”的关键能力之一：由 Setup Center 在后台启动 `openakita serve`，用于长期跑 IM 通道/后台处理。
               <br />
-              CLI 用户也可使用：`openakita daemon start --workspace-dir &lt;工作区&gt;`
+              CLI 用户也可使用：`openakita daemon start --workspace-dir "${ws?.path || ""}"`
             </div>
             <div className="divider" />
             <div className="row" style={{ justifyContent: "space-between" }}>
@@ -1184,18 +1665,19 @@ export function App() {
               <div className="btnRow">
                 <button
                   className="btnPrimary"
-                  disabled={!currentWorkspaceId || !!busy}
+                  disabled={!effectiveWsId || !!busy || !!serviceStatus?.running}
                   onClick={async () => {
-                    if (!currentWorkspaceId) return;
+                    if (!effectiveWsId) return;
                     setBusy("启动后台服务...");
                     setError(null);
                     try {
                       const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_start", {
                         venvDir,
-                        workspaceId: currentWorkspaceId,
+                        workspaceId: effectiveWsId,
                       });
                       setServiceStatus(ss);
                       setNotice("后台服务已启动（openakita serve）");
+                      void refreshServiceLog(effectiveWsId);
                     } catch (e) {
                       setError(String(e));
                     } finally {
@@ -1203,18 +1685,18 @@ export function App() {
                     }
                   }}
                 >
-                  启动服务
+                  {serviceStatus?.running ? "已启动" : "启动服务"}
                 </button>
                 <button
                   className="btnDanger"
-                  disabled={!currentWorkspaceId || !!busy}
+                  disabled={!effectiveWsId || !!busy || !serviceStatus?.running}
                   onClick={async () => {
-                    if (!currentWorkspaceId) return;
+                    if (!effectiveWsId) return;
                     setBusy("停止后台服务...");
                     setError(null);
                     try {
                       const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_stop", {
-                        workspaceId: currentWorkspaceId,
+                        workspaceId: effectiveWsId,
                       });
                       setServiceStatus(ss);
                       setNotice("已请求停止后台服务");
@@ -1229,6 +1711,41 @@ export function App() {
                 </button>
               </div>
             </div>
+
+            <div className="divider" />
+            <div className="label">服务日志（openakita-serve.log）</div>
+            <div className="cardHint" style={{ marginTop: 8 }}>
+              自动更新（每 2 秒）。仅展示末尾内容，避免日志过大导致卡顿。
+            </div>
+            <div className="btnRow" style={{ justifyContent: "flex-start", marginTop: 10 }}>
+              <button
+                onClick={() => {
+                  if (!effectiveWsId) return;
+                  void refreshServiceLog(effectiveWsId);
+                }}
+                disabled={!effectiveWsId || !!busy}
+              >
+                手动刷新日志
+              </button>
+            </div>
+            {serviceLogError ? <div className="errorBox">{serviceLogError}</div> : null}
+            <pre
+              style={{
+                marginTop: 10,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                fontSize: 12,
+                padding: 12,
+                border: "1px solid var(--line)",
+                borderRadius: 12,
+                background: "rgba(255,255,255,0.7)",
+                maxHeight: 260,
+                overflow: "auto",
+              }}
+            >
+              {(serviceLog?.content || "").trim() || "（暂无日志）"}
+            </pre>
+            {serviceLog?.path ? <div className="help">路径：{serviceLog.path}{serviceLog.truncated ? "（已截断）" : ""}</div> : null}
           </div>
 
           <div className="divider" />
@@ -1470,18 +1987,39 @@ export function App() {
   }
 
   function renderInstall() {
+    const venvPath = venvDir;
+    const installReadyText = openakitaInstalled
+      ? "已安装完成：可以进入下一步（LLM 端点）"
+      : venvReady
+        ? "venv 就绪：可以开始安装 openakita"
+        : "准备创建 venv 并安装 openakita";
     return (
       <>
         <div className="card">
-          <div className="cardTitle">venv + 安装 openakita</div>
-          <div className="cardHint">这一步会在固定目录创建 venv：`~/.openakita/venv`，并安装 `openakita[extras]`。</div>
-          <div className="divider" />
-          <div className="field">
-            <div className="labelRow">
-              <div className="label">安装来源</div>
-              <div className="help">如果 PyPI 版本不包含 Setup Center 模块，可切到 GitHub / 本地源码</div>
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <div className="cardTitle">安装 openakita（venv + pip）</div>
+              <div className="cardHint">
+                这一步会在固定目录创建 venv：`~/.openakita/venv`，并安装 `openakita[extras]`。
+                <br />
+                <span className="help">提示：尽量只改你需要的参数，其他保持默认即可。</span>
+              </div>
             </div>
-            <div className="btnRow">
+            <div className="pill" style={{ alignItems: "center", gap: 8 }}>
+              <span className="help">venv</span>
+              <span style={{ fontWeight: 800, color: "var(--text)" }}>{venvPath}</span>
+            </div>
+          </div>
+          <div className="divider" />
+
+          <div className="card" style={{ marginTop: 0 }}>
+            <div className="cardTitle" style={{ fontSize: 14, marginBottom: 6 }}>
+              1) 安装来源
+            </div>
+            <div className="cardHint">
+              说明：默认从 PyPI 安装；如果提示“缺少 Setup Center 所需模块”，再切到 GitHub 或 本地源码。
+            </div>
+            <div className="btnRow" style={{ marginTop: 10, flexWrap: "wrap" }}>
               <button className={installSource === "pypi" ? "btnPrimary" : ""} onClick={() => setInstallSource("pypi")} disabled={!!busy}>
                 PyPI / 镜像
               </button>
@@ -1492,7 +2030,6 @@ export function App() {
                 本地源码
               </button>
             </div>
-          </div>
 
           {installSource === "github" ? (
             <div className="grid2" style={{ marginTop: 10 }}>
@@ -1528,52 +2065,175 @@ export function App() {
               <input value={localSourcePath} onChange={(e) => setLocalSourcePath(e.target.value)} placeholder="D:\\coder\\myagent" />
             </div>
           ) : null}
+          </div>
 
-          <div className="grid2">
-            <div className="field">
-              <div className="labelRow">
-                <div className="label">extras</div>
-                <div className="help">建议 `all`（跨平台安全）</div>
-              </div>
-              <input value={extras} onChange={(e) => setExtras(e.target.value)} placeholder="all / windows / whisper / browser / feishu ..." />
+          <div className="card">
+            <div className="cardTitle" style={{ fontSize: 14, marginBottom: 6 }}>
+              2) 安装参数
             </div>
-            <div className="field">
-              <div className="labelRow">
-                <div className="label">pip 源（可切换）</div>
-                <div className="help">选择国内镜像会自动填充 index-url</div>
+            <div className="grid2">
+              <div className="field">
+                <div className="labelRow">
+                  <div className="label">extras</div>
+                  <div className="help">建议 `all`（跨平台安全）</div>
+                </div>
+                <input value={extras} onChange={(e) => setExtras(e.target.value)} placeholder="all / windows / whisper / browser / feishu ..." />
+                <div className="btnRow" style={{ marginTop: 8, justifyContent: "flex-start", flexWrap: "wrap" }}>
+                  {["all", "windows", "browser", "whisper", "feishu"].map((x) => (
+                    <button
+                      key={x}
+                      className="btnSmall"
+                      type="button"
+                      onClick={() => setExtras(x)}
+                      disabled={!!busy}
+                      style={{ borderRadius: 999 }}
+                    >
+                      {x}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <select
-                value={pipIndexPresetId}
-                onChange={(e) => {
-                  const id = e.target.value as "official" | "tuna" | "aliyun" | "custom";
-                  const preset = PIP_INDEX_PRESETS.find((p) => p.id === id);
-                  if (!preset) return;
-                  if (id === "custom") return;
-                  setIndexUrl(preset.url);
-                }}
-              >
-                {PIP_INDEX_PRESETS.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-              <input
-                style={{ marginTop: 10 }}
-                value={indexUrl}
-                onChange={(e) => setIndexUrl(e.target.value)}
-                placeholder="自定义 index-url（可选）"
-                disabled={pipIndexPresetId !== "custom"}
-              />
+              <div className="field">
+                <div className="labelRow">
+                  <div className="label">pip 源（镜像）</div>
+                  <div className="help">用于下载 openakita 及其依赖</div>
+                </div>
+                <select
+                  value={pipIndexPresetId}
+                  onChange={(e) => {
+                    const id = e.target.value as "official" | "tuna" | "aliyun" | "custom";
+                    setPipIndexPresetId(id);
+                    const preset = PIP_INDEX_PRESETS.find((p) => p.id === id);
+                    if (!preset) return;
+                    if (id === "custom") {
+                      setIndexUrl(customIndexUrl);
+                      return;
+                    }
+                    setIndexUrl(preset.url);
+                  }}
+                >
+                  {PIP_INDEX_PRESETS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  style={{ marginTop: 10 }}
+                  value={pipIndexPresetId === "custom" ? customIndexUrl : indexUrl}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setCustomIndexUrl(v);
+                    if (pipIndexPresetId === "custom") setIndexUrl(v);
+                  }}
+                  placeholder="自定义 index-url（仅在“自定义…”时生效）"
+                  disabled={pipIndexPresetId !== "custom"}
+                />
+              </div>
             </div>
           </div>
-          <div className="btnRow" style={{ marginTop: 12 }}>
+
+          <div className="divider" />
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div className="cardHint" style={{ marginTop: 0 }}>
+              <b>{installReadyText}</b>
+              <br />
+              <span className="help">安装过程中不建议频繁切换页面；如遇失败请展开查看 pip 输出。</span>
+            </div>
             <button className="btnPrimary" onClick={doSetupVenvAndInstallOpenAkita} disabled={!canUsePython || !!busy}>
-              一键创建 venv 并安装 openakita
+              {openakitaInstalled ? "升级/重装 openakita" : "创建 venv 并安装 openakita"}
             </button>
           </div>
           {venvStatus ? <div className="okBox">{venvStatus}</div> : null}
-          <div className="okBox">下一步：进入“LLM 端点”，读取服务商列表并拉取模型。</div>
+
+          {!!busy && (busy || "").includes("venv") ? (
+            <div className="card" style={{ marginTop: 10 }}>
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div className="label">实时进度</div>
+                  <div className="help">{installProgress ? `${installProgress.stage}（约 ${installProgress.percent}%）` : "执行中..."}</div>
+                </div>
+                <button
+                  type="button"
+                  className="btnSmall"
+                  onClick={() => setInstallLiveLog("")}
+                  disabled={!!busy}
+                  style={{ borderRadius: 999 }}
+                >
+                  清空实时输出
+                </button>
+              </div>
+              <div
+                style={{
+                  marginTop: 10,
+                  height: 10,
+                  borderRadius: 999,
+                  background: "rgba(17,24,39,0.08)",
+                  overflow: "hidden",
+                  border: "1px solid rgba(17,24,39,0.08)",
+                }}
+              >
+                <div
+                  style={{
+                    width: `${installProgress?.percent ?? 5}%`,
+                    height: "100%",
+                    background: "linear-gradient(90deg, rgba(99,102,241,0.9), rgba(14,165,233,0.9))",
+                    transition: "width 180ms ease",
+                  }}
+                />
+              </div>
+              <div className="divider" />
+              <div className="label">实时输出（pip/验证）</div>
+              <pre
+                style={{
+                  marginTop: 10,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  fontSize: 12,
+                  padding: 12,
+                  border: "1px solid var(--line)",
+                  borderRadius: 12,
+                  background: "rgba(255,255,255,0.7)",
+                  maxHeight: 220,
+                  overflow: "auto",
+                }}
+              >
+                {installLiveLog || "（等待输出...）"}
+              </pre>
+              <div className="cardHint" style={{ marginTop: 8 }}>
+                说明：这里是<strong>实时</strong>输出；完整输出会在安装结束后出现在“查看安装日志（pip 输出）”。
+              </div>
+            </div>
+          ) : null}
+
+          {installLog ? (
+            <details style={{ marginTop: 10 }}>
+              <summary style={{ cursor: "pointer", fontWeight: 800 }}>查看安装日志（pip 输出）</summary>
+              <pre
+                style={{
+                  marginTop: 10,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  fontSize: 12,
+                  padding: 12,
+                  border: "1px solid var(--line)",
+                  borderRadius: 12,
+                  background: "rgba(255,255,255,0.7)",
+                  maxHeight: 260,
+                  overflow: "auto",
+                }}
+              >
+                {installLog}
+              </pre>
+            </details>
+          ) : null}
+          {openakitaInstalled ? (
+            <div className="okBox">已完成：下一步进入“LLM 端点”，读取服务商列表并拉取模型。</div>
+          ) : (
+            <div className="cardHint" style={{ marginTop: 10 }}>
+              完成安装后，底部“下一步”才可以进入“LLM 端点”。
+            </div>
+          )}
         </div>
       </>
     );
@@ -1681,11 +2341,12 @@ export function App() {
 
           {providers.length > 0 ? (
             <div style={{ marginTop: 12 }}>
-              <div className="grid2">
+              <div className="card" style={{ marginTop: 0 }}>
+                <div className="cardTitle" style={{ fontSize: 14 }}>1) 选择服务商</div>
                 <div className="field">
                   <div className="labelRow">
                     <div className="label">服务商</div>
-                    <div className="help">支持 OpenAI / Anthropic 协议</div>
+                    <div className="help">选了服务商会自动填 Base URL</div>
                   </div>
                   <select value={providerSlug} onChange={(e) => setProviderSlug(e.target.value)}>
                     {providers.map((p) => (
@@ -1700,73 +2361,133 @@ export function App() {
                     </div>
                   ) : null}
                 </div>
-
-                <div className="field">
-                  <div className="labelRow">
-                    <div className="label">协议与 Base URL</div>
-                    <div className="help">可手动改（如中转/私有网关）</div>
-                  </div>
-                  <div className="row">
-                    <select value={apiType} onChange={(e) => setApiType(e.target.value as any)} style={{ width: 160 }}>
-                      <option value="openai">openai</option>
-                      <option value="anthropic">anthropic</option>
-                    </select>
-                    <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://.../v1" />
-                  </div>
-                </div>
               </div>
 
-              <div className="grid2" style={{ marginTop: 12 }}>
-                <div className="field">
-                  <div className="labelRow">
-                    <div className="label">API Key 环境变量名（写入 .env）</div>
-                    <div className="help">端点会引用它（api_key_env）</div>
+              <div className="card">
+                <div className="cardTitle" style={{ fontSize: 14 }}>2) 填写 API Key</div>
+                <div className="grid2" style={{ marginTop: 10 }}>
+                  <div className="field">
+                    <div className="labelRow">
+                      <div className="label">API Key 值</div>
+                      <div className="help">仅用于当前拉取/写入本地工作区</div>
+                    </div>
+                    <div style={{ position: "relative" }}>
+                      <input
+                        value={apiKeyValue}
+                        onChange={(e) => setApiKeyValue(e.target.value)}
+                        placeholder="sk-..."
+                        type={secretShown.__LLM_API_KEY ? "text" : "password"}
+                        style={{ paddingRight: 78 }}
+                      />
+                      <button
+                        type="button"
+                        className="btnSmall"
+                        onClick={() => setSecretShown((m) => ({ ...m, __LLM_API_KEY: !m.__LLM_API_KEY }))}
+                        disabled={!!busy}
+                        style={{
+                          position: "absolute",
+                          right: 8,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          height: 30,
+                          padding: "0 10px",
+                          borderRadius: 10,
+                        }}
+                      >
+                        {secretShown.__LLM_API_KEY ? "隐藏" : "显示"}
+                      </button>
+                    </div>
                   </div>
-                  <div className="row">
-                    <input value={apiKeyEnv} onChange={(e) => setApiKeyEnv(e.target.value)} placeholder="例如：OPENAI_API_KEY / OPENAI_API_KEY_2" />
-                    <button
-                      onClick={() => {
-                        const base = (selectedProvider?.api_key_env_suggestion || envKeyFromSlug(selectedProvider?.slug || "provider")).trim();
-                        const used = new Set(Object.keys(envDraft || {}));
-                        for (const ep of savedEndpoints) {
-                          if (ep.api_key_env) used.add(ep.api_key_env);
-                        }
-                        setApiKeyEnv(nextEnvKeyName(base, used));
-                      }}
-                      disabled={!!busy || !selectedProvider}
-                    >
-                      生成新变量名
-                    </button>
+                  <div className="field">
+                    <div className="labelRow">
+                      <div className="label">将写入 .env 的变量名</div>
+                      <div className="help">端点会引用它（api_key_env）</div>
+                    </div>
+                    <div className="pill" style={{ justifyContent: "space-between", width: "100%" }}>
+                      <span style={{ color: "var(--text)", fontWeight: 800 }}>{apiKeyEnv || "（未生成）"}</span>
+                      <button className="btnSmall" onClick={() => setLlmAdvancedOpen((v) => !v)} disabled={!!busy}>
+                        {llmAdvancedOpen ? "收起高级" : "高级"}
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <div className="field">
-                  <div className="labelRow">
-                    <div className="label">API Key 值</div>
-                    <div className="help">仅用于当前拉取/写入本地工作区</div>
-                  </div>
-                  <input value={apiKeyValue} onChange={(e) => setApiKeyValue(e.target.value)} placeholder="sk-..." type="password" />
-                </div>
-              </div>
 
-              <div className="btnRow" style={{ marginTop: 12 }}>
-                <button onClick={doFetchModels} className="btnPrimary" disabled={!apiKeyValue.trim() || !baseUrl.trim() || !!busy}>
-                  拉取模型列表
-                </button>
+                {llmAdvancedOpen ? (
+                  <div style={{ marginTop: 10 }}>
+                    <div className="grid2">
+                      <div className="field">
+                        <div className="labelRow">
+                          <div className="label">API Key 环境变量名（可改）</div>
+                          <div className="help">避免多端点冲突，可用 _2/_3</div>
+                        </div>
+                        <input
+                          value={apiKeyEnv}
+                          onChange={(e) => {
+                            setApiKeyEnvTouched(true);
+                            setApiKeyEnv(e.target.value);
+                          }}
+                          placeholder="例如：DASHSCOPE_API_KEY / DASHSCOPE_API_KEY_2"
+                        />
+                        <div className="btnRow" style={{ marginTop: 8 }}>
+                          <button
+                            className="btnSmall"
+                            onClick={() => {
+                              const base = (selectedProvider?.api_key_env_suggestion || envKeyFromSlug(selectedProvider?.slug || "provider")).trim();
+                              const used = new Set(Object.keys(envDraft || {}));
+                              for (const ep of savedEndpoints) {
+                                if (ep.api_key_env) used.add(ep.api_key_env);
+                              }
+                              setApiKeyEnvTouched(false);
+                              setApiKeyEnv(nextEnvKeyName(base, used));
+                            }}
+                            disabled={!!busy || !selectedProvider}
+                          >
+                            生成新变量名
+                          </button>
+                        </div>
+                      </div>
+                      <div className="field">
+                        <div className="labelRow">
+                          <div className="label">协议与 Base URL（高级）</div>
+                          <div className="help">中转/私有网关可在这里改</div>
+                        </div>
+                        <div className="row">
+                          <select value={apiType} onChange={(e) => setApiType(e.target.value as any)} style={{ width: 160 }}>
+                            <option value="openai">openai</option>
+                            <option value="anthropic">anthropic</option>
+                          </select>
+                          <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://.../v1" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="btnRow" style={{ marginTop: 12, justifyContent: "flex-start" }}>
+                  <button onClick={doFetchModels} className="btnPrimary" disabled={!apiKeyValue.trim() || !baseUrl.trim() || !!busy}>
+                    3) 拉取模型列表
+                  </button>
+                </div>
               </div>
 
               {models.length > 0 ? (
                 <div className="card" style={{ marginTop: 12 }}>
-                  <div className="labelRow">
-                    <div className="label">选择模型</div>
-                    <div className="help">会写入 data/llm_endpoints.json</div>
-                  </div>
+                  <div className="cardTitle" style={{ fontSize: 14 }}>4) 选择模型并保存端点</div>
+                  <div className="cardHint">这里会把端点写入 `data/llm_endpoints.json`，并把 Key 写入 `.env`。</div>
                   <div className="grid2" style={{ marginTop: 10 }}>
                     <div className="field">
                       <div className="labelRow">
                         <div className="label">端点名称</div>
                         <div className="help">必须唯一；用于主/备份区分</div>
                       </div>
-                      <input value={endpointName} onChange={(e) => setEndpointName(e.target.value)} placeholder="例如：openai-primary / openai-backup" />
+                      <input
+                        value={endpointName}
+                        onChange={(e) => {
+                          setEndpointNameTouched(true);
+                          setEndpointName(e.target.value);
+                        }}
+                        placeholder="例如：dashscope-qwen3-max / openai-primary"
+                      />
                     </div>
                     <div className="field">
                       <div className="labelRow">
@@ -1781,22 +2502,13 @@ export function App() {
                     </div>
                   </div>
                   <div className="row" style={{ marginTop: 8, alignItems: "stretch" }}>
-                    <div style={{ flex: "1 1 auto", minWidth: 520 }}>
-                      <input
-                        value={selectedModelId}
-                        onChange={(e) => setSelectedModelId(e.target.value)}
-                        placeholder="搜索/选择模型（支持直接粘贴模型 ID）"
-                        list="openakita_model_options"
-                      />
-                      <datalist id="openakita_model_options">
-                        {models.map((m) => (
-                          <option key={m.id} value={m.id} />
-                        ))}
-                      </datalist>
-                      <div className="help" style={{ marginTop: 6 }}>
-                        已拉取 <b>{models.length}</b> 个模型
-                      </div>
-                    </div>
+                    <SearchSelect
+                      value={selectedModelId}
+                      onChange={(v) => setSelectedModelId(v)}
+                      options={models.map((m) => m.id)}
+                      placeholder="搜索/选择模型（可下拉、可输入、可粘贴）"
+                      disabled={!!busy}
+                    />
                     <button className="btnPrimary" onClick={doSaveEndpoint} disabled={!currentWorkspaceId || !!busy}>
                       {isEditingEndpoint ? "保存修改" : "追加写入端点配置"}
                     </button>
@@ -1864,8 +2576,244 @@ export function App() {
             </div>
           ) : null}
 
-          <div className="okBox">下一步：进入“工具与集成”，把 IM/MCP/桌面/代理等配置一次性写入工作区 .env。</div>
+          <div className="okBox">下一步：进入“IM 通道”，按需启用 Telegram/飞书/企业微信等。</div>
         </div>
+        {llmNextModalOpen ? (
+          <div
+            onClick={() => setLlmNextModalOpen(false)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.24)",
+              zIndex: 9999,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 24,
+            }}
+          >
+            <div className="card" onClick={(e) => e.stopPropagation()} style={{ width: 720, maxWidth: "100%" }}>
+              <div className="row" style={{ justifyContent: "space-between" }}>
+                <div>
+                  <div className="cardTitle">已存在端点，是否继续？</div>
+                  <div className="cardHint">
+                    当前工作区已配置 <b>{savedEndpoints.length}</b> 个 LLM 端点。
+                    <br />
+                    你可以继续下一步（不新增端点），也可以留在本页继续新增/调整端点。
+                  </div>
+                </div>
+                <div className="btnRow">
+                  <button onClick={() => setLlmNextModalOpen(false)} disabled={!!busy}>
+                    关闭
+                  </button>
+                </div>
+              </div>
+              <div className="divider" />
+              <div className="btnRow" style={{ justifyContent: "flex-end" }}>
+                <button
+                  onClick={() => {
+                    setLlmNextModalOpen(false);
+                  }}
+                  disabled={!!busy}
+                >
+                  留在本页新增端点
+                </button>
+                <button
+                  className="btnPrimary"
+                  onClick={() => {
+                    setLlmNextModalOpen(false);
+                    setStepId(steps[Math.min(currentStepIdx + 1, steps.length - 1)].id);
+                  }}
+                  disabled={!!busy}
+                >
+                  继续下一步
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {editModalOpen && editDraft ? (
+          <div
+            onClick={() => resetEndpointEditor()}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.24)",
+              zIndex: 9999,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 24,
+            }}
+          >
+            <div
+              className="card"
+              onClick={(e) => e.stopPropagation()}
+              style={{ width: 920, maxWidth: "100%", maxHeight: "90vh", overflow: "auto" }}
+            >
+              <div className="row" style={{ justifyContent: "space-between" }}>
+                <div>
+                  <div className="cardTitle">编辑端点</div>
+                  <div className="cardHint">编辑不会自动改动 API Key 值；如需更新请在下方填写。</div>
+                </div>
+                <div className="btnRow">
+                  <button onClick={resetEndpointEditor} disabled={!!busy}>关闭</button>
+                </div>
+              </div>
+              <div className="divider" />
+              <div className="grid2">
+                <div className="field">
+                  <div className="labelRow">
+                    <div className="label">端点名称</div>
+                    <div className="help">必须唯一</div>
+                  </div>
+                  <input value={editDraft.name} onChange={(e) => setEditDraft({ ...editDraft, name: e.target.value })} />
+                </div>
+                <div className="field">
+                  <div className="labelRow">
+                    <div className="label">优先级</div>
+                    <div className="help">越小越优先</div>
+                  </div>
+                  <input value={String(editDraft.priority)} onChange={(e) => setEditDraft({ ...editDraft, priority: Number(e.target.value) })} />
+                </div>
+              </div>
+              <div className="grid2" style={{ marginTop: 10 }}>
+                <div className="field">
+                  <div className="labelRow">
+                    <div className="label">服务商</div>
+                    <div className="help">会影响默认 URL/建议 env</div>
+                  </div>
+                  <select
+                    value={editDraft.providerSlug}
+                    onChange={(e) => {
+                      const slug = e.target.value;
+                      const p = providers.find((x) => x.slug === slug);
+                      const suggested = p?.api_key_env_suggestion || envKeyFromSlug(slug);
+                      const used = new Set(Object.keys(envDraft || {}));
+                      for (const ep of savedEndpoints) if (ep.api_key_env) used.add(ep.api_key_env);
+                      setEditDraft({
+                        ...editDraft,
+                        providerSlug: slug,
+                        apiType: ((p?.api_type as any) || editDraft.apiType) as any,
+                        baseUrl: p?.default_base_url || editDraft.baseUrl,
+                        apiKeyEnv: nextEnvKeyName(suggested, used),
+                      });
+                    }}
+                  >
+                    {providers.map((p) => (
+                      <option key={p.slug} value={p.slug}>
+                        {p.name} ({p.slug})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <div className="labelRow">
+                    <div className="label">协议与 Base URL</div>
+                    <div className="help">可手工改</div>
+                  </div>
+                  <div className="row">
+                    <select value={editDraft.apiType} onChange={(e) => setEditDraft({ ...editDraft, apiType: e.target.value as any })} style={{ width: 160 }}>
+                      <option value="openai">openai</option>
+                      <option value="anthropic">anthropic</option>
+                    </select>
+                    <input value={editDraft.baseUrl} onChange={(e) => setEditDraft({ ...editDraft, baseUrl: e.target.value })} />
+                  </div>
+                </div>
+              </div>
+              <div className="grid2" style={{ marginTop: 10 }}>
+                <div className="field">
+                  <div className="labelRow">
+                    <div className="label">API Key 环境变量名</div>
+                    <div className="help">写入端点的 api_key_env</div>
+                  </div>
+                  <input value={editDraft.apiKeyEnv} onChange={(e) => setEditDraft({ ...editDraft, apiKeyEnv: e.target.value })} />
+                </div>
+                <div className="field">
+                  <div className="labelRow">
+                    <div className="label">API Key 值（可选）</div>
+                    <div className="help">留空则不修改 .env</div>
+                  </div>
+                  <div style={{ position: "relative" }}>
+                    <input
+                      value={editDraft.apiKeyValue}
+                      onChange={(e) => setEditDraft({ ...editDraft, apiKeyValue: e.target.value })}
+                      type={secretShown.__EDIT_API_KEY ? "text" : "password"}
+                      style={{ paddingRight: 78 }}
+                    />
+                    <button
+                      type="button"
+                      className="btnSmall"
+                      onClick={() => setSecretShown((m) => ({ ...m, __EDIT_API_KEY: !m.__EDIT_API_KEY }))}
+                      disabled={!!busy}
+                      style={{
+                        position: "absolute",
+                        right: 8,
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        height: 30,
+                        padding: "0 10px",
+                        borderRadius: 10,
+                      }}
+                    >
+                      {secretShown.__EDIT_API_KEY ? "隐藏" : "显示"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="divider" />
+              <div className="labelRow">
+                <div className="label">模型</div>
+                <div className="help">可搜索/下拉/粘贴</div>
+              </div>
+              <SearchSelect
+                value={editDraft.modelId}
+                onChange={(v) => setEditDraft({ ...editDraft, modelId: v })}
+                options={models.map((m) => m.id)}
+                placeholder="输入或选择模型 ID"
+                disabled={!!busy}
+              />
+              <div className="divider" />
+              <div className="labelRow">
+                <div className="label">模型能力</div>
+                <div className="help">可手工调整</div>
+              </div>
+              <div className="btnRow" style={{ flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+                {[
+                  { k: "text", name: "文本" },
+                  { k: "thinking", name: "思考" },
+                  { k: "vision", name: "图片" },
+                  { k: "video", name: "视频" },
+                  { k: "tools", name: "原生工具" },
+                ].map((c) => {
+                  const on = editDraft.caps.includes(c.k);
+                  return (
+                    <button
+                      key={c.k}
+                      className={on ? "btnPrimary" : ""}
+                      onClick={() => {
+                        const set = new Set(editDraft.caps);
+                        if (set.has(c.k)) set.delete(c.k);
+                        else set.add(c.k);
+                        const out = Array.from(set);
+                        setEditDraft({ ...editDraft, caps: out.length ? out : ["text"] });
+                      }}
+                      disabled={!!busy}
+                    >
+                      {on ? "✓ " : ""}
+                      {c.name}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="divider" />
+              <div className="btnRow" style={{ justifyContent: "flex-end" }}>
+                <button onClick={resetEndpointEditor} disabled={!!busy}>取消</button>
+                <button className="btnPrimary" onClick={doSaveEditedEndpoint} disabled={!!busy}>保存</button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </>
     );
   }
@@ -1883,18 +2831,42 @@ export function App() {
     help?: string;
     type?: "text" | "password";
   }) {
+    const isSecret = (type || "text") === "password";
+    const shown = !!secretShown[k];
     return (
       <div className="field">
         <div className="labelRow">
           <div className="label">{label}</div>
           {k ? <div className="help">{k}</div> : null}
         </div>
-        <input
-          value={envGet(envDraft, k)}
-          onChange={(e) => setEnvDraft((m) => envSet(m, k, e.target.value))}
-          placeholder={placeholder}
-          type={type || "text"}
-        />
+        <div style={{ position: "relative" }}>
+          <input
+            value={envGet(envDraft, k)}
+            onChange={(e) => setEnvDraft((m) => envSet(m, k, e.target.value))}
+            placeholder={placeholder}
+            type={isSecret ? (shown ? "text" : "password") : "text"}
+            style={isSecret ? { paddingRight: 78 } : undefined}
+          />
+          {isSecret ? (
+            <button
+              type="button"
+              className="btnSmall"
+              onClick={() => setSecretShown((m) => ({ ...m, [k]: !m[k] }))}
+              disabled={!!busy}
+              style={{
+                position: "absolute",
+                right: 8,
+                top: "50%",
+                transform: "translateY(-50%)",
+                height: 30,
+                padding: "0 10px",
+                borderRadius: 10,
+              }}
+            >
+              {shown ? "隐藏" : "显示"}
+            </button>
+          ) : null}
+        </div>
         {help ? <div className="help">{help}</div> : null}
       </div>
     );
@@ -1939,35 +2911,527 @@ export function App() {
     }
   }
 
-  function renderIntegrations() {
-    const keysCore = [
-      // LLM envs (optional, referenced by endpoints)
-      "ANTHROPIC_API_KEY",
-      "ANTHROPIC_BASE_URL",
-      "YUNWU_API_KEY",
-      "KIMI_API_KEY",
-      "KIMI_BASE_URL",
-      "KIMI_MODEL",
-      "DASHSCOPE_API_KEY",
-      "DASHSCOPE_BASE_URL",
-      "DASHSCOPE_MODEL",
-      "DASHSCOPE_IMAGE_API_URL",
-      "MINIMAX_API_KEY",
-      "MINIMAX_BASE_URL",
-      "MINIMAX_MODEL",
-      "DEEPSEEK_API_KEY",
-      "OPENROUTER_API_KEY",
-      "SILICONFLOW_API_KEY",
-      "LLM_ENDPOINTS_CONFIG",
+  function renderIM() {
+    const keysIM = [
+      "TELEGRAM_ENABLED",
+      "TELEGRAM_BOT_TOKEN",
+      "TELEGRAM_PROXY",
+      "FEISHU_ENABLED",
+      "FEISHU_APP_ID",
+      "FEISHU_APP_SECRET",
+      "WEWORK_ENABLED",
+      "WEWORK_CORP_ID",
+      "WEWORK_AGENT_ID",
+      "WEWORK_SECRET",
+      "DINGTALK_ENABLED",
+      "DINGTALK_APP_KEY",
+      "DINGTALK_APP_SECRET",
+      "QQ_ENABLED",
+      "QQ_ONEBOT_URL",
+    ];
+
+    return (
+      <>
+        <div className="card">
+          <div className="cardTitle">IM 通道</div>
+          <div className="cardHint">默认折叠显示。选择“启用”后展开填写信息（上下排列）。</div>
+          <div className="divider" />
+
+          {[
+            {
+              title: "Telegram",
+              enabledKey: "TELEGRAM_ENABLED",
+              apply: "https://t.me/BotFather",
+              body: (
+                <>
+                  <FieldText k="TELEGRAM_BOT_TOKEN" label="Bot Token（必填）" placeholder="从 BotFather 获取（仅会显示一次）" type="password" />
+                  <FieldText k="TELEGRAM_PROXY" label="代理（可选）" placeholder="http://127.0.0.1:7890 / socks5://..." />
+                </>
+              ),
+            },
+            {
+              title: "飞书（需要 openakita[feishu]）",
+              enabledKey: "FEISHU_ENABLED",
+              apply: "https://open.feishu.cn/",
+              body: (
+                <>
+                  <FieldText k="FEISHU_APP_ID" label="App ID（必填）" placeholder="" />
+                  <FieldText k="FEISHU_APP_SECRET" label="App Secret（必填）" placeholder="" type="password" />
+                </>
+              ),
+            },
+            {
+              title: "企业微信",
+              enabledKey: "WEWORK_ENABLED",
+              apply: "https://work.weixin.qq.com/",
+              body: (
+                <>
+                  <FieldText k="WEWORK_CORP_ID" label="Corp ID（必填）" />
+                  <FieldText k="WEWORK_AGENT_ID" label="Agent ID（必填）" />
+                  <FieldText k="WEWORK_SECRET" label="Secret（必填）" type="password" />
+                </>
+              ),
+            },
+            {
+              title: "钉钉",
+              enabledKey: "DINGTALK_ENABLED",
+              apply: "https://open.dingtalk.com/",
+              body: (
+                <>
+                  <FieldText k="DINGTALK_APP_KEY" label="App Key（必填）" />
+                  <FieldText k="DINGTALK_APP_SECRET" label="App Secret（必填）" type="password" />
+                </>
+              ),
+            },
+            {
+              title: "QQ（OneBot）",
+              enabledKey: "QQ_ENABLED",
+              apply: "https://github.com/botuniverse/onebot-11",
+              body: <FieldText k="QQ_ONEBOT_URL" label="OneBot WebSocket URL（必填）" placeholder="ws://127.0.0.1:8080" />,
+            },
+          ].map((c) => {
+            const enabled = envGet(envDraft, c.enabledKey, "false").toLowerCase() === "true";
+            return (
+              <div key={c.enabledKey} className="card" style={{ marginTop: 10 }}>
+                <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                  <div className="label" style={{ marginBottom: 0 }}>
+                    {c.title}
+                  </div>
+                  <label className="pill" style={{ cursor: "pointer", userSelect: "none" }}>
+                    <input
+                      style={{ width: 16, height: 16 }}
+                      type="checkbox"
+                      checked={enabled}
+                      onChange={(e) => setEnvDraft((m) => envSet(m, c.enabledKey, String(e.target.checked)))}
+                    />
+                    启用
+                  </label>
+                </div>
+                <div className="help" style={{ marginTop: 8 }}>
+                  申请/文档：<a href={c.apply}>{c.apply}</a>
+                </div>
+                {enabled ? (
+                  <>
+                    <div className="divider" />
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{c.body}</div>
+                  </>
+                ) : (
+                  <div className="cardHint" style={{ marginTop: 8 }}>
+                    未启用：保持折叠。
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          <div className="btnRow" style={{ marginTop: 14 }}>
+            <button
+              className="btnPrimary"
+              onClick={() => renderIntegrationsSave(keysIM, "已写入工作区 .env（IM 通道）")}
+              disabled={!currentWorkspaceId || !!busy}
+            >
+              保存 IM 配置到工作区 .env
+            </button>
+          </div>
+          <div className="cardHint" style={{ marginTop: 8 }}>
+            只会写入你实际填写/修改过的键；清空后保存会从 `.env` 删除该键（可选项不填就不会写入）。
+          </div>
+          <div className="okBox">下一步：进入“工具与技能”，配置 Skills / MCP / 桌面自动化。</div>
+        </div>
+      </>
+    );
+  }
+
+  function renderTools() {
+    const keysTools = [
       // network/proxy
       "HTTP_PROXY",
       "HTTPS_PROXY",
       "ALL_PROXY",
       "FORCE_IPV4",
-      // basic model defaults
-      "DEFAULT_MODEL",
-      "MAX_TOKENS",
+      "TOOL_MAX_PARALLEL",
+      // MCP
+      "MCP_ENABLED",
+      "MCP_TIMEOUT",
+      "MCP_BROWSER_ENABLED",
+      "MCP_MYSQL_ENABLED",
+      "MCP_MYSQL_HOST",
+      "MCP_MYSQL_USER",
+      "MCP_MYSQL_PASSWORD",
+      "MCP_MYSQL_DATABASE",
+      "MCP_POSTGRES_ENABLED",
+      "MCP_POSTGRES_URL",
+      // Desktop automation
+      "DESKTOP_ENABLED",
+      "DESKTOP_DEFAULT_MONITOR",
+      "DESKTOP_COMPRESSION_QUALITY",
+      "DESKTOP_MAX_WIDTH",
+      "DESKTOP_MAX_HEIGHT",
+      "DESKTOP_CACHE_TTL",
+      "DESKTOP_UIA_TIMEOUT",
+      "DESKTOP_UIA_RETRY_INTERVAL",
+      "DESKTOP_UIA_MAX_RETRIES",
+      "DESKTOP_VISION_ENABLED",
+      "DESKTOP_VISION_MODEL",
+      "DESKTOP_VISION_FALLBACK_MODEL",
+      "DESKTOP_VISION_OCR_MODEL",
+      "DESKTOP_VISION_MAX_RETRIES",
+      "DESKTOP_VISION_TIMEOUT",
+      "DESKTOP_CLICK_DELAY",
+      "DESKTOP_TYPE_INTERVAL",
+      "DESKTOP_MOVE_DURATION",
+      "DESKTOP_FAILSAFE",
+      "DESKTOP_PAUSE",
+      "DESKTOP_LOG_ACTIONS",
+      "DESKTOP_LOG_SCREENSHOTS",
+      "DESKTOP_LOG_DIR",
+      // voice / github
+      "WHISPER_MODEL",
+      "GITHUB_TOKEN",
+    ];
+
+    const list = skillsDetail || [];
+    const systemSkills = list.filter((s) => !!s.system);
+    const externalSkills = list.filter((s) => !s.system);
+
+    return (
+      <>
+        <div className="card">
+          <div className="cardTitle">工具与技能</div>
+          <div className="cardHint">这里配置 Skills（可启用/禁用）以及 MCP / 桌面自动化 / 代理等。</div>
+          <div className="divider" />
+
+          <div className="card" style={{ marginTop: 0 }}>
+            <div className="cardTitle" style={{ fontSize: 14, marginBottom: 6 }}>
+              Skills（系统技能默认启用；外部技能可选）
+            </div>
+            <div className="cardHint">
+              系统技能（system）默认启用且不可关闭；外部技能由你选择是否启用。
+              <br />
+              保存后会写入工作区 `data/skills.json`，并在运行时生效。
+            </div>
+            <div className="divider" />
+            <div className="btnRow" style={{ justifyContent: "flex-start" }}>
+              <button
+                onClick={() => {
+                  if (!skillsDetail) return;
+                  setSkillsTouched(true);
+                  const m: Record<string, boolean> = {};
+                  for (const s of skillsDetail) m[s.name] = true;
+                  setSkillsSelection(m);
+                }}
+                disabled={!skillsDetail || !!busy}
+              >
+                启用全部外部技能
+              </button>
+              <button
+                onClick={() => {
+                  if (!skillsDetail) return;
+                  setSkillsTouched(true);
+                  const m: Record<string, boolean> = {};
+                  for (const s of skillsDetail) m[s.name] = !!s.system;
+                  setSkillsSelection(m);
+                }}
+                disabled={!skillsDetail || !!busy}
+              >
+                仅启用系统技能
+              </button>
+              <button onClick={doRefreshSkills} disabled={!currentWorkspaceId || !!busy}>
+                刷新 skills 列表
+              </button>
+              <button className="btnPrimary" onClick={doSaveSkillsSelection} disabled={!currentWorkspaceId || !skillsDetail || !!busy}>
+                保存 skills 启用状态
+              </button>
+            </div>
+
+            {!skillsDetail ? (
+              <div className="cardHint" style={{ marginTop: 10 }}>
+                未读取到 skills（通常是 venv 未安装 openakita 或尚未完成“安装”步骤）。完成安装后点击“刷新 skills 列表”。
+              </div>
+            ) : (
+              <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                <div className="label">系统技能（{systemSkills.length}）</div>
+                {systemSkills.length === 0 ? (
+                  <div className="cardHint">无</div>
+                ) : (
+                  systemSkills.map((s) => (
+                    <div key={s.name} className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                      <div>
+                        <b>{s.name}</b> <span className="pill">system</span>
+                        <div className="help">{s.description}</div>
+                      </div>
+                      <label className="pill" style={{ opacity: 0.75 }}>
+                        已启用
+                      </label>
+                    </div>
+                  ))
+                )}
+
+                <div className="divider" />
+                <div className="label">外部技能（{externalSkills.length}）</div>
+                {externalSkills.length === 0 ? (
+                  <div className="cardHint">无（把外部技能放在工作区 `skills/` 或 `.cursor/skills/` 等目录里即可被扫描到）</div>
+                ) : (
+                  externalSkills.map((s) => {
+                    const on = !!skillsSelection[s.name];
+                    return (
+                      <div key={s.name} className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                        <div style={{ flex: "1 1 auto", paddingRight: 12 }}>
+                          <b>{s.name}</b>
+                          <div className="help">{s.description}</div>
+                        </div>
+                        <label className="pill" style={{ cursor: "pointer", userSelect: "none" }}>
+                          <input
+                            style={{ width: 16, height: 16 }}
+                            type="checkbox"
+                            checked={on}
+                            onChange={(e) => {
+                              setSkillsTouched(true);
+                              const v = e.target.checked;
+                              setSkillsSelection((m) => ({ ...m, [s.name]: v }));
+                            }}
+                          />
+                          启用
+                        </label>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="card" style={{ marginTop: 0 }}>
+            <div className="cardTitle" style={{ fontSize: 14, marginBottom: 6 }}>
+              网络代理与并行
+            </div>
+            <div className="grid3">
+              <FieldText k="HTTP_PROXY" label="HTTP_PROXY" placeholder="http://127.0.0.1:7890" />
+              <FieldText k="HTTPS_PROXY" label="HTTPS_PROXY" placeholder="http://127.0.0.1:7890" />
+              <FieldText k="ALL_PROXY" label="ALL_PROXY" placeholder="socks5://127.0.0.1:1080" />
+            </div>
+            <div className="grid3" style={{ marginTop: 10 }}>
+              <FieldBool k="FORCE_IPV4" label="强制 IPv4" help="某些 VPN/IPv6 环境下有用" />
+              <FieldText k="TOOL_MAX_PARALLEL" label="TOOL_MAX_PARALLEL" placeholder="1" help="单轮多工具并行数（默认 1=串行）" />
+              <FieldText k="WHISPER_MODEL" label="WHISPER_MODEL" placeholder="base" help="tiny/base/small/medium/large" />
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="cardTitle" style={{ fontSize: 14, marginBottom: 6 }}>
+              MCP / 桌面自动化 / GitHub
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div className="card" style={{ marginTop: 0, width: "100%" }}>
+                <div className="label" style={{ marginBottom: 8 }}>
+                  MCP
+                </div>
+                <FieldBool k="MCP_ENABLED" label="启用 MCP" help="连接外部 MCP 服务/工具" />
+                <div className="grid2" style={{ marginTop: 10, maxWidth: 900 }}>
+                  <FieldBool k="MCP_BROWSER_ENABLED" label="Browser MCP" help="Playwright 浏览器自动化" />
+                  <FieldText k="MCP_TIMEOUT" label="MCP_TIMEOUT" placeholder="60" />
+                </div>
+                <div className="divider" />
+                <FieldBool k="MCP_MYSQL_ENABLED" label="MySQL MCP" />
+                <div className="grid2" style={{ marginTop: 10, maxWidth: 900 }}>
+                  <FieldText k="MCP_MYSQL_HOST" label="MCP_MYSQL_HOST" placeholder="localhost" />
+                  <FieldText k="MCP_MYSQL_USER" label="MCP_MYSQL_USER" placeholder="root" />
+                  <FieldText k="MCP_MYSQL_PASSWORD" label="MCP_MYSQL_PASSWORD" type="password" />
+                  <FieldText k="MCP_MYSQL_DATABASE" label="MCP_MYSQL_DATABASE" placeholder="mydb" />
+                </div>
+                <div className="divider" />
+                <FieldBool k="MCP_POSTGRES_ENABLED" label="Postgres MCP" />
+                <FieldText k="MCP_POSTGRES_URL" label="MCP_POSTGRES_URL" placeholder="postgresql://user:pass@localhost/db" />
+              </div>
+
+              <div className="card" style={{ marginTop: 0, width: "100%" }}>
+                <div className="label" style={{ marginBottom: 8 }}>
+                  桌面自动化（Windows）
+                </div>
+                <FieldBool k="DESKTOP_ENABLED" label="启用桌面工具" help="启用/禁用桌面自动化工具集" />
+                <div className="divider" />
+                <div className="grid3">
+                  <FieldText k="DESKTOP_DEFAULT_MONITOR" label="默认显示器" placeholder="0" />
+                  <FieldText k="DESKTOP_MAX_WIDTH" label="最大宽" placeholder="1920" />
+                  <FieldText k="DESKTOP_MAX_HEIGHT" label="最大高" placeholder="1080" />
+                </div>
+                <div className="grid3" style={{ marginTop: 10 }}>
+                  <FieldText k="DESKTOP_COMPRESSION_QUALITY" label="压缩质量" placeholder="85" />
+                  <FieldText k="DESKTOP_CACHE_TTL" label="截图缓存秒" placeholder="1.0" />
+                  <FieldBool k="DESKTOP_FAILSAFE" label="failsafe" help="鼠标移到角落中止（PyAutoGUI 风格）" />
+                </div>
+                <div className="divider" />
+                <FieldBool k="DESKTOP_VISION_ENABLED" label="启用视觉" help="用于屏幕理解/定位" />
+                <div className="grid2" style={{ marginTop: 10, maxWidth: 900 }}>
+                  <FieldText k="DESKTOP_VISION_MODEL" label="视觉模型" placeholder="qwen3-vl-plus" />
+                  <FieldText k="DESKTOP_VISION_OCR_MODEL" label="OCR 模型" placeholder="qwen-vl-ocr" />
+                </div>
+                <div className="grid3" style={{ marginTop: 10 }}>
+                  <FieldText k="DESKTOP_CLICK_DELAY" label="click_delay" placeholder="0.1" />
+                  <FieldText k="DESKTOP_TYPE_INTERVAL" label="type_interval" placeholder="0.03" />
+                  <FieldText k="DESKTOP_MOVE_DURATION" label="move_duration" placeholder="0.15" />
+                </div>
+              </div>
+            </div>
+
+            <div className="divider" />
+            <div className="grid3">
+              <FieldText k="GITHUB_TOKEN" label="GITHUB_TOKEN" placeholder="" type="password" help="用于搜索/下载技能" />
+            </div>
+          </div>
+
+          <div className="btnRow">
+            <button
+              className="btnPrimary"
+              onClick={() => renderIntegrationsSave(keysTools, "已写入工作区 .env（工具 / MCP / 桌面 / 代理）")}
+              disabled={!currentWorkspaceId || !!busy}
+            >
+              保存工具配置到工作区 .env
+            </button>
+          </div>
+          <div className="cardHint" style={{ marginTop: 8 }}>
+            只会写入你实际填写/修改过的键；清空后保存会从 `.env` 删除该键（可选项不填就不会写入）。
+          </div>
+          <div className="okBox">下一步：进入“Agent 与系统”，把调度/记忆/会话等跑起来。</div>
+        </div>
+      </>
+    );
+  }
+
+  function renderAgentSystem() {
+    const keysAgent = [
       // agent
+      "AGENT_NAME",
+      "MAX_ITERATIONS",
+      "AUTO_CONFIRM",
+      // timeouts
+      "PROGRESS_TIMEOUT_SECONDS",
+      "HARD_TIMEOUT_SECONDS",
+      // logging/db
+      "DATABASE_PATH",
+      "LOG_LEVEL",
+      // memory / embedding
+      "EMBEDDING_MODEL",
+      "EMBEDDING_DEVICE",
+      "MEMORY_HISTORY_DAYS",
+      "MEMORY_MAX_HISTORY_FILES",
+      "MEMORY_MAX_HISTORY_SIZE_MB",
+      // scheduler
+      "SCHEDULER_ENABLED",
+      "SCHEDULER_TIMEZONE",
+      "SCHEDULER_MAX_CONCURRENT",
+      "SCHEDULER_TASK_TIMEOUT",
+      // session
+      "SESSION_TIMEOUT_MINUTES",
+      "SESSION_MAX_HISTORY",
+      // orchestration
+      "ORCHESTRATION_ENABLED",
+      "ORCHESTRATION_BUS_ADDRESS",
+      "ORCHESTRATION_PUB_ADDRESS",
+      "ORCHESTRATION_MIN_WORKERS",
+      "ORCHESTRATION_MAX_WORKERS",
+      "ORCHESTRATION_HEARTBEAT_INTERVAL",
+      "ORCHESTRATION_HEALTH_CHECK_INTERVAL",
+    ];
+
+    return (
+      <>
+        <div className="card">
+          <div className="cardTitle">Agent 与系统（核心配置）</div>
+          <div className="cardHint">
+            这些是系统内置能力的开关与参数。<b>内置项默认启用</b>（你随时可以关闭）。建议先用默认值跑通，再按需调优。
+          </div>
+          <div className="divider" />
+
+          <details open>
+            <summary style={{ cursor: "pointer", fontWeight: 800, padding: "8px 0" }}>基础</summary>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+              <FieldText k="AGENT_NAME" label="Agent 名称" placeholder="OpenAkita" />
+              <FieldText k="MAX_ITERATIONS" label="最大迭代次数" placeholder="300" />
+              <FieldBool k="AUTO_CONFIRM" label="自动确认（慎用）" help="打开后会减少交互确认，建议只在可信环境中使用" />
+              <FieldText k="DATABASE_PATH" label="数据库路径" placeholder="data/agent.db" />
+              <FieldText k="LOG_LEVEL" label="日志级别" placeholder="INFO" help="DEBUG/INFO/WARNING/ERROR" />
+            </div>
+          </details>
+
+          <div className="divider" />
+          <details>
+            <summary style={{ cursor: "pointer", fontWeight: 800, padding: "8px 0" }}>记忆与 Embedding</summary>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+              <FieldText k="EMBEDDING_MODEL" label="Embedding 模型" placeholder="shibing624/text2vec-base-chinese" />
+              <FieldText k="EMBEDDING_DEVICE" label="Embedding 设备" placeholder="cpu / cuda" />
+              <FieldText k="MEMORY_HISTORY_DAYS" label="历史保留天数" placeholder="30" />
+              <FieldText k="MEMORY_MAX_HISTORY_FILES" label="最大历史文件数" placeholder="1000" />
+              <FieldText k="MEMORY_MAX_HISTORY_SIZE_MB" label="最大历史大小（MB）" placeholder="500" />
+            </div>
+          </details>
+
+          <div className="divider" />
+          <details>
+            <summary style={{ cursor: "pointer", fontWeight: 800, padding: "8px 0" }}>会话</summary>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+              <FieldText k="SESSION_TIMEOUT_MINUTES" label="会话超时（分钟）" placeholder="30" />
+              <FieldText k="SESSION_MAX_HISTORY" label="会话最大历史条数" placeholder="50" />
+            </div>
+          </details>
+
+          <div className="divider" />
+          <details open>
+            <summary style={{ cursor: "pointer", fontWeight: 800, padding: "8px 0" }}>调度器（默认启用）</summary>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+              <label className="pill" style={{ cursor: "pointer", userSelect: "none", alignSelf: "flex-start" }}>
+                <input
+                  style={{ width: 16, height: 16 }}
+                  type="checkbox"
+                  checked={envGet(envDraft, "SCHEDULER_ENABLED", "true").toLowerCase() === "true"}
+                  onChange={(e) => setEnvDraft((m) => envSet(m, "SCHEDULER_ENABLED", String(e.target.checked)))}
+                />
+                启用定时任务调度器（推荐）
+              </label>
+              <FieldText k="SCHEDULER_TIMEZONE" label="时区" placeholder="Asia/Shanghai" />
+              <FieldText k="SCHEDULER_MAX_CONCURRENT" label="最大并发任务数" placeholder="5" />
+              <FieldText k="SCHEDULER_TASK_TIMEOUT" label="任务超时（秒）" placeholder="600" />
+            </div>
+          </details>
+
+          <div className="divider" />
+          <details>
+            <summary style={{ cursor: "pointer", fontWeight: 800, padding: "8px 0" }}>多 Agent 协同（可选）</summary>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+              <FieldBool k="ORCHESTRATION_ENABLED" label="启用多 Agent（Master/Worker）" help="多数用户不需要；开启前建议先完成单 Agent 跑通" />
+              <FieldText k="ORCHESTRATION_BUS_ADDRESS" label="总线地址" placeholder="tcp://127.0.0.1:5555" />
+              <FieldText k="ORCHESTRATION_PUB_ADDRESS" label="广播地址" placeholder="tcp://127.0.0.1:5556" />
+              <FieldText k="ORCHESTRATION_MIN_WORKERS" label="最小 Worker 数" placeholder="1" />
+              <FieldText k="ORCHESTRATION_MAX_WORKERS" label="最大 Worker 数" placeholder="4" />
+            </div>
+          </details>
+
+          <div className="btnRow" style={{ marginTop: 14 }}>
+            <button
+              className="btnPrimary"
+              onClick={() => renderIntegrationsSave(keysAgent, "已写入工作区 .env（Agent 与系统）")}
+              disabled={!currentWorkspaceId || !!busy}
+            >
+              保存 Agent 配置到工作区 .env
+            </button>
+          </div>
+          <div className="cardHint" style={{ marginTop: 8 }}>
+            只会写入你实际填写/修改过的键；清空后保存会从 `.env` 删除该键（可选项不填就不会写入）。
+          </div>
+          <div className="okBox">下一步：进入“完成”，查看运行/发布建议。</div>
+        </div>
+      </>
+    );
+  }
+
+  function renderIntegrations() {
+    const keysCore = [
+      // network/proxy
+      "HTTP_PROXY",
+      "HTTPS_PROXY",
+      "ALL_PROXY",
+      "FORCE_IPV4",
+      // agent (基础)
       "AGENT_NAME",
       "MAX_ITERATIONS",
       "AUTO_CONFIRM",
@@ -1981,7 +3445,7 @@ export function App() {
       // github/whisper
       "GITHUB_TOKEN",
       "WHISPER_MODEL",
-      // memory/embedding
+      // memory / embedding
       "EMBEDDING_MODEL",
       "EMBEDDING_DEVICE",
       "MEMORY_HISTORY_DAYS",
@@ -2067,73 +3531,20 @@ export function App() {
         <div className="card">
           <div className="cardTitle">工具与集成（全覆盖写入 .env）</div>
           <div className="cardHint">
-            这一页会把项目里常用的开关与参数全部集中起来（覆盖 `.env.example` + MCP 文档 + 桌面自动化配置）。你可以分块填写，最后统一写入工作区 `.env`。
+            这一页会把项目里常用的开关与参数集中起来（参考 `examples/.env.example` + MCP 文档 + 桌面自动化配置）。
+            <br />
+            只会写入你实际填写/修改过的键；留空保存会从工作区 `.env` 删除该键（可选项不填就不会落盘）。
           </div>
           <div className="divider" />
 
           <div className="card" style={{ marginTop: 0 }}>
             <div className="cardTitle" style={{ fontSize: 14, marginBottom: 6 }}>
-              LLM 环境变量（可选，但推荐在这里集中管理）
+              LLM（不在这里重复填）
             </div>
             <div className="cardHint">
-              这些 Key 通常会被 `data/llm_endpoints.json` 的 `api_key_env` 引用。你也可以只在“LLM 端点”步骤里写入单个 Key。
-            </div>
-            <div className="divider" />
-            <div className="grid2">
-              <div className="card" style={{ marginTop: 0 }}>
-                <div className="label" style={{ marginBottom: 8 }}>
-                  Anthropic / 云雾中转
-                </div>
-                <FieldText k="ANTHROPIC_API_KEY" label="ANTHROPIC_API_KEY" type="password" />
-                <FieldText k="ANTHROPIC_BASE_URL" label="ANTHROPIC_BASE_URL" placeholder="https://api.anthropic.com" />
-                <div className="divider" />
-                <FieldText k="YUNWU_API_KEY" label="YUNWU_API_KEY" type="password" />
-              </div>
-              <div className="card" style={{ marginTop: 0 }}>
-                <div className="label" style={{ marginBottom: 8 }}>
-                  Kimi / DashScope / 其它
-                </div>
-                <FieldText k="KIMI_API_KEY" label="KIMI_API_KEY" type="password" />
-                <div className="grid2" style={{ marginTop: 10 }}>
-                  <FieldText k="KIMI_BASE_URL" label="KIMI_BASE_URL" placeholder="https://api.moonshot.cn/v1" />
-                  <FieldText k="KIMI_MODEL" label="KIMI_MODEL" placeholder="kimi-k2.5" />
-                </div>
-                <div className="divider" />
-                <FieldText k="DASHSCOPE_API_KEY" label="DASHSCOPE_API_KEY" type="password" />
-                <div className="grid2" style={{ marginTop: 10 }}>
-                  <FieldText k="DASHSCOPE_BASE_URL" label="DASHSCOPE_BASE_URL" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" />
-                  <FieldText k="DASHSCOPE_MODEL" label="DASHSCOPE_MODEL" placeholder="qwen3-max" />
-                </div>
-                <FieldText
-                  k="DASHSCOPE_IMAGE_API_URL"
-                  label="DASHSCOPE_IMAGE_API_URL"
-                  placeholder="https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
-                />
-              </div>
-            </div>
-
-            <div className="grid2" style={{ marginTop: 12 }}>
-              <div className="card" style={{ marginTop: 0 }}>
-                <div className="label" style={{ marginBottom: 8 }}>
-                  MiniMax / DeepSeek
-                </div>
-                <FieldText k="MINIMAX_API_KEY" label="MINIMAX_API_KEY" type="password" />
-                <div className="grid2" style={{ marginTop: 10 }}>
-                  <FieldText k="MINIMAX_BASE_URL" label="MINIMAX_BASE_URL" placeholder="https://api.minimaxi.com/anthropic" />
-                  <FieldText k="MINIMAX_MODEL" label="MINIMAX_MODEL" placeholder="MiniMax-M2.1" />
-                </div>
-                <div className="divider" />
-                <FieldText k="DEEPSEEK_API_KEY" label="DEEPSEEK_API_KEY" type="password" />
-              </div>
-              <div className="card" style={{ marginTop: 0 }}>
-                <div className="label" style={{ marginBottom: 8 }}>
-                  OpenRouter / SiliconFlow / 自定义端点文件
-                </div>
-                <FieldText k="OPENROUTER_API_KEY" label="OPENROUTER_API_KEY" type="password" />
-                <FieldText k="SILICONFLOW_API_KEY" label="SILICONFLOW_API_KEY" type="password" />
-                <div className="divider" />
-                <FieldText k="LLM_ENDPOINTS_CONFIG" label="LLM_ENDPOINTS_CONFIG" placeholder="data/llm_endpoints.json" help="默认无需改；用于自定义端点配置文件位置" />
-              </div>
+              LLM 的 API Key / Base URL / 模型选择，统一在上一步“LLM 端点”里完成：端点会写入 `data/llm_endpoints.json`，并把对应 `api_key_env` 写入工作区 `.env`。
+              <br />
+              这里主要管理 IM / MCP / 桌面自动化 / Agent/调度 等“运行期开关与参数”。
             </div>
           </div>
 
@@ -2157,59 +3568,97 @@ export function App() {
             <div className="cardTitle" style={{ fontSize: 14, marginBottom: 6 }}>
               IM 通道
             </div>
-            <div className="grid2">
-              <div className="card" style={{ marginTop: 0 }}>
-                <div className="label" style={{ marginBottom: 8 }}>
-                  Telegram
-                </div>
-                <FieldBool k="TELEGRAM_ENABLED" label="启用 Telegram" />
-                <div className="divider" />
-                <FieldText k="TELEGRAM_BOT_TOKEN" label="Bot Token" placeholder="your-telegram-bot-token" type="password" />
-                <FieldText k="TELEGRAM_PROXY" label="Proxy（可选）" placeholder="http://127.0.0.1:7890 / socks5://..." />
-                <div className="help">
-                  申请指南：<a href="https://t.me/BotFather">https://t.me/BotFather</a>
-                </div>
-              </div>
-
-              <div className="card" style={{ marginTop: 0 }}>
-                <div className="label" style={{ marginBottom: 8 }}>
-                  飞书（extra: openakita[feishu]）
-                </div>
-                <FieldBool k="FEISHU_ENABLED" label="启用飞书" />
-                <div className="divider" />
-                <FieldText k="FEISHU_APP_ID" label="APP_ID" placeholder="" />
-                <FieldText k="FEISHU_APP_SECRET" label="APP_SECRET" placeholder="" type="password" />
-              </div>
+            <div className="cardHint">
+              默认折叠显示。选择“启用”后展开填写信息（上下排列）。建议先把 LLM 端点配置好，再回来启用 IM。
             </div>
+            <div className="divider" />
 
-            <div className="grid2" style={{ marginTop: 12 }}>
-              <div className="card" style={{ marginTop: 0 }}>
-                <div className="label" style={{ marginBottom: 8 }}>
-                  企业微信
+            {[
+              {
+                title: "Telegram",
+                enabledKey: "TELEGRAM_ENABLED",
+                apply: "https://t.me/BotFather",
+                body: (
+                  <>
+                    <FieldText k="TELEGRAM_BOT_TOKEN" label="Bot Token" placeholder="从 BotFather 获取（仅会显示一次）" type="password" />
+                    <FieldText k="TELEGRAM_PROXY" label="代理（可选）" placeholder="http://127.0.0.1:7890 / socks5://..." />
+                  </>
+                ),
+              },
+              {
+                title: "飞书（需要 openakita[feishu]）",
+                enabledKey: "FEISHU_ENABLED",
+                apply: "https://open.feishu.cn/",
+                body: (
+                  <>
+                    <FieldText k="FEISHU_APP_ID" label="App ID" placeholder="" />
+                    <FieldText k="FEISHU_APP_SECRET" label="App Secret" placeholder="" type="password" />
+                  </>
+                ),
+              },
+              {
+                title: "企业微信",
+                enabledKey: "WEWORK_ENABLED",
+                apply: "https://work.weixin.qq.com/",
+                body: (
+                  <>
+                    <FieldText k="WEWORK_CORP_ID" label="Corp ID" />
+                    <FieldText k="WEWORK_AGENT_ID" label="Agent ID" />
+                    <FieldText k="WEWORK_SECRET" label="Secret" type="password" />
+                  </>
+                ),
+              },
+              {
+                title: "钉钉",
+                enabledKey: "DINGTALK_ENABLED",
+                apply: "https://open.dingtalk.com/",
+                body: (
+                  <>
+                    <FieldText k="DINGTALK_APP_KEY" label="App Key" />
+                    <FieldText k="DINGTALK_APP_SECRET" label="App Secret" type="password" />
+                  </>
+                ),
+              },
+              {
+                title: "QQ（OneBot）",
+                enabledKey: "QQ_ENABLED",
+                apply: "https://github.com/botuniverse/onebot-11",
+                body: <FieldText k="QQ_ONEBOT_URL" label="OneBot WebSocket URL" placeholder="ws://127.0.0.1:8080" />,
+              },
+            ].map((c) => {
+              const enabled = envGet(envDraft, c.enabledKey, "false").toLowerCase() === "true";
+              return (
+                <div key={c.enabledKey} className="card" style={{ marginTop: 10 }}>
+                  <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                    <div className="label" style={{ marginBottom: 0 }}>
+                      {c.title}
+                    </div>
+                    <label className="pill" style={{ cursor: "pointer", userSelect: "none" }}>
+                      <input
+                        style={{ width: 16, height: 16 }}
+                        type="checkbox"
+                        checked={enabled}
+                        onChange={(e) => setEnvDraft((m) => envSet(m, c.enabledKey, String(e.target.checked)))}
+                      />
+                      启用
+                    </label>
+                  </div>
+                  <div className="help" style={{ marginTop: 8 }}>
+                    申请/文档：<a href={c.apply}>{c.apply}</a>
+                  </div>
+                  {enabled ? (
+                    <>
+                      <div className="divider" />
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{c.body}</div>
+                    </>
+                  ) : (
+                    <div className="cardHint" style={{ marginTop: 8 }}>
+                      未启用：保持折叠。
+                    </div>
+                  )}
                 </div>
-                <FieldBool k="WEWORK_ENABLED" label="启用企业微信" />
-                <div className="divider" />
-                <div className="grid3">
-                  <FieldText k="WEWORK_CORP_ID" label="CORP_ID" />
-                  <FieldText k="WEWORK_AGENT_ID" label="AGENT_ID" />
-                  <FieldText k="WEWORK_SECRET" label="SECRET" type="password" />
-                </div>
-              </div>
-
-              <div className="card" style={{ marginTop: 0 }}>
-                <div className="label" style={{ marginBottom: 8 }}>
-                  钉钉 / QQ(OneBot)
-                </div>
-                <FieldBool k="DINGTALK_ENABLED" label="启用钉钉" />
-                <div className="grid2" style={{ marginTop: 10 }}>
-                  <FieldText k="DINGTALK_APP_KEY" label="DINGTALK_APP_KEY" />
-                  <FieldText k="DINGTALK_APP_SECRET" label="DINGTALK_APP_SECRET" type="password" />
-                </div>
-                <div className="divider" />
-                <FieldBool k="QQ_ENABLED" label="启用 QQ（OneBot）" />
-                <FieldText k="QQ_ONEBOT_URL" label="QQ_ONEBOT_URL" placeholder="ws://127.0.0.1:8080" />
-              </div>
-            </div>
+              );
+            })}
           </div>
 
           <div className="card">
@@ -2279,35 +3728,75 @@ export function App() {
 
           <div className="card">
             <div className="cardTitle" style={{ fontSize: 14, marginBottom: 6 }}>
-              Agent / 记忆 / 调度 / 多 Agent
+              Agent 与系统（核心配置）
             </div>
-            <div className="grid3">
-              <FieldText k="AGENT_NAME" label="AGENT_NAME" placeholder="OpenAkita" />
-              <FieldText k="MAX_ITERATIONS" label="MAX_ITERATIONS" placeholder="300" />
-              <FieldBool k="AUTO_CONFIRM" label="AUTO_CONFIRM" help="自动确认（慎用）" />
+            <div className="cardHint">
+              这些是系统内置能力的开关与参数。<b>内置项默认启用</b>（你随时可以关闭）。建议先用默认值跑通，再按需调优。
             </div>
             <div className="divider" />
-            <div className="grid3">
-              <FieldText k="EMBEDDING_MODEL" label="EMBEDDING_MODEL" placeholder="shibing624/text2vec-base-chinese" />
-              <FieldText k="EMBEDDING_DEVICE" label="EMBEDDING_DEVICE" placeholder="cpu / cuda" />
-              <FieldText k="MEMORY_HISTORY_DAYS" label="MEMORY_HISTORY_DAYS" placeholder="30" />
-            </div>
-            <div className="grid3" style={{ marginTop: 10 }}>
-              <FieldText k="MEMORY_MAX_HISTORY_FILES" label="MEMORY_MAX_HISTORY_FILES" placeholder="1000" />
-              <FieldText k="MEMORY_MAX_HISTORY_SIZE_MB" label="MEMORY_MAX_HISTORY_SIZE_MB" placeholder="500" />
-              <FieldText k="SESSION_MAX_HISTORY" label="SESSION_MAX_HISTORY" placeholder="50" />
-            </div>
+
+            <details open>
+              <summary style={{ cursor: "pointer", fontWeight: 800, padding: "8px 0" }}>基础</summary>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+                <FieldText k="AGENT_NAME" label="Agent 名称" placeholder="OpenAkita" />
+                <FieldText k="MAX_ITERATIONS" label="最大迭代次数" placeholder="300" />
+                <FieldBool k="AUTO_CONFIRM" label="自动确认（慎用）" help="打开后会减少交互确认，建议只在可信环境中使用" />
+                <FieldText k="DATABASE_PATH" label="数据库路径" placeholder="data/agent.db" />
+                <FieldText k="LOG_LEVEL" label="日志级别" placeholder="INFO" help="DEBUG/INFO/WARNING/ERROR" />
+              </div>
+            </details>
+
             <div className="divider" />
-            <div className="grid3">
-              <FieldBool k="SCHEDULER_ENABLED" label="SCHEDULER_ENABLED" />
-              <FieldText k="SCHEDULER_TIMEZONE" label="SCHEDULER_TIMEZONE" placeholder="Asia/Shanghai" />
-              <FieldText k="SCHEDULER_MAX_CONCURRENT" label="SCHEDULER_MAX_CONCURRENT" placeholder="5" />
-            </div>
-            <div className="grid3" style={{ marginTop: 10 }}>
-              <FieldBool k="ORCHESTRATION_ENABLED" label="ORCHESTRATION_ENABLED" help="Master/Worker 架构" />
-              <FieldText k="ORCHESTRATION_BUS_ADDRESS" label="BUS_ADDRESS" placeholder="tcp://127.0.0.1:5555" />
-              <FieldText k="ORCHESTRATION_PUB_ADDRESS" label="PUB_ADDRESS" placeholder="tcp://127.0.0.1:5556" />
-            </div>
+            <details>
+              <summary style={{ cursor: "pointer", fontWeight: 800, padding: "8px 0" }}>记忆与 Embedding</summary>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+                <FieldText k="EMBEDDING_MODEL" label="Embedding 模型" placeholder="shibing624/text2vec-base-chinese" />
+                <FieldText k="EMBEDDING_DEVICE" label="Embedding 设备" placeholder="cpu / cuda" />
+                <FieldText k="MEMORY_HISTORY_DAYS" label="历史保留天数" placeholder="30" />
+                <FieldText k="MEMORY_MAX_HISTORY_FILES" label="最大历史文件数" placeholder="1000" />
+                <FieldText k="MEMORY_MAX_HISTORY_SIZE_MB" label="最大历史大小（MB）" placeholder="500" />
+              </div>
+            </details>
+
+            <div className="divider" />
+            <details>
+              <summary style={{ cursor: "pointer", fontWeight: 800, padding: "8px 0" }}>会话</summary>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+                <FieldText k="SESSION_TIMEOUT_MINUTES" label="会话超时（分钟）" placeholder="30" />
+                <FieldText k="SESSION_MAX_HISTORY" label="会话最大历史条数" placeholder="50" />
+              </div>
+            </details>
+
+            <div className="divider" />
+            <details open>
+              <summary style={{ cursor: "pointer", fontWeight: 800, padding: "8px 0" }}>调度器（默认启用）</summary>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+                <label className="pill" style={{ cursor: "pointer", userSelect: "none", alignSelf: "flex-start" }}>
+                  <input
+                    style={{ width: 16, height: 16 }}
+                    type="checkbox"
+                    checked={envGet(envDraft, "SCHEDULER_ENABLED", "true").toLowerCase() === "true"}
+                    onChange={(e) => setEnvDraft((m) => envSet(m, "SCHEDULER_ENABLED", String(e.target.checked)))}
+                  />
+                  启用定时任务调度器（推荐）
+                </label>
+                <FieldText k="SCHEDULER_TIMEZONE" label="时区" placeholder="Asia/Shanghai" />
+                <FieldText k="SCHEDULER_MAX_CONCURRENT" label="最大并发任务数" placeholder="5" />
+                <FieldText k="SCHEDULER_TASK_TIMEOUT" label="任务超时（秒）" placeholder="600" />
+              </div>
+            </details>
+
+            <div className="divider" />
+            <details>
+              <summary style={{ cursor: "pointer", fontWeight: 800, padding: "8px 0" }}>多 Agent 协同（可选）</summary>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+                <FieldBool k="ORCHESTRATION_ENABLED" label="启用多 Agent（Master/Worker）" help="多数用户不需要；开启前建议先完成单 Agent 跑通" />
+                <FieldText k="ORCHESTRATION_BUS_ADDRESS" label="总线地址" placeholder="tcp://127.0.0.1:5555" />
+                <FieldText k="ORCHESTRATION_PUB_ADDRESS" label="广播地址" placeholder="tcp://127.0.0.1:5556" />
+                <FieldText k="ORCHESTRATION_MIN_WORKERS" label="最小 Worker 数" placeholder="1" />
+                <FieldText k="ORCHESTRATION_MAX_WORKERS" label="最大 Worker 数" placeholder="4" />
+              </div>
+            </details>
           </div>
 
           <div className="btnRow">
@@ -2359,67 +3848,56 @@ export function App() {
     return (
       <>
         <div className="card">
-          <div className="cardTitle">完成：下一步引导</div>
-          <div className="cardHint">你已经把基础链路跑通。下面是“下一步该怎么做”的清单，按优先级从上到下。</div>
+          <div className="cardTitle">完成：收尾与检查</div>
+          <div className="cardHint">你已经完成安装与配置。这里是收尾步骤：检查配置、（可选）卸载与清理。</div>
           <div className="divider" />
           <div className="grid2">
             <div className="card" style={{ marginTop: 0 }}>
-              <div className="label">1) 检查生成文件</div>
+              <div className="label">检查配置文件</div>
               <div className="cardHint" style={{ marginTop: 8 }}>
                 工作区目录：<b>{ws?.path || "（未选择）"}</b>
                 <br />
                 - `.env`（已写入你的 key/开关）
                 <br />
                 - `data/llm_endpoints.json`（端点列表）
+                <br />
+                - `data/skills.json`（外部技能启用状态）
                 <br />- `identity/SOUL.md`（Agent 设定）
               </div>
             </div>
             <div className="card" style={{ marginTop: 0 }}>
-              <div className="label">2) 运行/验证建议</div>
+              <div className="label">运行/验证（建议）</div>
               <div className="cardHint" style={{ marginTop: 8 }}>
-                - 用该工作区运行一次 CLI（验证端点/工具）
-                <br />
-                - 如果启用 MCP Browser：记得安装 Playwright 浏览器
-                <br />- Windows 桌面工具：确保安装 `openakita[windows]`
+                - 点击右上角“状态面板”，检查服务/端点/skills 是否正常
+                <br />- 如启用 MCP Browser：确保已安装 Playwright 浏览器
+                <br />- 如启用 Windows 桌面工具：确保安装 `openakita[windows]`
               </div>
-            </div>
-          </div>
-          <div className="divider" />
-          <div className="card">
-            <div className="label">3) 打包发布（你要的“下一步”）</div>
-            <div className="cardHint" style={{ marginTop: 8 }}>
-              - Windows：`npm run tauri build` 生成 `.exe`
-              <br />
-              - macOS：同样 `npm run tauri build` 生成 `.app`（后续可做签名/公证）
-              <br />- Linux：生成对应包（取决于系统打包工具）
-            </div>
-            <div className="okBox">
-              我下一步会把“打包脚本 + 产物路径说明 + 发布 checklist”补齐，并把内置 Python 做成可固定版本/可回滚的安装策略。
             </div>
           </div>
 
           <div className="divider" />
           <div className="card">
-            <div className="label">4) 卸载 / 清理（可选）</div>
-            <div className="cardHint" style={{ marginTop: 8 }}>
-              - “卸载 openakita”只影响 venv 内的 Python 包
-              <br />
-              - “删除运行环境”会删除 `~/.openakita/venv` 与 `~/.openakita/runtime`（会丢失已安装依赖与内置 Python），但**保留 workspaces 配置**
-            </div>
-            <div className="divider" />
-            <label className="pill" style={{ cursor: "pointer" }}>
-              <input
-                style={{ width: 16, height: 16 }}
-                type="checkbox"
-                checked={dangerAck}
-                onChange={(e) => setDangerAck(e.target.checked)}
-              />
-              我已了解：删除运行环境是不可逆操作
-            </label>
+            <div className="label">卸载（可选）</div>
+            <div className="cardHint" style={{ marginTop: 8 }}>卸载模块是独立的：只卸载 venv 内的 `openakita` 包，不影响工作区配置文件。</div>
             <div className="btnRow" style={{ marginTop: 10 }}>
               <button onClick={uninstallOpenAkita} disabled={!!busy}>
                 卸载 openakita（venv）
               </button>
+            </div>
+          </div>
+
+          <div className="divider" />
+          <div className="card">
+            <div className="label">清理运行环境（可选）</div>
+            <div className="cardHint" style={{ marginTop: 8 }}>
+              删除 `~/.openakita/venv` 与 `~/.openakita/runtime`（会丢失已安装依赖与内置 Python），但**保留 workspaces 配置**。
+            </div>
+            <div className="divider" />
+            <label className="pill" style={{ cursor: "pointer" }}>
+              <input style={{ width: 16, height: 16 }} type="checkbox" checked={dangerAck} onChange={(e) => setDangerAck(e.target.checked)} />
+              我已了解：删除运行环境是不可逆操作
+            </label>
+            <div className="btnRow" style={{ marginTop: 10 }}>
               <button className="btnDanger" onClick={removeRuntime} disabled={!dangerAck || !!busy}>
                 删除运行环境（venv + runtime）
               </button>
@@ -2432,9 +3910,8 @@ export function App() {
 
   function renderStepContent() {
     if (!info) return <div className="card">加载中...</div>;
+    if (view === "status") return renderStatus();
     switch (stepId) {
-      case "status":
-        return renderStatus();
       case "welcome":
         return renderWelcome();
       case "workspace":
@@ -2445,12 +3922,16 @@ export function App() {
         return renderInstall();
       case "llm":
         return renderLLM();
-      case "integrations":
-        return renderIntegrations();
+      case "im":
+        return renderIM();
+      case "tools":
+        return renderTools();
+      case "agent":
+        return renderAgentSystem();
       case "finish":
         return renderFinish();
       default:
-        return renderStatus();
+        return renderWelcome();
     }
   }
 
@@ -2476,6 +3957,7 @@ export function App() {
                 className={`stepItem ${isActive ? "stepItemActive" : ""} ${canJump ? "" : "stepItemDisabled"}`}
                 onClick={() => {
                   if (!canJump) return;
+                  setView("wizard");
                   setStepId(s.id);
                 }}
                 role="button"
@@ -2497,9 +3979,9 @@ export function App() {
         <div className="topbar">
           <div>
             <div className="topbarTitle">
-              第 {currentStepIdx + 1} 步 / {steps.length} 步：{step.title}
+              {view === "status" ? "状态面板（独立）" : `第 ${currentStepIdx + 1} 步 / ${steps.length} 步：${step.title}`}
             </div>
-            <div className="statusLine">{step.desc}</div>
+            <div className="statusLine">{view === "status" ? "运行状态与监控入口（不属于安装流程）" : step.desc}</div>
           </div>
           {headerRight}
         </div>
@@ -2511,19 +3993,63 @@ export function App() {
           {renderStepContent()}
         </div>
 
-        <div className="footer">
-          <div className="statusLine">
-            提示：先按顺序走完，再回头微调参数会更快。{stepId === "integrations" ? "（这一页是“全覆盖”的总开关面板）" : ""}
+        {view === "wizard" ? (
+          <div className="footer">
+            <div className="statusLine">提示：先按顺序走完，再回头微调参数会更快。</div>
+            <div className="btnRow">
+              <button onClick={goPrev} disabled={isFirst || !!busy}>
+                上一步
+              </button>
+              {stepId === "finish" ? (
+                <button
+                  className="btnPrimary"
+                  onClick={async () => {
+                    // 完成并启动：启动 openakita serve，然后切到状态面板（托盘常驻）
+                    const effectiveWsId = currentWorkspaceId || workspaces[0]?.id || null;
+                    if (!effectiveWsId) {
+                      setError("未找到工作区（请先创建/选择一个工作区）");
+                      return;
+                    }
+                    setBusy("启动后台服务...");
+                    setError(null);
+                    try {
+                      const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_start", {
+                        venvDir,
+                        workspaceId: effectiveWsId,
+                      });
+                      setServiceStatus(ss);
+                      // 轻量确认：避免“瞬间启动又退出”导致 UI 误以为已启动
+                      await new Promise((r) => setTimeout(r, 600));
+                      const real = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_status", {
+                        workspaceId: effectiveWsId,
+                      });
+                      setServiceStatus(real);
+                      setView("status");
+                      await refreshStatus();
+                      await refreshServiceLog(effectiveWsId);
+                      if (!real.running) {
+                        setError("后台服务未能保持运行（可能是工作区 .env 配置为空值导致启动失败）。请查看下方服务日志。");
+                      } else {
+                        setNotice("已启动后台服务（openakita serve）。窗口可关闭并常驻托盘。");
+                      }
+                    } catch (e) {
+                      setError(String(e));
+                    } finally {
+                      setBusy(null);
+                    }
+                  }}
+                  disabled={!!busy}
+                >
+                  完成并启动
+                </button>
+              ) : (
+                <button className="btnPrimary" onClick={goNext} disabled={isLast || !!busy}>
+                  下一步
+                </button>
+              )}
+            </div>
           </div>
-          <div className="btnRow">
-            <button onClick={goPrev} disabled={isFirst || !!busy}>
-              上一步
-            </button>
-            <button className="btnPrimary" onClick={goNext} disabled={isLast || !!busy}>
-              下一步
-            </button>
-          </div>
-        </div>
+        ) : null}
       </main>
     </div>
   );

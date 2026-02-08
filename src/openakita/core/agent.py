@@ -786,6 +786,25 @@ class Agent:
         loaded = self.skill_loader.load_all(settings.project_root)
         logger.info(f"Loaded {loaded} skills from standard directories")
 
+        # 外部技能启用/禁用（系统技能永远启用）
+        # 配置文件：<workspace>/data/skills.json
+        # - 不存在 / 无 external_allowlist => 外部技能全部启用（兼容历史行为）
+        # - external_allowlist: [] => 禁用所有外部技能
+        try:
+            cfg_path = settings.project_root / "data" / "skills.json"
+            external_allowlist: set[str] | None = None
+            if cfg_path.exists():
+                raw = cfg_path.read_text(encoding="utf-8")
+                cfg = json.loads(raw) if raw.strip() else {}
+                al = cfg.get("external_allowlist", None)
+                if isinstance(al, list):
+                    external_allowlist = {str(x).strip() for x in al if str(x).strip()}
+            removed = self.skill_loader.prune_external_by_allowlist(external_allowlist)
+            if removed:
+                logger.info(f"External skills filtered by {cfg_path}")
+        except Exception as e:
+            logger.warning(f"Failed to apply skills allowlist: {e}")
+
         # 生成技能清单 (用于系统提示)
         self._skill_catalog_text = self.skill_catalog.generate_catalog()
         logger.info(f"Generated skill catalog with {self.skill_catalog.skill_count} skills")

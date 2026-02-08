@@ -209,6 +209,39 @@ class SkillLoader:
             return skill.body
         return None
 
+    def prune_external_by_allowlist(self, external_allowlist: set[str] | None) -> int:
+        """
+        根据外部技能 allowlist 裁剪已加载技能。
+
+        约定：
+        - system 技能永远保留
+        - external_allowlist 为 None 表示“不做限制（外部技能全部启用）”
+        - external_allowlist 为 set() 表示“禁用所有外部技能”
+        """
+        if external_allowlist is None:
+            return 0
+
+        removed = 0
+        for name, skill in list(self._loaded_skills.items()):
+            try:
+                if getattr(skill.metadata, "system", False):
+                    continue
+            except Exception:
+                # 保守：解析异常时不裁剪
+                continue
+
+            if name not in external_allowlist:
+                self._loaded_skills.pop(name, None)
+                try:
+                    self.registry.unregister(name)
+                except Exception:
+                    pass
+                removed += 1
+
+        if removed:
+            logger.info(f"Pruned {removed} external skills by allowlist")
+        return removed
+
     def get_script_content(self, name: str, script_name: str) -> str | None:
         """
         获取技能脚本内容

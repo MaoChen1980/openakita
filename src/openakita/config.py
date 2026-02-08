@@ -156,7 +156,7 @@ class Settings(BaseSettings):
     # MiniMax - 备用端点 3
     minimax_api_key: str = Field(default="", description="MiniMax API Key")
     minimax_base_url: str = Field(
-        default="https://api.minimaxi.com/anthropic", description="MiniMax API URL"
+        default="https://api.minimaxi.com/v1", description="MiniMax API URL（OpenAI 兼容）"
     )
     minimax_model: str = Field(default="MiniMax-M2.1", description="MiniMax 模型")
 
@@ -222,6 +222,9 @@ class Settings(BaseSettings):
         "env_file": ".env",
         "env_file_encoding": "utf-8",
         "extra": "ignore",
+        # 关键：忽略空字符串环境变量（例如 .env 里写了 PROGRESS_TIMEOUT_SECONDS=）
+        # 否则 pydantic 会尝试把 "" 解析成 int/bool，导致启动失败。
+        "env_ignore_empty": True,
     }
 
     @property

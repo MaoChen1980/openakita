@@ -306,7 +306,7 @@ pip install -e .
 openakita init
 
 # Or configure manually
-cp .env.example .env
+cp examples/.env.example .env
 # Edit .env, fill in your API keys
 ```
 

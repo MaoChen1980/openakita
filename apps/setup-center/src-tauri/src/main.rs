@@ -3,6 +3,7 @@
 use dirs_next::home_dir;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -115,12 +116,22 @@ fn kill_pid(pid: u32) -> Result<(), String> {
         let mut c = Command::new("cmd");
         c.args(["/C", &format!("taskkill /PID {} /T /F", pid)]);
         apply_no_window(&mut c);
-        let status = c.status()
-            .map_err(|e| format!("taskkill failed: {e}"))?;
-        if !status.success() {
-            return Err(format!("taskkill failed: {status}"));
+        let out = c.output().map_err(|e| format!("taskkill failed: {e}"))?;
+        if out.status.success() {
+            return Ok(());
         }
-        Ok(())
+        // taskkill 失败时，如果进程已经不存在，则视为成功（避免“已结束却报错”）
+        if !is_pid_running(pid) {
+            return Ok(());
+        }
+        let mut msg = String::new();
+        if !out.stdout.is_empty() {
+            msg.push_str(&String::from_utf8_lossy(&out.stdout));
+        }
+        if !out.stderr.is_empty() {
+            msg.push_str(&String::from_utf8_lossy(&out.stderr));
+        }
+        Err(format!("taskkill failed (pid={pid}): {}", msg.trim()))
     } else {
         let status = Command::new("kill")
             .args(["-TERM", &pid.to_string()])
@@ -155,11 +166,21 @@ fn ensure_workspace_scaffold(dir: &Path) -> Result<(), String> {
     fs::create_dir_all(dir.join("data")).map_err(|e| format!("create data dir failed: {e}"))?;
     fs::create_dir_all(dir.join("identity")).map_err(|e| format!("create identity dir failed: {e}"))?;
 
-    // 默认 .env：用仓库内的 .env.example 作为模板（纯文本，可随版本更新）
+    // 默认 .env：Setup Center 会按“你实际填写的字段”生成/维护。
+    // 不再把完整模板复制进工作区，避免产生大量空值键（会导致 pydantic 解析失败/污染配置）。
     let env_path = dir.join(".env");
     if !env_path.exists() {
-        const ENV_EXAMPLE: &str = include_str!("../../../../.env.example");
-        fs::write(&env_path, ENV_EXAMPLE).map_err(|e| format!("write .env failed: {e}"))?;
+        let content = [
+            "# OpenAkita 工作区环境变量（由 Setup Center 生成）",
+            "#",
+            "# 规则：",
+            "# - 只会写入你在 Setup Center 里“填写/修改过”的键",
+            "# - 你把某个值清空后保存，会从此文件删除该键",
+            "# - 手动部署/完整模板请参考仓库 examples/.env.example",
+            "",
+        ]
+        .join("\n");
+        fs::write(&env_path, content).map_err(|e| format!("write .env failed: {e}"))?;
     }
 
     // minimal identity files (后续可由 GUI 编辑)
@@ -298,6 +319,7 @@ fn main() {
             openakita_service_status,
             openakita_service_start,
             openakita_service_stop,
+            openakita_service_log,
             openakita_list_skills,
             openakita_list_providers,
             openakita_list_models,
@@ -313,6 +335,14 @@ struct ServiceStatus {
     running: bool,
     pid: Option<u32>,
     pid_file: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ServiceLogChunk {
+    path: String,
+    content: String,
+    truncated: bool,
 }
 
 #[tauri::command]
@@ -404,6 +434,14 @@ fn openakita_service_start(venv_dir: String, workspace_id: String) -> Result<Ser
     cmd.current_dir(&ws_dir);
     cmd.args(["-m", "openakita.main", "serve"]);
 
+    // Force UTF-8 output on Windows and make logs clean & realtime.
+    // Without this, Rich may try to write unicode symbols (e.g. ✓) using GBK and crash.
+    cmd.env("PYTHONUTF8", "1");
+    cmd.env("PYTHONIOENCODING", "utf-8");
+    cmd.env("PYTHONUNBUFFERED", "1");
+    // Disable colored / styled output to avoid ANSI escape codes in log files.
+    cmd.env("NO_COLOR", "1");
+
     // inherit current env, then overlay workspace .env
     for (k, v) in read_env_kv(&ws_dir.join(".env")) {
         cmd.env(k, v);
@@ -439,13 +477,58 @@ fn openakita_service_stop(workspace_id: String) -> Result<ServiceStatus, String>
         .ok()
         .and_then(|s| s.trim().parse::<u32>().ok());
     if let Some(pid) = pid {
-        let _ = kill_pid(pid);
+        // 强制杀干净：如果杀不掉，要显式报错（避免 UI 显示“已停止”但后台仍残留）。
+        if is_pid_running(pid) {
+            kill_pid(pid)?;
+            // 等待最多 2s 确认退出
+            for _ in 0..10 {
+                if !is_pid_running(pid) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            if is_pid_running(pid) {
+                return Err(format!("failed to stop service: pid {pid} still running"));
+            }
+        }
     }
     let _ = fs::remove_file(&pid_file);
     Ok(ServiceStatus {
         running: false,
         pid: None,
         pid_file: pid_file.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command]
+fn openakita_service_log(workspace_id: String, tail_bytes: Option<u64>) -> Result<ServiceLogChunk, String> {
+    let ws_dir = workspace_dir(&workspace_id);
+    let log_path = ws_dir.join("logs").join("openakita-serve.log");
+    let path_str = log_path.to_string_lossy().to_string();
+    let tail = tail_bytes.unwrap_or(40_000).min(400_000);
+
+    if !log_path.exists() {
+        return Ok(ServiceLogChunk {
+            path: path_str,
+            content: "".into(),
+            truncated: false,
+        });
+    }
+
+    let mut f = std::fs::File::open(&log_path).map_err(|e| format!("open log failed: {e}"))?;
+    let len = f.metadata().map_err(|e| format!("stat log failed: {e}"))?.len();
+    let start = len.saturating_sub(tail);
+    let truncated = start > 0;
+    f.seek(SeekFrom::Start(start))
+        .map_err(|e| format!("seek log failed: {e}"))?;
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf).map_err(|e| format!("read log failed: {e}"))?;
+    let content = String::from_utf8_lossy(&buf).to_string();
+
+    Ok(ServiceLogChunk {
+        path: path_str,
+        content,
+        truncated,
     })
 }
 
@@ -600,14 +683,21 @@ struct EnvEntry {
 }
 
 fn update_env_content(existing: &str, entries: &[EnvEntry]) -> String {
-    let mut map = std::collections::BTreeMap::new();
+    let mut updates = std::collections::BTreeMap::new();
+    let mut deletes = std::collections::BTreeSet::new();
     for e in entries {
         if e.key.trim().is_empty() {
             continue;
         }
-        map.insert(e.key.trim().to_string(), e.value.clone());
+        let k = e.key.trim().to_string();
+        if e.value.trim().is_empty() {
+            // 约定：空值表示删除该键（可选字段不填就不落盘）
+            deletes.insert(k);
+        } else {
+            updates.insert(k, e.value.clone());
+        }
     }
-    if map.is_empty() {
+    if updates.is_empty() && deletes.is_empty() {
         return existing.to_string();
     }
 
@@ -622,7 +712,12 @@ fn update_env_content(existing: &str, entries: &[EnvEntry]) -> String {
         }
         let (k, _v) = trimmed.split_once('=').unwrap_or((trimmed, ""));
         let key = k.trim();
-        if let Some(new_val) = map.get(key) {
+        if deletes.contains(key) {
+            // 删除该键：跳过该行
+            seen.insert(key.to_string());
+            continue;
+        }
+        if let Some(new_val) = updates.get(key) {
             out.push(format!("{key}={new_val}"));
             seen.insert(key.to_string());
         } else {
@@ -631,7 +726,7 @@ fn update_env_content(existing: &str, entries: &[EnvEntry]) -> String {
     }
 
     // append missing keys
-    for (k, v) in map {
+    for (k, v) in updates {
         if !seen.contains(&k) {
             out.push(format!("{k}={v}"));
         }
@@ -1018,14 +1113,144 @@ fn venv_python_path(venv_dir: &str) -> PathBuf {
 }
 
 #[tauri::command]
-async fn pip_install(venv_dir: String, package_spec: String, index_url: Option<String>) -> Result<String, String> {
+async fn pip_install(
+    app: tauri::AppHandle,
+    venv_dir: String,
+    package_spec: String,
+    index_url: Option<String>,
+) -> Result<String, String> {
     spawn_blocking_result(move || {
         let py = venv_python_path(&venv_dir);
         if !py.exists() {
             return Err(format!("venv python not found: {}", py.to_string_lossy()));
         }
 
+        let mut log = String::new();
+
+        #[derive(Serialize, Clone)]
+        #[serde(rename_all = "camelCase")]
+        struct PipInstallEvent {
+            kind: String, // "stage" | "line"
+            stage: Option<String>,
+            percent: Option<u8>,
+            text: Option<String>,
+        }
+
+        let emit_stage = |stage: &str, percent: u8| {
+            let _ = app.emit(
+                "pip_install_event",
+                PipInstallEvent {
+                    kind: "stage".into(),
+                    stage: Some(stage.into()),
+                    percent: Some(percent),
+                    text: None,
+                },
+            );
+        };
+        let emit_line = |text: &str| {
+            let _ = app.emit(
+                "pip_install_event",
+                PipInstallEvent {
+                    kind: "line".into(),
+                    stage: None,
+                    percent: None,
+                    text: Some(text.into()),
+                },
+            );
+        };
+
+        fn run_streaming(
+            mut cmd: Command,
+            header: &str,
+            log: &mut String,
+            emit_line: &dyn Fn(&str),
+        ) -> Result<std::process::ExitStatus, String> {
+            use std::io::Read as _;
+            use std::process::Stdio;
+            use std::sync::mpsc;
+            use std::thread;
+
+            emit_line(&format!("\n=== {header} ===\n"));
+            log.push_str(&format!("=== {header} ===\n"));
+
+            cmd.stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+
+            let mut child = cmd.spawn().map_err(|e| format!("{header} failed to start: {e}"))?;
+            let mut stdout = child
+                .stdout
+                .take()
+                .ok_or_else(|| format!("{header} stdout pipe missing"))?;
+            let mut stderr = child
+                .stderr
+                .take()
+                .ok_or_else(|| format!("{header} stderr pipe missing"))?;
+
+            let (tx, rx) = mpsc::channel::<(bool, String)>();
+            let tx1 = tx.clone();
+            let h1 = thread::spawn(move || {
+                let mut buf = [0u8; 4096];
+                loop {
+                    match stdout.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            let s = String::from_utf8_lossy(&buf[..n]).to_string();
+                            let _ = tx1.send((false, s));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+            let tx2 = tx.clone();
+            let h2 = thread::spawn(move || {
+                let mut buf = [0u8; 4096];
+                loop {
+                    match stderr.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            let s = String::from_utf8_lossy(&buf[..n]).to_string();
+                            let _ = tx2.send((true, s));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+            drop(tx);
+
+            // Drain output while process runs
+            loop {
+                match rx.recv_timeout(std::time::Duration::from_millis(120)) {
+                    Ok((_is_err, chunk)) => {
+                        emit_line(&chunk);
+                        log.push_str(&chunk);
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        if let Ok(Some(_)) = child.try_wait() {
+                            break;
+                        }
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                }
+            }
+
+            let status = child
+                .wait()
+                .map_err(|e| format!("{header} wait failed: {e}"))?;
+            let _ = h1.join();
+            let _ = h2.join();
+
+            // Drain remaining buffered chunks
+            while let Ok((_is_err, chunk)) = rx.try_recv() {
+                emit_line(&chunk);
+                log.push_str(&chunk);
+            }
+            log.push_str("\n\n");
+            Ok(status)
+        }
+
         // upgrade pip first (best-effort)
+        emit_stage("升级 pip（best-effort）", 40);
         let mut up = Command::new(&py);
         apply_no_window(&mut up);
         up.env("PYTHONUTF8", "1");
@@ -1034,8 +1259,9 @@ async fn pip_install(venv_dir: String, package_spec: String, index_url: Option<S
         if let Some(url) = &index_url {
             up.args(["-i", url]);
         }
-        let _ = up.status();
+        let _ = run_streaming(up, "pip upgrade (best-effort)", &mut log, &emit_line);
 
+        emit_stage("安装 openakita（pip）", 70);
         let mut c = Command::new(&py);
         apply_no_window(&mut c);
         c.env("PYTHONUTF8", "1");
@@ -1044,17 +1270,19 @@ async fn pip_install(venv_dir: String, package_spec: String, index_url: Option<S
         if let Some(url) = &index_url {
             c.args(["-i", url]);
         }
-        let out = c.output().map_err(|e| format!("pip install failed to start: {e}"))?;
-        if !out.status.success() {
-            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-            return Err(format!(
-                "pip install failed: {}\nstdout:\n{}\nstderr:\n{}",
-                out.status, stdout, stderr
-            ));
+        let status = run_streaming(c, "pip install", &mut log, &emit_line)?;
+        if !status.success() {
+            let tail = if log.len() > 6000 {
+                &log[log.len() - 6000..]
+            } else {
+                &log
+            };
+            return Err(format!("pip install failed: {status}\n\n--- output tail ---\n{tail}"));
         }
 
         // Post-check: ensure Setup Center bridge exists in the installed package.
+        emit_stage("验证安装", 95);
+        emit_line("\n=== verify ===\n");
         let mut verify = Command::new(&py);
         apply_no_window(&mut verify);
         verify.env("PYTHONUTF8", "1");
@@ -1073,7 +1301,17 @@ async fn pip_install(venv_dir: String, package_spec: String, index_url: Option<S
             ));
         }
 
-        Ok("ok".into())
+        let ver = String::from_utf8_lossy(&v.stdout).trim().to_string();
+        log.push_str("=== verify ===\n");
+        log.push_str("import openakita.setup_center.bridge: OK\n");
+        emit_line("import openakita.setup_center.bridge: OK\n");
+        if !ver.is_empty() {
+            log.push_str(&format!("openakita version: {ver}\n"));
+            emit_line(&format!("openakita version: {ver}\n"));
+        }
+        emit_stage("完成", 100);
+
+        Ok(log)
     })
     .await
 }

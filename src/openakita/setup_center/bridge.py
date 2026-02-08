@@ -135,6 +135,22 @@ def list_skills(workspace_dir: str) -> None:
     if not wd.exists() or not wd.is_dir():
         raise ValueError(f"--workspace-dir 不存在或不是目录: {workspace_dir}")
 
+    # 外部技能启用状态（Setup Center 用于展示“可启用/禁用”的开关）
+    # 文件：<workspace>/data/skills.json
+    # - 不存在 / 无 external_allowlist => 外部技能全部启用（兼容历史行为）
+    # - external_allowlist: [] => 禁用所有外部技能
+    external_allowlist: set[str] | None = None
+    try:
+        cfg_path = wd / "data" / "skills.json"
+        if cfg_path.exists():
+            raw = cfg_path.read_text(encoding="utf-8")
+            cfg = json.loads(raw) if raw.strip() else {}
+            al = cfg.get("external_allowlist", None)
+            if isinstance(al, list):
+                external_allowlist = {str(x).strip() for x in al if str(x).strip()}
+    except Exception:
+        external_allowlist = None
+
     loader = SkillLoader()
     loader.load_all(base_path=wd)
     skills = loader.registry.list_all()
@@ -143,6 +159,7 @@ def list_skills(workspace_dir: str) -> None:
             "name": s.name,
             "description": s.description,
             "system": bool(getattr(s, "system", False)),
+            "enabled": bool(getattr(s, "system", False)) or (external_allowlist is None) or (s.name in external_allowlist),
             "tool_name": getattr(s, "tool_name", None),
             "category": getattr(s, "category", None),
             "path": getattr(s, "skill_path", None),

@@ -76,7 +76,7 @@ openakita init
 ### 1. Create Environment File
 
 ```bash
-cp .env.example .env
+cp examples/.env.example .env
 ```
 
 ### 2. Add Your API Key

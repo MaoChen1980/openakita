@@ -311,6 +311,13 @@ textarea:focus {
   flex-wrap: wrap;
 }
 
+.btnSmall {
+  padding: 8px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 750;
+}
+
 button {
   border: 0;
   cursor: pointer;

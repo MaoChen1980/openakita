@@ -264,7 +264,7 @@ pip install -e .
 openakita init
 
 # 或手动配置
-cp .env.example .env
+cp examples/.env.example .env
 # 编辑 .env 添加你的 API 密钥
 ```
 
