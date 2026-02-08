@@ -54,7 +54,7 @@ def get_default_config_path() -> Path:
 
 def load_endpoints_config(
     config_path: Path | None = None,
-) -> tuple[list[EndpointConfig], dict]:
+) -> tuple[list[EndpointConfig], list[EndpointConfig], dict]:
     """
     加载端点配置
 
@@ -62,7 +62,8 @@ def load_endpoints_config(
         config_path: 配置文件路径，默认使用 get_default_config_path()
 
     Returns:
-        (endpoints, settings): 端点配置列表和全局设置
+        (endpoints, compiler_endpoints, settings):
+        主端点列表、Prompt Compiler 专用端点列表、全局设置
 
     Raises:
         ConfigurationError: 配置错误
@@ -74,7 +75,7 @@ def load_endpoints_config(
 
     if not config_path.exists():
         logger.warning(f"Config file not found: {config_path}, using empty config")
-        return [], {}
+        return [], [], {}
 
     try:
         with open(config_path, encoding="utf-8") as f:
@@ -84,51 +85,58 @@ def load_endpoints_config(
     except Exception as e:
         raise ConfigurationError(f"Failed to read config file: {e}")
 
-    # 解析端点
-    endpoints = []
-    for ep_data in data.get("endpoints", []):
-        try:
-            endpoint = EndpointConfig.from_dict(ep_data)
+    def _parse_endpoint_list(key: str) -> list[EndpointConfig]:
+        result = []
+        for ep_data in data.get(key, []):
+            try:
+                endpoint = EndpointConfig.from_dict(ep_data)
+                # 验证 API Key 环境变量存在
+                if endpoint.api_key_env:
+                    api_key = os.environ.get(endpoint.api_key_env)
+                    if not api_key:
+                        logger.warning(
+                            f"API key not found for endpoint '{endpoint.name}': "
+                            f"env var '{endpoint.api_key_env}' is not set"
+                        )
+                result.append(endpoint)
+            except Exception as e:
+                logger.error(f"Failed to parse endpoint config ({key}): {e}")
+                continue
+        result.sort(key=lambda x: x.priority)
+        return result
 
-            # 验证 API Key 环境变量存在
-            api_key = os.environ.get(endpoint.api_key_env)
-            if not api_key:
-                logger.warning(
-                    f"API key not found for endpoint '{endpoint.name}': "
-                    f"env var '{endpoint.api_key_env}' is not set"
-                )
-
-            endpoints.append(endpoint)
-        except Exception as e:
-            logger.error(f"Failed to parse endpoint config: {e}")
-            continue
-
+    # 解析主端点
+    endpoints = _parse_endpoint_list("endpoints")
     if not endpoints:
         logger.warning("No valid endpoints found in config")
 
-    # 按优先级排序
-    endpoints.sort(key=lambda x: x.priority)
+    # 解析 Prompt Compiler 专用端点
+    compiler_endpoints = _parse_endpoint_list("compiler_endpoints")
+    if compiler_endpoints:
+        logger.info(f"Loaded {len(compiler_endpoints)} compiler endpoints")
 
     # 解析全局设置
     settings = data.get("settings", {})
 
     logger.info(f"Loaded {len(endpoints)} endpoints from {config_path}")
 
-    return endpoints, settings
+    return endpoints, compiler_endpoints, settings
 
 
 def save_endpoints_config(
     endpoints: list[EndpointConfig],
     settings: dict | None = None,
     config_path: Path | None = None,
+    compiler_endpoints: list[EndpointConfig] | None = None,
 ):
     """
     保存端点配置
 
     Args:
-        endpoints: 端点配置列表
+        endpoints: 主端点配置列表
         settings: 全局设置
         config_path: 配置文件路径
+        compiler_endpoints: Prompt Compiler 专用端点列表（可选）
     """
     if config_path is None:
         config_path = get_default_config_path()
@@ -136,15 +144,18 @@ def save_endpoints_config(
     config_path = Path(config_path)
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
-    data = {
+    data: dict = {
         "endpoints": [ep.to_dict() for ep in endpoints],
-        "settings": settings
-        or {
-            "retry_count": 2,
-            "retry_delay_seconds": 2,
-            "health_check_interval": 60,
-            "fallback_on_error": True,
-        },
+    }
+
+    if compiler_endpoints:
+        data["compiler_endpoints"] = [ep.to_dict() for ep in compiler_endpoints]
+
+    data["settings"] = settings or {
+        "retry_count": 2,
+        "retry_delay_seconds": 2,
+        "health_check_interval": 60,
+        "fallback_on_error": True,
     }
 
     with open(config_path, "w", encoding="utf-8") as f:
@@ -201,25 +212,33 @@ def validate_config(config_path: Path | None = None) -> list[str]:
     errors = []
 
     try:
-        endpoints, settings = load_endpoints_config(config_path)
+        endpoints, compiler_endpoints, settings = load_endpoints_config(config_path)
     except ConfigurationError as e:
         return [str(e)]
 
     if not endpoints:
         errors.append("No endpoints configured")
 
-    for ep in endpoints:
-        # 检查 API Key
-        api_key = os.environ.get(ep.api_key_env)
-        if not api_key:
-            errors.append(f"Endpoint '{ep.name}': API key env var '{ep.api_key_env}' not set")
+    def _validate_endpoints(eps: list[EndpointConfig], label: str = "") -> None:
+        prefix = f"[{label}] " if label else ""
+        for ep in eps:
+            # 检查 API Key
+            if ep.api_key_env:
+                api_key = os.environ.get(ep.api_key_env)
+                if not api_key:
+                    errors.append(
+                        f"{prefix}Endpoint '{ep.name}': API key env var '{ep.api_key_env}' not set"
+                    )
 
-        # 检查 API 类型
-        if ep.api_type not in ("anthropic", "openai"):
-            errors.append(f"Endpoint '{ep.name}': Invalid api_type '{ep.api_type}'")
+            # 检查 API 类型
+            if ep.api_type not in ("anthropic", "openai"):
+                errors.append(f"{prefix}Endpoint '{ep.name}': Invalid api_type '{ep.api_type}'")
 
-        # 检查 base_url
-        if not ep.base_url.startswith(("http://", "https://")):
-            errors.append(f"Endpoint '{ep.name}': Invalid base_url '{ep.base_url}'")
+            # 检查 base_url
+            if not ep.base_url.startswith(("http://", "https://")):
+                errors.append(f"{prefix}Endpoint '{ep.name}': Invalid base_url '{ep.base_url}'")
+
+    _validate_endpoints(endpoints)
+    _validate_endpoints(compiler_endpoints, label="compiler")
 
     return errors

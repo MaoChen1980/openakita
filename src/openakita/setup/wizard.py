@@ -4,6 +4,7 @@ OpenAkita 交互式安装向导
 一键启动，引导用户完成所有配置
 """
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -33,6 +34,7 @@ class SetupWizard:
             self._check_environment()
             self._create_directories()
             self._configure_llm()
+            self._configure_compiler()
             self._configure_im_channels()
             self._configure_memory()
             self._configure_advanced()
@@ -250,6 +252,199 @@ Press Ctrl+C at any time to cancel.
         api_key = Prompt.ask("Enter your API Key", password=True)
         self.config["ANTHROPIC_API_KEY"] = api_key
 
+    def _configure_compiler(self):
+        """配置 Prompt Compiler 专用模型（可选）"""
+        console.print("[bold cyan]Step 3b: Configure Prompt Compiler Model (Optional)[/bold cyan]\n")
+
+        console.print(
+            "Prompt Compiler 使用快速小模型对用户指令做预处理，可大幅降低响应延迟。\n"
+            "建议使用 qwen-turbo、gpt-4o-mini 等低延迟模型，不需要启用思考模式。\n"
+            "如果跳过此步，系统运行时会自动回退到主模型（速度较慢）。\n"
+        )
+
+        configure = Confirm.ask("Configure Prompt Compiler?", default=True)
+
+        if not configure:
+            console.print("[dim]Skipping Compiler configuration (will use main model as fallback).[/dim]\n")
+            return
+
+        # 选择 Provider
+        console.print("\nSelect provider for Compiler:\n")
+        console.print("  [1] DashScope (qwen-turbo-latest, recommended)")
+        console.print("  [2] OpenAI-compatible")
+        console.print("  [3] Same provider as main model")
+        console.print("  [4] Skip\n")
+
+        choice = Prompt.ask("Select option", choices=["1", "2", "3", "4"], default="1")
+
+        if choice == "4":
+            console.print("[dim]Skipping Compiler configuration.[/dim]\n")
+            return
+
+        compiler_config: dict = {}
+
+        if choice == "1":
+            compiler_config["provider"] = "dashscope"
+            compiler_config["api_type"] = "openai"
+            compiler_config["base_url"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            compiler_config["api_key_env"] = "DASHSCOPE_API_KEY"
+            compiler_config["model"] = Prompt.ask(
+                "Model name", default="qwen-turbo-latest"
+            )
+            # 检查是否需要单独配置 API Key
+            existing_key = self.config.get("DASHSCOPE_API_KEY") or os.environ.get("DASHSCOPE_API_KEY")
+            if not existing_key:
+                api_key = Prompt.ask("Enter DashScope API Key", password=True)
+                self.config["DASHSCOPE_API_KEY"] = api_key
+        elif choice == "2":
+            console.print("\nCommon fast models:")
+            console.print("  - qwen-turbo-latest (DashScope)")
+            console.print("  - gpt-4o-mini (OpenAI)")
+            console.print("  - deepseek-chat (DeepSeek)\n")
+
+            compiler_config["provider"] = "openai-compatible"
+            compiler_config["api_type"] = "openai"
+            compiler_config["base_url"] = Prompt.ask(
+                "API Base URL", default="https://api.openai.com/v1"
+            )
+            compiler_config["api_key_env"] = Prompt.ask(
+                "API Key env var name", default="COMPILER_API_KEY"
+            )
+            api_key = Prompt.ask("Enter API Key", password=True)
+            self.config[compiler_config["api_key_env"]] = api_key
+            compiler_config["model"] = Prompt.ask("Model name", default="gpt-4o-mini")
+        elif choice == "3":
+            # 复用主模型的 provider 配置
+            compiler_config["provider"] = "same-as-main"
+            compiler_config["api_type"] = "openai"
+            compiler_config["base_url"] = self.config.get(
+                "ANTHROPIC_BASE_URL", "https://api.anthropic.com"
+            )
+            compiler_config["api_key_env"] = "ANTHROPIC_API_KEY"
+            compiler_config["model"] = Prompt.ask(
+                "Model name (use a faster/cheaper variant)",
+                default="gpt-4o-mini",
+            )
+
+        self.config["_compiler_primary"] = compiler_config
+
+        # 是否添加备用端点
+        add_backup = Confirm.ask("\nAdd a backup Compiler endpoint?", default=False)
+
+        if add_backup:
+            console.print("\nBackup Compiler endpoint:\n")
+            backup_config: dict = {}
+            backup_config["api_type"] = "openai"
+            backup_config["base_url"] = Prompt.ask(
+                "API Base URL", default=compiler_config.get("base_url", "")
+            )
+            backup_config["api_key_env"] = Prompt.ask(
+                "API Key env var name", default=compiler_config.get("api_key_env", "")
+            )
+            # 如果 env var 不同于主 compiler，需要设置 key
+            if backup_config["api_key_env"] != compiler_config.get("api_key_env"):
+                api_key = Prompt.ask("Enter API Key", password=True)
+                self.config[backup_config["api_key_env"]] = api_key
+            backup_config["provider"] = Prompt.ask(
+                "Provider name", default=compiler_config.get("provider", "openai-compatible")
+            )
+            backup_config["model"] = Prompt.ask("Model name", default="qwen-plus-latest")
+            self.config["_compiler_backup"] = backup_config
+
+        console.print("\n[green]Prompt Compiler configuration complete![/green]\n")
+
+    def _write_llm_endpoints(self):
+        """将主模型和 Compiler 端点配置写入 data/llm_endpoints.json"""
+        endpoints_path = self.project_dir / "data" / "llm_endpoints.json"
+
+        # 如果文件已存在，读取现有内容以保留用户手动编辑的部分
+        existing_data: dict = {}
+        if endpoints_path.exists():
+            try:
+                existing_data = json.loads(endpoints_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        # 构建主端点（如果现有配置中没有的话）
+        if not existing_data.get("endpoints"):
+            api_key_env = "ANTHROPIC_API_KEY"
+            base_url = self.config.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+            model = self.config.get("DEFAULT_MODEL", "claude-sonnet-4-20250514")
+
+            # 判断 api_type
+            api_type = "anthropic" if "anthropic.com" in base_url else "openai"
+            provider = "anthropic" if api_type == "anthropic" else "openai-compatible"
+
+            existing_data["endpoints"] = [
+                {
+                    "name": "primary",
+                    "provider": provider,
+                    "api_type": api_type,
+                    "base_url": base_url,
+                    "api_key_env": api_key_env,
+                    "model": model,
+                    "priority": 1,
+                    "max_tokens": int(self.config.get("MAX_TOKENS", "8192")),
+                    "timeout": 180,
+                    "capabilities": ["text", "tools"],
+                }
+            ]
+
+        # 构建 Compiler 端点
+        compiler_endpoints = []
+
+        primary_cfg = self.config.get("_compiler_primary")
+        if primary_cfg:
+            compiler_endpoints.append({
+                "name": "compiler-primary",
+                "provider": primary_cfg.get("provider", "openai-compatible"),
+                "api_type": primary_cfg.get("api_type", "openai"),
+                "base_url": primary_cfg.get("base_url", ""),
+                "api_key_env": primary_cfg.get("api_key_env", ""),
+                "model": primary_cfg.get("model", ""),
+                "priority": 1,
+                "max_tokens": 2048,
+                "timeout": 30,
+                "capabilities": ["text"],
+                "note": "Prompt Compiler 主端点（快速模型，不启用思考）",
+            })
+
+        backup_cfg = self.config.get("_compiler_backup")
+        if backup_cfg:
+            compiler_endpoints.append({
+                "name": "compiler-backup",
+                "provider": backup_cfg.get("provider", "openai-compatible"),
+                "api_type": backup_cfg.get("api_type", "openai"),
+                "base_url": backup_cfg.get("base_url", ""),
+                "api_key_env": backup_cfg.get("api_key_env", ""),
+                "model": backup_cfg.get("model", ""),
+                "priority": 2,
+                "max_tokens": 2048,
+                "timeout": 30,
+                "capabilities": ["text"],
+                "note": "Prompt Compiler 备用端点",
+            })
+
+        if compiler_endpoints:
+            existing_data["compiler_endpoints"] = compiler_endpoints
+
+        # 确保 settings 存在
+        if not existing_data.get("settings"):
+            existing_data["settings"] = {
+                "retry_count": 2,
+                "retry_delay_seconds": 2,
+                "health_check_interval": 60,
+                "fallback_on_error": True,
+            }
+
+        # 写入文件
+        endpoints_path.parent.mkdir(parents=True, exist_ok=True)
+        endpoints_path.write_text(
+            json.dumps(existing_data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        console.print(f"  [green]✓[/green] LLM endpoints saved to {endpoints_path}")
+
     def _configure_im_channels(self):
         """配置 IM 通道"""
         console.print("[bold cyan]Step 4: Configure IM Channels (Optional)[/bold cyan]\n")
@@ -413,6 +608,9 @@ Press Ctrl+C at any time to cancel.
         # 写入文件
         self.env_path.write_text(env_content, encoding="utf-8")
         console.print(f"  [green]✓[/green] Configuration saved to {self.env_path}")
+
+        # 写入 llm_endpoints.json（主模型端点 + Compiler 端点）
+        self._write_llm_endpoints()
 
         # 创建 identity 示例文件
         self._create_identity_examples()

@@ -668,13 +668,26 @@ class MessageGateway:
         """
         消息回调（由适配器调用）
 
-        如果该会话正在处理中，将消息放入中断队列
+        如果该会话正在处理中，将消息放入中断队列。
+        如果消息是停止指令，立即触发任务取消。
         """
         session_key = f"{message.channel}:{message.chat_id}:{message.user_id}"
 
         async with self._interrupt_lock:
             if self._processing_sessions.get(session_key, False):
-                # 会话正在处理中，放入中断队列
+                # 会话正在处理中
+                user_text = (message.plain_text or "").strip()
+
+                # C8: 检测停止指令 → 立即取消当前任务
+                if self.agent_handler and self.agent_handler.is_stop_command(user_text):
+                    self.agent_handler.cancel_current_task(f"用户发送停止指令: {user_text}")
+                    logger.info(
+                        f"[Interrupt] Stop command detected, cancelling task for {session_key}: {user_text}"
+                    )
+                    # 同时也将停止指令放入中断队列，让任务取消后处理
+                    # （agent 循环退出后会看到这条消息并立即回复确认）
+
+                # 放入中断队列
                 await self._add_interrupt_message(session_key, message)
                 logger.info(
                     f"[Interrupt] Message queued for session {session_key}: {message.plain_text}"

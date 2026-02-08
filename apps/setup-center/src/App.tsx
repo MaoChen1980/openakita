@@ -413,9 +413,19 @@ export function App() {
   const [endpointName, setEndpointName] = useState<string>("");
   const [endpointPriority, setEndpointPriority] = useState<number>(1);
   const [savedEndpoints, setSavedEndpoints] = useState<EndpointDraft[]>([]);
+  const [savedCompilerEndpoints, setSavedCompilerEndpoints] = useState<EndpointDraft[]>([]);
   const [apiKeyEnvTouched, setApiKeyEnvTouched] = useState(false);
   const [endpointNameTouched, setEndpointNameTouched] = useState(false);
   const [llmAdvancedOpen, setLlmAdvancedOpen] = useState(false);
+
+  // Compiler endpoint form state
+  const [compilerProviderSlug, setCompilerProviderSlug] = useState("");
+  const [compilerApiType, setCompilerApiType] = useState<"openai" | "anthropic">("openai");
+  const [compilerBaseUrl, setCompilerBaseUrl] = useState("");
+  const [compilerApiKeyEnv, setCompilerApiKeyEnv] = useState("");
+  const [compilerApiKeyValue, setCompilerApiKeyValue] = useState("");
+  const [compilerModel, setCompilerModel] = useState("");
+  const [compilerEndpointName, setCompilerEndpointName] = useState("");
 
   // Edit endpoint modal (do not reuse the "add" form)
   const [editingOriginalName, setEditingOriginalName] = useState<string | null>(null);
@@ -887,6 +897,7 @@ export function App() {
   async function loadSavedEndpoints() {
     if (!currentWorkspaceId) {
       setSavedEndpoints([]);
+      setSavedCompilerEndpoints([]);
       return;
     }
     try {
@@ -920,8 +931,28 @@ export function App() {
       if (!isEditingEndpoint) {
         setEndpointPriority(list.length === 0 ? 1 : maxP + 1);
       }
+
+      // Load compiler endpoints
+      const compilerEps: EndpointDraft[] = (Array.isArray(parsed?.compiler_endpoints) ? parsed.compiler_endpoints : [])
+        .filter((e: any) => e?.name)
+        .map((e: any) => ({
+          name: String(e.name || ""),
+          provider: String(e.provider || ""),
+          api_type: String(e.api_type || "openai"),
+          base_url: String(e.base_url || ""),
+          api_key_env: String(e.api_key_env || ""),
+          model: String(e.model || ""),
+          priority: Number.isFinite(Number(e.priority)) ? Number(e.priority) : 1,
+          max_tokens: Number.isFinite(Number(e.max_tokens)) ? Number(e.max_tokens) : 2048,
+          timeout: Number.isFinite(Number(e.timeout)) ? Number(e.timeout) : 30,
+          capabilities: Array.isArray(e.capabilities) ? e.capabilities.map((x: any) => String(x)) : ["text"],
+          note: e.note ? String(e.note) : null,
+        }))
+        .sort((a: EndpointDraft, b: EndpointDraft) => a.priority - b.priority);
+      setSavedCompilerEndpoints(compilerEps);
     } catch {
       setSavedEndpoints([]);
+      setSavedCompilerEndpoints([]);
     }
   }
 
@@ -943,7 +974,16 @@ export function App() {
 
   async function writeEndpointsJson(endpoints: any[], settings: any) {
     if (!currentWorkspaceId) throw new Error("未设置当前工作区");
-    const base = { endpoints, settings: settings || {} };
+    // Read existing JSON to preserve extra top-level fields (e.g. compiler_endpoints)
+    let existing: any = {};
+    try {
+      const raw = await invoke<string>("workspace_read_file", {
+        workspaceId: currentWorkspaceId,
+        relativePath: "data/llm_endpoints.json",
+      });
+      existing = raw ? JSON.parse(raw) : {};
+    } catch { /* ignore */ }
+    const base = { ...existing, endpoints, settings: settings || {} };
     const next = JSON.stringify(base, null, 2) + "\n";
     await invoke("workspace_write_file", {
       workspaceId: currentWorkspaceId,
@@ -956,6 +996,120 @@ export function App() {
     const x = Number(n);
     if (!Number.isFinite(x) || x <= 0) return fallback;
     return Math.floor(x);
+  }
+
+  async function doSaveCompilerEndpoint() {
+    if (!currentWorkspaceId) {
+      setError("请先创建/选择一个当前工作区");
+      return;
+    }
+    if (!compilerModel.trim()) {
+      setError("请填写编译模型名称");
+      return;
+    }
+    if (!compilerApiKeyEnv.trim()) {
+      setError("请填写编译端点的 API Key 环境变量名");
+      return;
+    }
+    if (!compilerApiKeyValue.trim()) {
+      setError("请填写编译端点的 API Key 值");
+      return;
+    }
+    setBusy("写入编译端点...");
+    setError(null);
+    try {
+      // Write API key to .env
+      await invoke("workspace_update_env", {
+        workspaceId: currentWorkspaceId,
+        entries: [{ key: compilerApiKeyEnv.trim(), value: compilerApiKeyValue.trim() }],
+      });
+      setEnvDraft((e) => envSet(e, compilerApiKeyEnv.trim(), compilerApiKeyValue.trim()));
+
+      // Read existing JSON
+      let currentJson = "";
+      try {
+        currentJson = await invoke<string>("workspace_read_file", {
+          workspaceId: currentWorkspaceId,
+          relativePath: "data/llm_endpoints.json",
+        });
+      } catch { currentJson = ""; }
+      const base = currentJson ? JSON.parse(currentJson) : { endpoints: [], settings: {} };
+      base.compiler_endpoints = Array.isArray(base.compiler_endpoints) ? base.compiler_endpoints : [];
+
+      const baseName = (compilerEndpointName.trim() || `compiler-${compilerProviderSlug || "provider"}-${compilerModel.trim()}`).slice(0, 64);
+      const usedNames = new Set(base.compiler_endpoints.map((e: any) => String(e?.name || "")).filter(Boolean));
+      let name = baseName;
+      if (usedNames.has(name)) {
+        for (let i = 2; i < 10; i++) {
+          const n = `${baseName}-${i}`.slice(0, 64);
+          if (!usedNames.has(n)) { name = n; break; }
+        }
+      }
+
+      const endpoint = {
+        name,
+        provider: compilerProviderSlug || "custom",
+        api_type: compilerApiType,
+        base_url: compilerBaseUrl,
+        api_key_env: compilerApiKeyEnv.trim(),
+        model: compilerModel.trim(),
+        priority: base.compiler_endpoints.length + 1,
+        max_tokens: 2048,
+        timeout: 30,
+        capabilities: ["text"],
+      };
+      base.compiler_endpoints.push(endpoint);
+      base.compiler_endpoints.sort((a: any, b: any) => (Number(a?.priority) || 999) - (Number(b?.priority) || 999));
+
+      await invoke("workspace_write_file", {
+        workspaceId: currentWorkspaceId,
+        relativePath: "data/llm_endpoints.json",
+        content: JSON.stringify(base, null, 2) + "\n",
+      });
+
+      // Reset form
+      setCompilerModel("");
+      setCompilerApiKeyValue("");
+      setCompilerEndpointName("");
+      setNotice(`编译端点 ${name} 已保存`);
+      await loadSavedEndpoints();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function doDeleteCompilerEndpoint(epName: string) {
+    if (!currentWorkspaceId) return;
+    setBusy("删除编译端点...");
+    setError(null);
+    try {
+      let currentJson = "";
+      try {
+        currentJson = await invoke<string>("workspace_read_file", {
+          workspaceId: currentWorkspaceId,
+          relativePath: "data/llm_endpoints.json",
+        });
+      } catch { currentJson = ""; }
+      const base = currentJson ? JSON.parse(currentJson) : { endpoints: [], settings: {} };
+      base.compiler_endpoints = Array.isArray(base.compiler_endpoints) ? base.compiler_endpoints : [];
+      base.compiler_endpoints = base.compiler_endpoints
+        .filter((e: any) => String(e?.name || "") !== epName)
+        .map((e: any, i: number) => ({ ...e, priority: i + 1 }));
+
+      await invoke("workspace_write_file", {
+        workspaceId: currentWorkspaceId,
+        relativePath: "data/llm_endpoints.json",
+        content: JSON.stringify(base, null, 2) + "\n",
+      });
+      setNotice(`编译端点 ${epName} 已删除`);
+      await loadSavedEndpoints();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function doReorderByNames(orderedNames: string[]) {
@@ -2605,6 +2759,202 @@ export function App() {
 
           <div className="okBox">下一步：进入“IM 通道”，按需启用 Telegram/飞书/企业微信等。</div>
         </div>
+
+        {/* ── Compiler Endpoints Card ── */}
+        <div className="card" style={{ marginTop: 24 }}>
+          <div className="cardTitle">提示词编译模型（Prompt Compiler）</div>
+          <div className="cardHint">
+            用于预处理用户指令的轻量模型，建议使用响应速度快的小模型（如 qwen-turbo、gpt-4o-mini）。
+            支持主备 2 个端点，失败自动回退主模型。不启用思考模式。
+          </div>
+          <div className="divider" />
+
+          {savedCompilerEndpoints.length > 0 && (
+            <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+              {savedCompilerEndpoints.map((e) => (
+                <div
+                  key={e.name}
+                  className="row"
+                  style={{
+                    justifyContent: "space-between",
+                    padding: "10px 12px",
+                    border: "1px solid var(--line)",
+                    borderRadius: 14,
+                    background: "rgba(255, 255, 255, 0.75)",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 800 }}>
+                      {e.name}{" "}
+                      <span style={{ color: "var(--muted)", fontWeight: 600 }}>
+                        （priority {e.priority}）
+                      </span>
+                      {savedCompilerEndpoints[0]?.name === e.name ? (
+                        <span style={{ marginLeft: 8, color: "var(--brand)", fontWeight: 800 }}>主</span>
+                      ) : null}
+                    </div>
+                    <div className="help" style={{ marginTop: 4 }}>
+                      {e.provider}/{e.model} · {e.api_type}
+                      <br />
+                      {e.base_url} · timeout {e.timeout}s
+                    </div>
+                  </div>
+                  <div className="btnRow">
+                    <button className="btnDanger" onClick={() => doDeleteCompilerEndpoint(e.name)} disabled={!!busy}>
+                      删除
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {savedCompilerEndpoints.length < 2 ? (
+            <div>
+              <div style={{ fontSize: 13, opacity: 0.7, marginBottom: 12, fontWeight: 600 }}>
+                {savedCompilerEndpoints.length === 0 ? "添加主编译端点" : "添加备用编译端点"}
+              </div>
+              {providers.length > 0 ? (
+                <div className="grid2">
+                  <div className="field">
+                    <div className="labelRow">
+                      <div className="label">服务商</div>
+                      <div className="help">选了会自动填 URL 和建议 Key 名</div>
+                    </div>
+                    <select
+                      value={compilerProviderSlug}
+                      onChange={(e) => {
+                        const slug = e.target.value;
+                        setCompilerProviderSlug(slug);
+                        const p = providers.find((x) => x.slug === slug);
+                        if (p) {
+                          setCompilerApiType((p.api_type as any) || "openai");
+                          setCompilerBaseUrl(p.default_base_url || "");
+                          const suggested = p.api_key_env_suggestion || envKeyFromSlug(p.slug);
+                          const used = new Set(Object.keys(envDraft || {}));
+                          for (const ep of [...savedEndpoints, ...savedCompilerEndpoints]) {
+                            if (ep.api_key_env) used.add(ep.api_key_env);
+                          }
+                          setCompilerApiKeyEnv(nextEnvKeyName(suggested, used));
+                        }
+                      }}
+                    >
+                      <option value="">（请选择）</option>
+                      {providers.map((p) => (
+                        <option key={p.slug} value={p.slug}>
+                          {p.name} ({p.slug})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <div className="labelRow">
+                      <div className="label">协议与 Base URL</div>
+                    </div>
+                    <div className="row">
+                      <select value={compilerApiType} onChange={(e) => setCompilerApiType(e.target.value as any)} style={{ width: 160 }}>
+                        <option value="openai">openai</option>
+                        <option value="anthropic">anthropic</option>
+                      </select>
+                      <input value={compilerBaseUrl} onChange={(e) => setCompilerBaseUrl(e.target.value)} placeholder="https://.../v1" />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid2">
+                  <div className="field">
+                    <div className="labelRow">
+                      <div className="label">协议与 Base URL</div>
+                      <div className="help">请先在上方"读取服务商列表"以启用服务商选择</div>
+                    </div>
+                    <div className="row">
+                      <select value={compilerApiType} onChange={(e) => setCompilerApiType(e.target.value as any)} style={{ width: 160 }}>
+                        <option value="openai">openai</option>
+                        <option value="anthropic">anthropic</option>
+                      </select>
+                      <input value={compilerBaseUrl} onChange={(e) => setCompilerBaseUrl(e.target.value)} placeholder="https://.../v1" />
+                    </div>
+                  </div>
+                  <div className="field">
+                    <div className="labelRow">
+                      <div className="label">服务商 slug（手动）</div>
+                    </div>
+                    <input value={compilerProviderSlug} onChange={(e) => setCompilerProviderSlug(e.target.value)} placeholder="dashscope / openai" />
+                  </div>
+                </div>
+              )}
+              <div className="grid2" style={{ marginTop: 10 }}>
+                <div className="field">
+                  <div className="labelRow">
+                    <div className="label">API Key 值</div>
+                    <div className="help">写入工作区 .env</div>
+                  </div>
+                  <div style={{ position: "relative" }}>
+                    <input
+                      value={compilerApiKeyValue}
+                      onChange={(e) => setCompilerApiKeyValue(e.target.value)}
+                      placeholder="sk-..."
+                      type={secretShown.__COMPILER_API_KEY ? "text" : "password"}
+                      style={{ paddingRight: 78 }}
+                    />
+                    <button
+                      type="button"
+                      className="btnSmall"
+                      onClick={() => setSecretShown((m) => ({ ...m, __COMPILER_API_KEY: !m.__COMPILER_API_KEY }))}
+                      disabled={!!busy}
+                      style={{
+                        position: "absolute",
+                        right: 8,
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        height: 30,
+                        padding: "0 10px",
+                        borderRadius: 10,
+                      }}
+                    >
+                      {secretShown.__COMPILER_API_KEY ? "隐藏" : "显示"}
+                    </button>
+                  </div>
+                </div>
+                <div className="field">
+                  <div className="labelRow">
+                    <div className="label">API Key 环境变量名</div>
+                    <div className="help">端点引用的 api_key_env</div>
+                  </div>
+                  <input value={compilerApiKeyEnv} onChange={(e) => setCompilerApiKeyEnv(e.target.value)} placeholder="DASHSCOPE_API_KEY" />
+                </div>
+              </div>
+              <div className="grid2" style={{ marginTop: 10 }}>
+                <div className="field">
+                  <div className="labelRow">
+                    <div className="label">模型名称</div>
+                    <div className="help">手动输入模型 ID</div>
+                  </div>
+                  <input value={compilerModel} onChange={(e) => setCompilerModel(e.target.value)} placeholder="qwen-turbo / gpt-4o-mini" />
+                </div>
+                <div className="field">
+                  <div className="labelRow">
+                    <div className="label">端点名称（可选）</div>
+                    <div className="help">留空自动生成</div>
+                  </div>
+                  <input value={compilerEndpointName} onChange={(e) => setCompilerEndpointName(e.target.value)} placeholder="compiler-primary" />
+                </div>
+              </div>
+              <div className="btnRow" style={{ marginTop: 14 }}>
+                <button
+                  className="btnPrimary"
+                  onClick={doSaveCompilerEndpoint}
+                  disabled={!currentWorkspaceId || !compilerModel.trim() || !compilerApiKeyEnv.trim() || !compilerApiKeyValue.trim() || !!busy}
+                >
+                  保存编译端点
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="okBox">已配置 2 个编译端点（最多 2 个）。</div>
+          )}
+        </div>
+
         {llmNextModalOpen ? (
           <div
             onClick={() => setLlmNextModalOpen(false)}

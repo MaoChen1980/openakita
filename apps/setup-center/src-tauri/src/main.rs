@@ -151,46 +151,70 @@ fn stop_service_pid_entry(ent: &ServicePidEntry) -> Result<(), String> {
     Ok(())
 }
 
+// --- Windows 原生 API FFI（进程检测/杀死/枚举，不依赖 cmd/tasklist/taskkill，中文 Windows 零编码问题）---
+#[cfg(windows)]
+#[allow(non_snake_case, dead_code)]
+mod win {
+    extern "system" {
+        pub fn OpenProcess(
+            dwDesiredAccess: u32,
+            bInheritHandle: i32,
+            dwProcessId: u32,
+        ) -> *mut std::ffi::c_void;
+        pub fn TerminateProcess(hProcess: *mut std::ffi::c_void, uExitCode: u32) -> i32;
+        pub fn CloseHandle(hObject: *mut std::ffi::c_void) -> i32;
+        pub fn CreateToolhelp32Snapshot(dwFlags: u32, th32ProcessID: u32) -> *mut std::ffi::c_void;
+        pub fn Process32FirstW(
+            hSnapshot: *mut std::ffi::c_void,
+            lppe: *mut PROCESSENTRY32W,
+        ) -> i32;
+        pub fn Process32NextW(
+            hSnapshot: *mut std::ffi::c_void,
+            lppe: *mut PROCESSENTRY32W,
+        ) -> i32;
+    }
+    pub const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    pub const PROCESS_TERMINATE: u32 = 0x0001;
+    pub const TH32CS_SNAPPROCESS: u32 = 0x00000002;
+    pub const INVALID_HANDLE_VALUE: *mut std::ffi::c_void = -1_isize as *mut std::ffi::c_void;
+
+    #[repr(C)]
+    pub struct PROCESSENTRY32W {
+        pub dw_size: u32,
+        pub cnt_usage: u32,
+        pub th32_process_id: u32,
+        pub th32_default_heap_id: usize,
+        pub th32_module_id: u32,
+        pub cnt_threads: u32,
+        pub th32_parent_process_id: u32,
+        pub pc_pri_class_base: i32,
+        pub dw_flags: u32,
+        pub sz_exe_file: [u16; 260],
+    }
+}
+
 fn is_pid_running(pid: u32) -> bool {
     if pid == 0 {
         return false;
     }
-    if cfg!(windows) {
-        // Use CSV output to avoid false positive substring matches.
-        // Example output:
-        //   "pythonw.exe","1234","Console","1","10,000 K"
-        // If no match:
-        //   INFO: No tasks are running which match the specified criteria.
-        let mut c = Command::new("cmd");
-        c.args([
-            "/C",
-            &format!("tasklist /FO CSV /NH /FI \"PID eq {}\"", pid),
-        ]);
-        apply_no_window(&mut c);
-        let out = c.output();
-        if let Ok(out) = out {
-            let s = String::from_utf8_lossy(&out.stdout).to_string();
-            let line = s.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
-            if line.to_ascii_lowercase().starts_with("info:") {
-                return false;
-            }
-            // Parse CSV line: trim outer quotes then split by ",".
-            let trimmed = line.trim_matches('\r').trim();
-            if trimmed.starts_with('"') {
-                let cols: Vec<&str> = trimmed
-                    .trim_matches('"')
-                    .split("\",\"")
-                    .collect();
-                if cols.len() >= 2 {
-                    return cols[1].trim() == pid.to_string();
-                }
-            }
-            // Fallback to substring check (best-effort).
-            return trimmed.contains(&format!("\"{}\"", pid));
+    #[cfg(windows)]
+    {
+        // 直接用 Windows API 检查——最可靠，无 GBK 编码问题。
+        let handle =
+            unsafe { win::OpenProcess(win::PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if handle.is_null() {
+            return false;
         }
-        false
-    } else {
-        let status = Command::new("kill").args(["-0", &pid.to_string()]).status();
+        unsafe {
+            win::CloseHandle(handle);
+        }
+        return true;
+    }
+    #[cfg(not(windows))]
+    {
+        let status = Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .status();
         status.map(|s| s.success()).unwrap_or(false)
     }
 }
@@ -199,27 +223,33 @@ fn kill_pid(pid: u32) -> Result<(), String> {
     if pid == 0 {
         return Ok(());
     }
-    if cfg!(windows) {
-        let mut c = Command::new("cmd");
-        c.args(["/C", &format!("taskkill /PID {} /T /F", pid)]);
-        apply_no_window(&mut c);
-        let out = c.output().map_err(|e| format!("taskkill failed: {e}"))?;
-        if out.status.success() {
-            return Ok(());
+    #[cfg(windows)]
+    {
+        // 直接用 TerminateProcess API 杀进程，不走 cmd/taskkill。
+        let handle = unsafe { win::OpenProcess(win::PROCESS_TERMINATE, 0, pid) };
+        if handle.is_null() {
+            if !is_pid_running(pid) {
+                return Ok(());
+            }
+            return Err(format!(
+                "\u{65e0}\u{6cd5}\u{6253}\u{5f00}\u{8fdb}\u{7a0b}\u{ff08}pid={}\u{ff09}\u{ff0c}\u{6743}\u{9650}\u{4e0d}\u{8db3}\u{6216}\u{8fdb}\u{7a0b}\u{4e0d}\u{5b58}\u{5728}",
+                pid
+            ));
         }
-        // taskkill 失败时，如果进程已经不存在，则视为成功（避免“已结束却报错”）
-        if !is_pid_running(pid) {
-            return Ok(());
+        let ok = unsafe { win::TerminateProcess(handle, 1) };
+        unsafe {
+            win::CloseHandle(handle);
         }
-        let mut msg = String::new();
-        if !out.stdout.is_empty() {
-            msg.push_str(&String::from_utf8_lossy(&out.stdout));
+        if ok == 0 {
+            if !is_pid_running(pid) {
+                return Ok(());
+            }
+            return Err(format!("TerminateProcess \u{5931}\u{8d25}\u{ff08}pid={}\u{ff09}", pid));
         }
-        if !out.stderr.is_empty() {
-            msg.push_str(&String::from_utf8_lossy(&out.stderr));
-        }
-        Err(format!("taskkill failed (pid={pid}): {}", msg.trim()))
-    } else {
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    {
         let status = Command::new("kill")
             .args(["-TERM", &pid.to_string()])
             .status()
@@ -229,6 +259,76 @@ fn kill_pid(pid: u32) -> Result<(), String> {
         }
         Ok(())
     }
+}
+
+/// 扫描并杀死所有进程名为 python/pythonw 且命令行包含 "openakita" 和 "serve" 的进程。
+/// 用于托盘退出时兜底清理孤儿进程（PID 文件可能已被删除但进程仍存活）。
+/// 返回被杀掉的 PID 列表。
+fn kill_openakita_orphans() -> Vec<u32> {
+    let mut killed = Vec::new();
+    #[cfg(windows)]
+    {
+        // Step 1: 用 Toolhelp32 枚举所有进程，找到进程名含 python 的
+        let snap = unsafe { win::CreateToolhelp32Snapshot(win::TH32CS_SNAPPROCESS, 0) };
+        if snap == win::INVALID_HANDLE_VALUE || snap.is_null() {
+            return killed;
+        }
+        let mut pe: win::PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+        pe.dw_size = std::mem::size_of::<win::PROCESSENTRY32W>() as u32;
+
+        let mut python_pids: Vec<u32> = Vec::new();
+
+        if unsafe { win::Process32FirstW(snap, &mut pe) } != 0 {
+            loop {
+                let name = String::from_utf16_lossy(
+                    &pe.sz_exe_file[..pe
+                        .sz_exe_file
+                        .iter()
+                        .position(|&c| c == 0)
+                        .unwrap_or(260)],
+                );
+                let name_lower = name.to_ascii_lowercase();
+                if name_lower.contains("python") {
+                    python_pids.push(pe.th32_process_id);
+                }
+                if unsafe { win::Process32NextW(snap, &mut pe) } == 0 {
+                    break;
+                }
+            }
+        }
+        unsafe {
+            win::CloseHandle(snap);
+        }
+
+        // Step 2: 对每个 python 进程用 wmic 查命令行（只返回 ASCII 字段，无编码问题）
+        for ppid in python_pids {
+            let mut c = Command::new("cmd");
+            c.args([
+                "/C",
+                &format!(
+                    "wmic process where \"ProcessId={}\" get CommandLine /value",
+                    ppid
+                ),
+            ]);
+            apply_no_window(&mut c);
+            if let Ok(out) = c.output() {
+                let s = String::from_utf8_lossy(&out.stdout).to_lowercase();
+                if s.contains("openakita") && s.contains("serve") {
+                    if is_pid_running(ppid) {
+                        let _ = kill_pid(ppid);
+                        killed.push(ppid);
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = Command::new("pkill")
+            .args(["-f", "openakita.*serve"])
+            .status();
+    }
+    killed
 }
 
 fn read_state_file() -> AppStateFile {
@@ -705,45 +805,50 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "quit" => {
-                // 退出前先确保后台 OpenAkita serve 已停止（对不懂技术的用户很关键，避免残留进程）
+                // 退出前先确保后台 OpenAkita serve 已停止（三层保障：PID文件杀→孤儿扫描→最终确认）
+
+                // 第 1 层：按 PID 文件逐一停止
                 let entries = list_service_pids();
-                if entries.is_empty() {
-                    app.exit(0);
-                    return;
-                }
-
-                let mut failed: Vec<ServicePidEntry> = Vec::new();
                 for ent in &entries {
-                    if let Err(_e) = stop_service_pid_entry(ent) {
-                        failed.push(ent.clone());
-                    }
+                    let _ = stop_service_pid_entry(ent);
                 }
 
-                // 再次确认
-                let still = list_service_pids()
+                // 第 2 层：兜底扫描所有命令行含 openakita serve 的 python 进程并杀掉
+                kill_openakita_orphans();
+
+                // 等一小段让进程退出
+                std::thread::sleep(std::time::Duration::from_millis(600));
+
+                // 第 3 层：最终确认——PID 文件里还有活的吗？再扫一次孤儿进程
+                let still_pid = list_service_pids()
                     .into_iter()
                     .filter(|x| is_pid_running(x.pid))
                     .collect::<Vec<_>>();
+                let still_orphans = kill_openakita_orphans();
 
-                if !failed.is_empty() || !still.is_empty() {
-                    // 阻止退出：提示用户退出不成功，并引导去状态面板查看日志/手动停止
+                if still_pid.is_empty() && still_orphans.is_empty() {
+                    // 全部清理干净，安全退出
+                    app.exit(0);
+                } else {
+                    // 仍有残留：阻止退出，提示用户
                     if let Some(w) = app.get_webview_window("main") {
                         let _ = w.show();
                         let _ = w.unminimize();
                         let _ = w.set_focus();
                     }
+                    let mut detail = Vec::new();
+                    for x in &still_pid {
+                        detail.push(format!("{} (PID={})", x.workspace_id, x.pid));
+                    }
+                    for p in &still_orphans {
+                        detail.push(format!("orphan PID={}", p));
+                    }
                     let msg = format!(
-                        "退出失败：后台服务仍在运行。\n\n请先在“状态面板”点击“停止服务”，确认状态变为“未运行”。\n\n仍在运行的进程：{}",
-                        still
-                            .iter()
-                            .map(|x| format!("{} (PID={}, pidFile={})", x.workspace_id, x.pid, x.pid_file))
-                            .collect::<Vec<_>>()
-                            .join("; ")
+                        "\u{9000}\u{51fa}\u{5931}\u{8d25}\u{ff1a}\u{540e}\u{53f0}\u{670d}\u{52a1}\u{4ecd}\u{5728}\u{8fd0}\u{884c}\u{3002}\n\n\u{8bf7}\u{5148}\u{5728}\u{201c}\u{72b6}\u{6001}\u{9762}\u{677f}\u{201d}\u{70b9}\u{51fb}\u{201c}\u{505c}\u{6b62}\u{670d}\u{52a1}\u{201d}\u{ff0c}\u{786e}\u{8ba4}\u{72b6}\u{6001}\u{53d8}\u{4e3a}\u{201c}\u{672a}\u{8fd0}\u{884c}\u{201d}\u{540e}\u{518d}\u{9000}\u{51fa}\u{3002}\n\n\u{4ecd}\u{5728}\u{8fd0}\u{884c}\u{7684}\u{8fdb}\u{7a0b}\u{ff1a}{}",
+                        detail.join("; ")
                     );
                     let _ = app.emit("open_status", serde_json::json!({}));
                     let _ = app.emit("quit_failed", serde_json::json!({ "message": msg }));
-                } else {
-                    app.exit(0);
                 }
             }
             "show" => {

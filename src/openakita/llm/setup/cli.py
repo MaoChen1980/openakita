@@ -19,7 +19,7 @@ def run_cli_wizard():
 
     while True:
         # 显示当前配置
-        endpoints, settings = load_endpoints_config()
+        endpoints, _compiler_eps, settings = load_endpoints_config()
         if endpoints:
             print(f"当前已配置 {len(endpoints)} 个端点:")
             for i, ep in enumerate(endpoints, 1):
@@ -403,10 +403,10 @@ def quick_add_endpoint(
         capabilities=capabilities,
     )
 
-    endpoints, settings = load_endpoints_config()
+    endpoints, compiler_eps, settings = load_endpoints_config()
     endpoints.append(endpoint)
     endpoints.sort(key=lambda x: x.priority)
-    save_endpoints_config(endpoints, settings)
+    save_endpoints_config(endpoints, settings, compiler_endpoints=compiler_eps)
 
     print(f"✅ 已添加端点: {name}")
 

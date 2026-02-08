@@ -130,7 +130,7 @@ class LLMClient:
             self._endpoints = sorted(endpoints, key=lambda x: x.priority)
         elif config_path or get_default_config_path().exists():
             self._config_path = config_path or get_default_config_path()
-            self._endpoints, self._settings = load_endpoints_config(config_path)
+            self._endpoints, _, self._settings = load_endpoints_config(config_path)
 
         # 创建 Provider 实例
         self._init_providers()

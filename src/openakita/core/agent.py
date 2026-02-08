@@ -1345,9 +1345,9 @@ class Agent:
         Returns:
             完整的系统提示词
         """
-        # 使用编译管线 (v2) - 降低 token 消耗
+        # 使用编译管线 (v2) - 降低 token 消耗（同步版本，启动时使用）
         if use_compiled:
-            return self._build_system_prompt_compiled(task_description, session_type=session_type)
+            return self._build_system_prompt_compiled_sync(task_description, session_type=session_type)
 
         # 技能清单 (Agent Skills 规范) - 每次动态生成，确保新创建的技能被包含
         skill_catalog = self.skill_catalog.generate_catalog()
@@ -1687,27 +1687,14 @@ search_github → install_skill → 使用
 **用户信任比看起来厉害更重要！宁可说"我做不到"也不要骗人！**
 {profile_prompt}"""
 
-    def _build_system_prompt_compiled(self, task_description: str = "", session_type: str = "cli") -> str:
-        """
-        使用编译管线构建系统提示词 (v2)
-
-        Token 消耗降低约 55%，从 ~6300 降到 ~2800。
-
-        Args:
-            task_description: 任务描述 (用于检索相关记忆)
-            session_type: 会话类型 "cli" 或 "im"
-
-        Returns:
-            编译后的系统提示词
-        """
+    def _build_system_prompt_compiled_sync(self, task_description: str = "", session_type: str = "cli") -> str:
+        """同步版本：启动时构建初始系统提示词（此时事件循环可能未就绪）"""
         identity_dir = settings.identity_path
 
-        # 检查编译产物是否过期
         if check_compiled_outdated(identity_dir):
             logger.info("Compiled identity files outdated, recompiling...")
             compile_all(identity_dir)
 
-        # 使用新管线构建提示词
         return build_system_prompt_v2(
             identity_dir=identity_dir,
             tools_enabled=True,
@@ -1716,8 +1703,58 @@ search_github → install_skill → 使用
             mcp_catalog=self.mcp_catalog,
             memory_manager=self.memory_manager,
             task_description=task_description,
-            include_tools_guide=True,  # 包含工具使用指南
+            include_tools_guide=True,
             session_type=session_type,
+        )
+
+    async def _build_system_prompt_compiled(self, task_description: str = "", session_type: str = "cli") -> str:
+        """
+        使用编译管线构建系统提示词 (v2)
+
+        Token 消耗降低约 55%，从 ~6300 降到 ~2800。
+        异步版本：预先异步执行向量搜索，避免阻塞事件循环。
+
+        Args:
+            task_description: 任务描述 (用于检索相关记忆)
+            session_type: 会话类型 "cli" 或 "im"
+
+        Returns:
+            编译后的系统提示词
+        """
+        from ..prompt.retriever import async_search_related_memories, retrieve_memory
+
+        identity_dir = settings.identity_path
+
+        # 检查编译产物是否过期
+        if check_compiled_outdated(identity_dir):
+            logger.info("Compiled identity files outdated, recompiling...")
+            compile_all(identity_dir)
+
+        # 异步预取记忆搜索结果（避免在 build_system_prompt_v2 内部同步阻塞）
+        precomputed_memory = ""
+        if self.memory_manager and task_description:
+            try:
+                precomputed_memory = await asyncio.to_thread(
+                    retrieve_memory,
+                    query=task_description,
+                    memory_manager=self.memory_manager,
+                    max_tokens=400,
+                )
+            except Exception as e:
+                logger.warning(f"Async memory retrieval failed: {e}")
+
+        # 使用新管线构建提示词（传入预计算的记忆，跳过内部同步搜索）
+        return build_system_prompt_v2(
+            identity_dir=identity_dir,
+            tools_enabled=True,
+            tool_catalog=self.tool_catalog,
+            skill_catalog=self.skill_catalog,
+            mcp_catalog=self.mcp_catalog,
+            memory_manager=self.memory_manager,
+            task_description=task_description,
+            include_tools_guide=True,
+            session_type=session_type,
+            precomputed_memory=precomputed_memory,
         )
 
     def _generate_tools_text(self) -> str:
@@ -2203,6 +2240,18 @@ search_github → install_skill → 使用
                         }
                     )
 
+            # === C2: 插入上下文边界标记 ===
+            # 让 LLM 清楚区分"历史上下文"和"当前最新消息"，避免将历史消息当成当前请求
+            if messages:
+                messages.append({
+                    "role": "user",
+                    "content": "[上下文结束，以下是用户的最新消息]",
+                })
+                messages.append({
+                    "role": "assistant",
+                    "content": "好的，我已了解之前的对话上下文。请告诉我你现在的需求。",
+                })
+
             # 添加当前用户消息（支持多模态：文本 + 图片）
             pending_images = session.get_metadata("pending_images") if session else None
 
@@ -2309,13 +2358,13 @@ search_github → install_skill → 使用
             - raw_compiler_output: Prompt Compiler 的原始输出（用于日志）
         """
         try:
-            # 调用 Brain 进行 Prompt 编译（独立上下文，使用快速模型）
-            response = await self.brain.think(
+            # 调用 Brain 的 Compiler 专用方法（独立快速模型，禁用思考，失败回退主模型）
+            response = await self.brain.compiler_think(
                 prompt=user_message,
                 system=PROMPT_COMPILER_SYSTEM,
             )
 
-            # 移除 thinking 标签
+            # 移除 thinking 标签（回退到主模型时可能带有）
             compiler_output = (
                 strip_thinking_tags(response.content).strip() if response.content else ""
             )
@@ -2456,28 +2505,12 @@ search_github → install_skill → 使用
         """
         判断是否需要进行 Prompt 编译
 
-        简单的消息（问候、简单提醒等）不需要编译
-        复杂的任务请求才需要编译
+        仅基于长度判断：极短消息信息量不足以产生有意义的 TaskDefinition，
+        编译是纯浪费。消息类型分类（闲聊/问答/任务）由大模型自己决定，
+        不在此处做关键词/正则匹配。
         """
-        # 简单消息的特征
-        simple_patterns = [
-            r"^(你好|hi|hello|嗨|hey)[\s\!]*$",
-            r"^(谢谢|感谢|thanks|thank you)[\s\!]*$",
-            r"^(好的|ok|好|嗯|哦)[\s\!]*$",
-            r"^(再见|拜拜|bye)[\s\!]*$",
-            r"^\d+分钟后(提醒|叫)我",  # 简单提醒
-            r"^(现在)?几点",  # 问时间
-        ]
-
-        message_lower = message.lower().strip()
-
-        # 检查是否匹配简单消息模式
-        for pattern in simple_patterns:
-            if re.match(pattern, message_lower, re.IGNORECASE):
-                return False
-
-        # 消息太短（少于 10 个字符）不需要编译
-        if len(message.strip()) < 10:
+        # 极短消息不需要编译（信息量不足以产生有意义的结构化 TaskDefinition）
+        if len(message.strip()) < 20:
             return False
 
         # 其他情况都进行编译
@@ -2574,9 +2607,9 @@ search_github → install_skill → 使用
                     # 继续执行 LLM 验证，不强制返回 False
 
         # 依赖 LLM 进行判断
-        verify_prompt = f"""请判断以下任务是否已经**真正完成**用户的意图。
+        verify_prompt = f"""请判断以下交互是否已经**完成**用户的意图。
 
-## 用户请求
+## 用户消息
 {user_request[:500]}
 
 ## 助手响应
@@ -2589,6 +2622,13 @@ search_github → install_skill → 使用
 {delivery_receipts if delivery_receipts else "无"}
 
 ## 判断标准
+
+### 非任务类消息（直接判 COMPLETED）
+- 如果用户消息是**闲聊/问候**（如"在吗""你好""在不在""嗨""干嘛呢"），助手已礼貌回复 → **COMPLETED**
+- 如果用户消息是**简单确认/反馈**（如"好的""收到""嗯""哦"），助手已简短回应 → **COMPLETED**
+- 如果用户消息是**简单问答**（如"几点了""天气怎么样"），助手已给出回答 → **COMPLETED**
+
+### 任务类消息
 - 如果已执行 write_file 工具，说明文件已保存，保存任务完成
 - 如果已执行 browser_navigate/browser_click 等浏览器工具，说明浏览器操作已执行
 - 工具执行成功即表示该操作完成，不要求响应文本中包含文件内容
@@ -2683,9 +2723,9 @@ NEXT: 建议的下一步（如有）"""
         if use_session_prompt:
             # 使用 Session 专用的 System Prompt，但仍需包含完整的工具信息
             # 否则 LLM 不知道有哪些工具可用（MCP、Skill、Tools）
-            base_prompt = self.identity.get_session_system_prompt()
-            system_prompt = self._build_system_prompt(
-                base_prompt, task_description=task_description, use_compiled=True,
+            # 使用异步版本构建系统提示词，避免向量搜索阻塞事件循环
+            system_prompt = await self._build_system_prompt_compiled(
+                task_description=task_description,
                 session_type=session_type,
             )
         else:
@@ -2700,8 +2740,12 @@ NEXT: 建议的下一步（如有）"""
         current_model = self.brain.model
 
         # 追问计数器：当 LLM 没有调用工具时，最多追问几次
+        # C6: IM 模式下 ForceToolCall retries=0，避免对闲聊/简单问答强制追问工具调用
         no_tool_call_count = 0
-        base_force_retries = max(0, int(getattr(settings, "force_tool_call_max_retries", 1)))
+        if session_type == "im":
+            base_force_retries = 0
+        else:
+            base_force_retries = max(0, int(getattr(settings, "force_tool_call_max_retries", 1)))
 
         def _effective_force_retries() -> int:
             """
@@ -2740,12 +2784,27 @@ NEXT: 建议的下一步（如有）"""
         # Track deliver_artifacts receipts as delivery evidence
         delivery_receipts: list[dict] = []
 
-        # === 循环检测与轮次上限（防止 LLM 无限调用工具） ===
+        # === C7: 重构循环检测 ===
+        # 不设硬上限，改为 LLM 自检 + 真正重复模式检测 + 极端安全阈值（提醒用户）
         consecutive_tool_rounds = 0           # 连续有工具调用的轮次计数
-        max_tool_rounds_soft = 15             # 软上限：注入"请收尾"提示
-        max_tool_rounds_hard = 30             # 硬上限：直接终止循环
-        recent_tool_signatures: list[str] = []  # 最近 N 轮的工具签名（用于模式检测）
-        tool_pattern_window = 6               # 模式检测窗口大小
+        recent_tool_signatures: list[str] = []  # 最近 N 轮的工具签名（名 + 参数哈希）
+        tool_pattern_window = 8               # 模式检测窗口大小
+        llm_self_check_interval = 10          # 每 N 轮触发一次 LLM 自检提示
+        extreme_safety_threshold = 50         # 极端安全阈值：不终止，而是提醒用户
+
+        def _make_tool_signature(tc: dict) -> str:
+            """生成工具签名：名称 + 参数哈希。不同参数的同名工具视为不同调用。"""
+            import hashlib
+            name = tc.get("name", "")
+            inp = tc.get("input", {})
+            # 对参数做稳定的 JSON 序列化后取 hash
+            try:
+                import json as _json
+                param_str = _json.dumps(inp, sort_keys=True, ensure_ascii=False)
+            except Exception:
+                param_str = str(inp)
+            param_hash = hashlib.md5(param_str.encode()).hexdigest()[:8]
+            return f"{name}({param_hash})"
 
         def _resolve_endpoint_name(model_or_endpoint: str) -> str | None:
             """将 'endpoint_name' 或 'model' 解析为 endpoint_name（最小兼容）。"""
@@ -2803,6 +2862,13 @@ NEXT: 建议的下一步（如有）"""
             return True
 
         for iteration in range(max_iterations):
+            # C8: 每轮迭代开始时检查任务是否已被取消
+            if self._task_cancelled:
+                logger.info(
+                    f"[StopTask] Task cancelled at iteration start: {self._cancel_reason}"
+                )
+                return "✅ 任务已停止。"
+
             # 任务监控：开始迭代
             if task_monitor:
                 task_monitor.begin_iteration(iteration + 1, current_model)
@@ -2990,7 +3056,7 @@ NEXT: 建议的下一步（如有）"""
                             working_messages.append(
                                 {
                                     "role": "user",
-                                    "content": "[系统] 任务尚未完成。请继续执行剩余步骤，确保完成用户的完整请求。",
+                                    "content": "[系统提示] 根据复核判断，用户请求可能还有未完成的部分。如果你认为已经完成，请直接给用户一个总结回复；如果确实还有剩余步骤，请继续执行。",
                                 }
                             )
                             continue
@@ -3112,6 +3178,13 @@ NEXT: 建议的下一步（如有）"""
             if receipts:
                 delivery_receipts = receipts
 
+            # C8: 工具执行后再次检查取消（网关可能在工具执行期间收到停止指令）
+            if self._task_cancelled:
+                logger.info(
+                    f"[StopTask] Task cancelled after tool execution: {self._cancel_reason}"
+                )
+                return "✅ 任务已停止。"
+
             # 添加工具结果
             working_messages.append(
                 {
@@ -3120,10 +3193,10 @@ NEXT: 建议的下一步（如有）"""
                 }
             )
 
-            # === 循环检测与轮次上限 ===
+            # === C7: 重构循环检测 ===
             consecutive_tool_rounds += 1
 
-            # (a) stop_reason 检查：LLM 明确表示结束（与 _chat_with_tools 对齐）
+            # (a) stop_reason 检查：LLM 明确表示结束
             if getattr(response, "stop_reason", None) == "end_turn":
                 cleaned_text = strip_thinking_tags(text_content)
                 if cleaned_text and cleaned_text.strip():
@@ -3132,60 +3205,75 @@ NEXT: 建议的下一步（如有）"""
                     )
                     return cleaned_text
 
-            # (b) 工具调用模式检测：检测重复的工具调用序列
-            round_signature = "+".join(sorted(tc["name"] for tc in tool_calls))
-            recent_tool_signatures.append(round_signature)
+            # (b) 工具调用签名检测：名称 + 参数哈希（区分不同参数的同名工具调用）
+            round_signatures = [_make_tool_signature(tc) for tc in tool_calls]
+            round_sig_str = "+".join(sorted(round_signatures))
+            recent_tool_signatures.append(round_sig_str)
             if len(recent_tool_signatures) > tool_pattern_window:
                 recent_tool_signatures = recent_tool_signatures[-tool_pattern_window:]
 
-            # 检测最近 N 轮中是否存在 >= 3 次完全相同的工具签名
+            # 检测真正的重复调用（完全相同的工具 + 完全相同的参数）
             if len(recent_tool_signatures) >= 3:
                 from collections import Counter
                 sig_counts = Counter(recent_tool_signatures)
                 most_common_sig, most_common_count = sig_counts.most_common(1)[0]
+
                 if most_common_count >= 3:
+                    # 真正的循环：相同工具 + 相同参数重复 3+ 次
                     logger.warning(
-                        f"[LoopGuard] Detected repeating tool pattern '{most_common_sig}' "
-                        f"({most_common_count} times in last {len(recent_tool_signatures)} rounds). "
-                        f"Injecting completion hint."
+                        f"[LoopGuard] True loop detected: '{most_common_sig}' repeated "
+                        f"{most_common_count} times in last {len(recent_tool_signatures)} rounds."
                     )
                     working_messages.append(
                         {
                             "role": "user",
                             "content": (
-                                "[系统] 检测到重复的工具调用模式。如果任务已完成，请停止调用工具，"
-                                "直接用简洁的文字回复用户最终结果。"
+                                "[系统提示] 你在最近几轮中用完全相同的参数重复调用了同一个工具。"
+                                "这通常意味着陷入了循环。请评估：\n"
+                                "1. 如果任务已完成，请停止调用工具，直接回复结果。\n"
+                                "2. 如果遇到困难，请换一种思路或工具来解决。\n"
+                                "3. 如果确认需要重复操作（如轮询等待），请说明原因。"
                             ),
                         }
                     )
-                    # 如果重复 >= 5 次，直接终止
+                    # 如果重复 >= 5 次且参数完全一致，几乎确定是死循环
                     if most_common_count >= 5:
                         logger.error(
-                            f"[LoopGuard] Tool loop detected ({most_common_count} repeats). Force terminating."
+                            f"[LoopGuard] Confirmed dead loop ({most_common_count} identical repeats). Force terminating."
                         )
                         cleaned_text = strip_thinking_tags(text_content)
-                        return cleaned_text or "⚠️ 检测到工具调用陷入循环，任务已自动终止。请重新描述您的需求。"
+                        return cleaned_text or "⚠️ 检测到工具调用陷入死循环（完全相同的调用重复了 5 次以上），任务已自动终止。请重新描述您的需求。"
 
-            # (c) 硬上限：超过 max_tool_rounds_hard 直接终止
-            if consecutive_tool_rounds >= max_tool_rounds_hard:
-                logger.error(
-                    f"[LoopGuard] Reached hard limit of {max_tool_rounds_hard} consecutive tool rounds. Terminating."
-                )
-                cleaned_text = strip_thinking_tags(text_content)
-                return cleaned_text or "⚠️ 连续工具调用轮次过多，任务已自动终止。请重新描述您的需求。"
-
-            # (d) 软上限：超过 max_tool_rounds_soft 时注入完成提示
-            if consecutive_tool_rounds == max_tool_rounds_soft:
-                logger.warning(
-                    f"[LoopGuard] Reached soft limit of {max_tool_rounds_soft} consecutive tool rounds. "
-                    f"Injecting completion hint."
+            # (c) 定期 LLM 自检提示（每 N 轮）
+            if consecutive_tool_rounds > 0 and consecutive_tool_rounds % llm_self_check_interval == 0:
+                logger.info(
+                    f"[LoopGuard] Round {consecutive_tool_rounds}: triggering LLM self-check."
                 )
                 working_messages.append(
                     {
                         "role": "user",
                         "content": (
-                            "[系统] 你已连续执行了较多工具调用。如果任务已完成，请直接用文字回复用户结果，"
-                            "不要继续调用工具。如果确实需要继续，请说明剩余步骤。"
+                            f"[系统提示] 你已连续执行了 {consecutive_tool_rounds} 轮工具调用。请自我评估：\n"
+                            "1. 当前任务进度如何？预计还需要多少轮？\n"
+                            "2. 是否陷入了循环或遇到了无法解决的问题？\n"
+                            "3. 如果任务已完成，请停止工具调用，直接回复用户结果。\n"
+                            "如果确实需要继续，请简要说明原因后继续执行。"
+                        ),
+                    }
+                )
+
+            # (d) 极端安全阈值：不终止，而是提醒用户
+            if consecutive_tool_rounds == extreme_safety_threshold:
+                logger.warning(
+                    f"[LoopGuard] Reached extreme safety threshold ({extreme_safety_threshold} rounds)."
+                )
+                working_messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            f"[系统提示] 当前任务已连续执行了 {extreme_safety_threshold} 轮工具调用，耗时较长。"
+                            "请向用户简要汇报当前进度和剩余工作，询问用户是否希望继续执行。"
+                            "如果用户没有回应，请在完成当前步骤后暂停等待用户指示。"
                         ),
                     }
                 )
@@ -3308,6 +3396,11 @@ NEXT: 建议的下一步（如有）"""
         max_repeated_calls = 3
 
         for iteration in range(max_iterations):
+            # C8: 每轮迭代检查取消
+            if self._task_cancelled:
+                logger.info(f"[StopTask] Task cancelled in _chat_with_tools: {self._cancel_reason}")
+                return "✅ 任务已停止。"
+
             # 每次迭代前检查上下文大小（工具调用可能产生大量输出）
             if iteration > 0:
                 messages = await self._compress_context(messages)
@@ -3587,6 +3680,13 @@ NEXT: 建议的下一步（如有）"""
 
         try:
             while iteration < max_tool_iterations:
+                # C8: 每轮迭代开始时检查任务是否被取消
+                if self._task_cancelled:
+                    logger.info(
+                        f"[StopTask] Task cancelled in execute_task: {self._cancel_reason}"
+                    )
+                    return "✅ 任务已停止。"
+
                 iteration += 1
                 logger.info(f"Task iteration {iteration}")
 

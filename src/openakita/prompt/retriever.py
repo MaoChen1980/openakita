@@ -163,6 +163,48 @@ def _search_related_memories(
         return ""
 
 
+async def async_search_related_memories(
+    query: str,
+    memory_manager: "MemoryManager",
+    max_items: int = 5,
+    min_importance: float = 0.5,
+) -> str:
+    """
+    异步版本的语义搜索相关记忆（避免阻塞事件循环）
+
+    参数和返回值与 _search_related_memories() 完全相同。
+    """
+    vector_store = getattr(memory_manager, "vector_store", None)
+    if not vector_store or not getattr(vector_store, "enabled", False):
+        return ""
+
+    try:
+        # 使用异步搜索
+        results = await vector_store.async_search(
+            query=query,
+            limit=max_items,
+            min_importance=min_importance,
+        )
+
+        if not results:
+            return ""
+
+        # 获取完整记忆对象
+        memories = getattr(memory_manager, "_memories", {})
+        lines = []
+
+        for memory_id, _distance in results:
+            memory = memories.get(memory_id)
+            if memory:
+                content = getattr(memory, "content", str(memory))
+                lines.append(f"- {content}")
+
+        return "\n".join(lines)
+    except Exception as e:
+        logger.warning(f"Async memory search failed: {e}")
+        return ""
+
+
 def retrieve_memory_simple(
     memory_md_path: Path,
     max_chars: int = 800,

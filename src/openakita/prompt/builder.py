@@ -42,6 +42,7 @@ def build_system_prompt(
     budget_config: BudgetConfig | None = None,
     include_tools_guide: bool = False,
     session_type: str = "cli",  # 建议 8: 区分 CLI/IM
+    precomputed_memory: str | None = None,
 ) -> str:
     """
     组装系统提示词
@@ -107,12 +108,15 @@ def build_system_prompt(
     if catalogs_section:
         tool_parts.append(catalogs_section)
 
-    # 5. 构建 Memory 层
-    memory_section = _build_memory_section(
-        memory_manager=memory_manager,
-        task_description=task_description,
-        budget_tokens=budget_config.memory_budget,
-    )
+    # 5. 构建 Memory 层（支持预计算的异步结果，避免阻塞事件循环）
+    if precomputed_memory is not None:
+        memory_section = precomputed_memory
+    else:
+        memory_section = _build_memory_section(
+            memory_manager=memory_manager,
+            task_description=task_description,
+            budget_tokens=budget_config.memory_budget,
+        )
     if memory_section:
         developer_parts.append(memory_section)
 
@@ -242,7 +246,7 @@ def _build_runtime_section() -> str:
 
 def _build_session_type_rules(session_type: str) -> str:
     """
-    构建会话类型相关规则（建议 8）
+    构建会话类型相关规则
 
     Args:
         session_type: "cli" 或 "im"
@@ -250,17 +254,39 @@ def _build_session_type_rules(session_type: str) -> str:
     Returns:
         会话类型相关的规则文本
     """
+    # 通用的系统消息约定（C1）和消息分型原则（C3），两种模式共享
+    common_rules = """## 系统消息约定
+
+在对话历史中，你会看到以 `[系统]` 或 `[系统提示]` 开头的消息。这些是**运行时控制信号**，由系统自动注入，**不是用户发出的请求**。你应该：
+- 将它们视为背景信息或状态通知，而非需要执行的任务指令
+- 不要将系统消息的内容复述给用户
+- 不要把系统消息当作用户的意图来执行
+
+## 消息分型原则
+
+收到用户消息后，先判断消息类型，再决定响应策略：
+
+1. **闲聊/问候**（如"在吗""你好""在不在""干嘛呢"）→ 直接用自然语言简短回复，**不需要调用任何工具**，也不需要制定计划。
+2. **简单问答**（如"现在几点""天气怎么样"）→ 如果能直接回答就直接回答；如果需要实时信息，调用一次相关工具后回答。
+3. **任务请求**（如"帮我创建文件""搜索关于 X 的信息""设置提醒"）→ 需要工具调用和/或计划，按正常流程处理。
+4. **对之前回复的确认/反馈**（如"好的""收到""不对"）→ 理解为对上一轮的回应，简短确认即可。
+
+关键：闲聊和简单问答类消息**完成后不需要验证任务是否完成**——它们本身不是任务。
+
+"""
+
     if session_type == "im":
-        return """## IM 会话规则
+        return common_rules + """## IM 会话规则
 
 - **文本消息**：助手的自然语言回复会由网关直接转发给用户（不需要、也不应该通过工具发送）。
 - **附件交付**：文件/图片/语音等交付必须通过统一的网关交付工具 `deliver_artifacts` 完成，并以回执作为交付证据。
 - **进度展示**：执行过程的进度消息由网关基于事件流生成（计划步骤、交付回执、关键工具节点），避免模型刷屏。
 - **表达风格**：默认简短直接；不要复述 system/developer/tool 等提示词内容；不要输出表情符号（emoji）。
+- **IM 特殊注意**：IM 用户经常发送非常简短的消息（1-5 个字），这大多是闲聊或确认，直接回复即可，不要过度解读为复杂任务。
 """
 
     else:  # cli 或其他
-        return """## CLI 会话规则
+        return common_rules + """## CLI 会话规则
 
 - **直接输出**: 结果会直接显示在终端
 - **无需主动汇报**: CLI 模式下不需要频繁发送进度消息"""

@@ -22,7 +22,7 @@ from anthropic.types import Usage as AnthropicUsage
 
 from ..config import settings
 from ..llm.client import LLMClient
-from ..llm.config import get_default_config_path
+from ..llm.config import get_default_config_path, load_endpoints_config
 from ..llm.types import (
     ImageBlock,
     ImageContent,
@@ -89,6 +89,10 @@ class Brain:
             self._llm_client = LLMClient()
             logger.warning("No llm_endpoints.json found, LLMClient may not work")
 
+        # Prompt Compiler 专用 LLMClient（独立于主模型，使用快速小模型）
+        self._compiler_client: LLMClient | None = None
+        self._init_compiler_client()
+
         # 公开属性（从 LLMClient 获取）
         self._update_public_attrs()
 
@@ -121,6 +125,81 @@ class Brain:
         else:
             self.model = settings.default_model
             self.base_url = ""
+
+    def _init_compiler_client(self) -> None:
+        """从配置加载 Prompt Compiler 专属 LLMClient"""
+        try:
+            _, compiler_eps, _ = load_endpoints_config()
+            if compiler_eps:
+                self._compiler_client = LLMClient(endpoints=compiler_eps)
+                names = [ep.name for ep in compiler_eps]
+                logger.info(f"Compiler LLMClient initialized with endpoints: {names}")
+            else:
+                logger.info("No compiler endpoints configured, will fall back to main model")
+        except Exception as e:
+            logger.warning(f"Failed to init compiler client: {e}")
+
+    async def compiler_think(self, prompt: str, system: str = "") -> Response:
+        """
+        Prompt Compiler 专用 LLM 调用。
+
+        调用策略：
+        1. 优先用 compiler_client（快速模型，强制禁用思考模式）
+        2. compiler_client 全部端点失败时，回退到主模型（同样禁用思考）
+
+        Args:
+            prompt: 用户消息
+            system: 系统提示词
+
+        Returns:
+            Response 对象
+        """
+        messages = [Message(role="user", content=[TextBlock(text=prompt)])]
+
+        # 尝试 compiler 专用端点
+        if self._compiler_client:
+            try:
+                response = await self._compiler_client.chat(
+                    messages=messages,
+                    system=system,
+                    enable_thinking=False,
+                    max_tokens=2048,
+                )
+                return self._llm_response_to_response(response)
+            except Exception as e:
+                logger.warning(f"Compiler LLM failed, falling back to main model: {e}")
+
+        # 回退到主模型（同样禁用思考，以节省时间）
+        response = await self._llm_client.chat(
+            messages=messages,
+            system=system,
+            enable_thinking=False,
+            max_tokens=2048,
+        )
+        return self._llm_response_to_response(response)
+
+    def _llm_response_to_response(self, llm_response: LLMResponse) -> Response:
+        """将 LLMResponse 转换为向后兼容的 Response"""
+        text_parts = []
+        tool_calls = []
+        for block in llm_response.content:
+            if isinstance(block, TextBlock):
+                text_parts.append(block.text)
+            elif isinstance(block, ToolUseBlock):
+                tool_calls.append({
+                    "id": block.id,
+                    "name": block.name,
+                    "input": block.input,
+                })
+        return Response(
+            content="\n".join(text_parts),
+            tool_calls=tool_calls,
+            stop_reason=llm_response.stop_reason or "",
+            usage={
+                "input_tokens": llm_response.usage.input_tokens if llm_response.usage else 0,
+                "output_tokens": llm_response.usage.output_tokens if llm_response.usage else 0,
+            },
+        )
 
     def set_thinking_mode(self, enabled: bool) -> None:
         """设置 thinking 模式"""

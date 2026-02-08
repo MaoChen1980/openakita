@@ -7,6 +7,7 @@
 - 支持按类型过滤
 """
 
+import asyncio
 import logging
 import threading
 from pathlib import Path
@@ -244,6 +245,22 @@ class VectorStore:
         except Exception as e:
             logger.error(f"Vector search failed: {e}")
             return []
+
+    async def async_search(
+        self,
+        query: str,
+        limit: int = 10,
+        filter_type: str | None = None,
+        min_importance: float = 0.0,
+    ) -> list[tuple[str, float]]:
+        """
+        异步语义搜索（将 CPU 密集的 encode 操作放到线程池，避免阻塞事件循环）
+
+        参数和返回值与 search() 完全相同。
+        """
+        return await asyncio.to_thread(
+            self.search, query, limit, filter_type, min_importance
+        )
 
     def delete_memory(self, memory_id: str) -> bool:
         """
