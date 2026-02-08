@@ -300,7 +300,8 @@ fn main() {
             openakita_service_stop,
             openakita_list_skills,
             openakita_list_providers,
-            openakita_list_models
+            openakita_list_models,
+            openakita_version
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -1027,6 +1028,8 @@ async fn pip_install(venv_dir: String, package_spec: String, index_url: Option<S
         // upgrade pip first (best-effort)
         let mut up = Command::new(&py);
         apply_no_window(&mut up);
+        up.env("PYTHONUTF8", "1");
+        up.env("PYTHONIOENCODING", "utf-8");
         up.args(["-m", "pip", "install", "-U", "pip", "setuptools", "wheel"]);
         if let Some(url) = &index_url {
             up.args(["-i", url]);
@@ -1035,6 +1038,8 @@ async fn pip_install(venv_dir: String, package_spec: String, index_url: Option<S
 
         let mut c = Command::new(&py);
         apply_no_window(&mut c);
+        c.env("PYTHONUTF8", "1");
+        c.env("PYTHONIOENCODING", "utf-8");
         c.args(["-m", "pip", "install", "-U", &package_spec]);
         if let Some(url) = &index_url {
             c.args(["-i", url]);
@@ -1052,6 +1057,8 @@ async fn pip_install(venv_dir: String, package_spec: String, index_url: Option<S
         // Post-check: ensure Setup Center bridge exists in the installed package.
         let mut verify = Command::new(&py);
         apply_no_window(&mut verify);
+        verify.env("PYTHONUTF8", "1");
+        verify.env("PYTHONIOENCODING", "utf-8");
         verify.args([
             "-c",
             "import openakita; import openakita.setup_center.bridge; print(getattr(openakita,'__version__',''))",
@@ -1127,6 +1134,9 @@ fn run_python_module_json(
 
     let mut c = Command::new(&py);
     apply_no_window(&mut c);
+    // Force UTF-8 output on Windows (avoid garbled Chinese when Rust decodes stdout/stderr as UTF-8).
+    c.env("PYTHONUTF8", "1");
+    c.env("PYTHONIOENCODING", "utf-8");
     c.arg("-m").arg(module);
     c.args(args);
     for (k, v) in extra_env {
@@ -1188,3 +1198,28 @@ async fn openakita_list_models(
     .await
 }
 
+#[tauri::command]
+async fn openakita_version(venv_dir: String) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let py = venv_python_path(&venv_dir);
+        if !py.exists() {
+            return Err(format!("venv python not found: {}", py.to_string_lossy()));
+        }
+        let mut c = Command::new(&py);
+        apply_no_window(&mut c);
+        c.env("PYTHONUTF8", "1");
+        c.env("PYTHONIOENCODING", "utf-8");
+        c.args([
+            "-c",
+            "import openakita; print(getattr(openakita,'__version__',''))",
+        ]);
+        let out = c.output().map_err(|e| format!("get openakita version failed: {e}"))?;
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+            return Err(format!("python failed: {}\nstdout:\n{}\nstderr:\n{}", out.status, stdout, stderr));
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    })
+    .await
+}

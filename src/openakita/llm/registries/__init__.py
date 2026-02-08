@@ -7,6 +7,9 @@
 from .anthropic import AnthropicRegistry
 from .base import ModelInfo, ProviderInfo, ProviderRegistry
 from .dashscope import DashScopeRegistry
+from .deepseek import DeepSeekRegistry
+from .kimi import KimiChinaRegistry, KimiInternationalRegistry
+from .minimax import MiniMaxChinaRegistry, MiniMaxInternationalRegistry
 from .openai import OpenAIRegistry
 from .openrouter import OpenRouterRegistry
 from .siliconflow import SiliconFlowRegistry
@@ -16,6 +19,11 @@ ALL_REGISTRIES = [
     AnthropicRegistry(),
     OpenAIRegistry(),
     DashScopeRegistry(),
+    KimiChinaRegistry(),
+    KimiInternationalRegistry(),
+    MiniMaxChinaRegistry(),
+    MiniMaxInternationalRegistry(),
+    DeepSeekRegistry(),
     OpenRouterRegistry(),
     SiliconFlowRegistry(),
 ]
@@ -43,6 +51,11 @@ __all__ = [
     "AnthropicRegistry",
     "OpenAIRegistry",
     "DashScopeRegistry",
+    "KimiChinaRegistry",
+    "KimiInternationalRegistry",
+    "MiniMaxChinaRegistry",
+    "MiniMaxInternationalRegistry",
+    "DeepSeekRegistry",
     "OpenRouterRegistry",
     "SiliconFlowRegistry",
     "ALL_REGISTRIES",

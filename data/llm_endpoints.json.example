@@ -17,97 +17,31 @@
 
   "endpoints": [
     {
-      "name": "yunwu-gpt-5.2",
-      "provider": "yunwu",
+      "_doc": "从一个“主端点”开始（priority=1）。后续新增备份端点，只需要 priority 递增即可。",
+      "name": "primary",
+      "provider": "openai",
       "api_type": "openai",
-      "base_url": "https://yunwu.zeabur.app/v1",
-      "api_key_env": "YUNWU_API_KEY",
-      "model": "gpt-5.2",
+      "base_url": "https://api.openai.com/v1",
+      "api_key_env": "OPENAI_API_KEY",
+      "model": "gpt-4o-mini",
       "priority": 1,
       "max_tokens": 8192,
       "timeout": 180,
-      "capabilities": ["text", "vision", "tools", "thinking"],
-      "note": "云雾AI中转（OpenAI SDK），GPT-5.2（主端点）"
+      "capabilities": ["text", "tools"]
     },
     {
-      "name": "claude-primary",
-      "provider": "anthropic",
-      "api_type": "anthropic",
-      "base_url": "https://api.anthropic.com",
-      "api_key_env": "ANTHROPIC_API_KEY",
-      "model": "claude-opus-4-5-20251101-thinking",
-      "priority": 2,
-      "max_tokens": 8192,
-      "timeout": 180,
-      "capabilities": ["text", "vision", "tools"],
-      "note": "Anthropic 官方 API（主端点）"
-    },
-    {
-      "name": "kimi",
-      "provider": "moonshot",
-      "api_type": "openai",
-      "base_url": "https://api.moonshot.cn/v1",
-      "api_key_env": "KIMI_API_KEY",
-      "model": "kimi-k2.5",
-      "priority": 3,
-      "max_tokens": 8192,
-      "timeout": 120,
-      "capabilities": ["text", "vision", "video", "tools"],
-      "extra_params": {"thinking": {"type": "enabled"}},
-      "note": "月之暗面 Kimi，支持视频理解，申请: https://platform.moonshot.cn/"
-    },
-    {
-      "name": "dashscope-qwen",
+      "_doc": "示例：DashScope（OpenAI 兼容）。如需思考模式，可设置 capabilities 包含 thinking，并在 extra_params 里打开 enable_thinking。",
+      "name": "backup-dashscope",
       "provider": "dashscope",
       "api_type": "openai",
       "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
       "api_key_env": "DASHSCOPE_API_KEY",
       "model": "qwen3-max",
-      "priority": 4,
+      "priority": 2,
       "max_tokens": 8192,
       "timeout": 180,
       "capabilities": ["text", "tools", "thinking"],
-      "extra_params": {"enable_thinking": true},
-      "note": "阿里云通义千问，申请: https://dashscope.console.aliyun.com/"
-    },
-    {
-      "name": "minimax",
-      "provider": "minimax",
-      "api_type": "anthropic",
-      "base_url": "https://api.minimaxi.com/anthropic",
-      "api_key_env": "MINIMAX_API_KEY",
-      "model": "MiniMax-M2.1",
-      "priority": 5,
-      "max_tokens": 8192,
-      "timeout": 180,
-      "capabilities": ["text", "tools"],
-      "note": "MiniMax M2.1，申请: https://www.minimaxi.com/"
-    },
-    {
-      "name": "deepseek",
-      "provider": "deepseek",
-      "api_type": "openai",
-      "base_url": "https://api.deepseek.com/v1",
-      "api_key_env": "DEEPSEEK_API_KEY",
-      "model": "deepseek-chat",
-      "priority": 6,
-      "max_tokens": 8192,
-      "timeout": 180,
-      "capabilities": ["text", "tools"],
-      "note": "DeepSeek V3，申请: https://platform.deepseek.com/"
-    },
-    {
-      "name": "openrouter-gemini",
-      "provider": "openrouter",
-      "api_type": "openai",
-      "base_url": "https://openrouter.ai/api/v1",
-      "api_key_env": "OPENROUTER_API_KEY",
-      "model": "google/gemini-2.5-pro",
-      "priority": 7,
-      "max_tokens": 8192,
-      "timeout": 120,
-      "capabilities": ["text", "vision", "video", "tools"],
-      "note": "OpenRouter 聚合 - Gemini，申请: https://openrouter.ai/"
+      "extra_params": {"enable_thinking": true}
     }
   ],
 

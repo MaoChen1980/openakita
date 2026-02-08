@@ -34,25 +34,30 @@ class DashScopeRegistry(ProviderRegistry):
         """
         async with httpx.AsyncClient(timeout=30) as client:
             try:
+                # Prefer OpenAI-compatible model list for DashScope:
+                #   GET https://dashscope.aliyuncs.com/compatible-mode/v1/models
+                # This matches what Setup Center uses and what users see in practice.
                 resp = await client.get(
-                    "https://dashscope.aliyuncs.com/api/v1/deployments/models",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                    },
-                    params={"page_size": 200},
+                    f"{self.info.default_base_url}/models",
+                    headers={"Authorization": f"Bearer {api_key}"},
                 )
                 resp.raise_for_status()
                 data = resp.json()
 
-                models = []
-                for m in data.get("output", {}).get("models", []):
-                    model_name = m.get("model_name", "")
+                models: list[ModelInfo] = []
+                seen: set[str] = set()
+                for m in data.get("data", []) or []:
+                    if not isinstance(m, dict):
+                        continue
+                    mid = (m.get("id") or "").strip()
+                    if not mid or mid in seen:
+                        continue
+                    seen.add(mid)
                     models.append(
                         ModelInfo(
-                            id=model_name,
-                            name=model_name,
-                            # 混合方案：传入 provider_slug="dashscope" 进行精确查找
-                            capabilities=infer_capabilities(model_name, provider_slug="dashscope"),
+                            id=mid,
+                            name=mid,
+                            capabilities=infer_capabilities(mid, provider_slug="dashscope"),
                         )
                     )
 

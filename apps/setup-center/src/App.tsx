@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
 
 type PlatformInfo = {
   os: string;
@@ -30,6 +31,20 @@ type ListedModel = {
   id: string;
   name: string;
   capabilities: Record<string, boolean>;
+};
+
+type EndpointDraft = {
+  name: string;
+  provider: string;
+  api_type: string;
+  base_url: string;
+  api_key_env: string;
+  model: string;
+  priority: number;
+  max_tokens: number;
+  timeout: number;
+  capabilities: string[];
+  note?: string | null;
 };
 
 type PythonCandidate = {
@@ -83,6 +98,17 @@ function envKeyFromSlug(slug: string) {
   const up = slug.toUpperCase().replace(/[^A-Z0-9_]/g, "_");
   return `${up}_API_KEY`;
 };
+
+function nextEnvKeyName(base: string, used: Set<string>) {
+  const b = base.trim();
+  if (!b) return base;
+  if (!used.has(b)) return b;
+  for (let i = 2; i < 100; i++) {
+    const k = `${b}_${i}`;
+    if (!used.has(k)) return k;
+  }
+  return `${b}_${Date.now()}`;
+}
 
 type EnvMap = Record<string, string>;
 
@@ -232,6 +258,14 @@ export function App() {
   const [apiKeyValue, setApiKeyValue] = useState<string>("");
   const [models, setModels] = useState<ListedModel[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string>("");
+  const [capSelected, setCapSelected] = useState<string[]>([]);
+  const [capTouched, setCapTouched] = useState(false);
+  const [endpointName, setEndpointName] = useState<string>("");
+  const [endpointPriority, setEndpointPriority] = useState<number>(1);
+  const [savedEndpoints, setSavedEndpoints] = useState<EndpointDraft[]>([]);
+  const [editingOriginalName, setEditingOriginalName] = useState<string | null>(null);
+  const isEditingEndpoint = editingOriginalName !== null;
+  const dragNameRef = useRef<string | null>(null);
 
   // status panel data
   const [statusLoading, setStatusLoading] = useState(false);
@@ -242,6 +276,8 @@ export function App() {
   const [skillSummary, setSkillSummary] = useState<{ count: number; systemCount: number; externalCount: number } | null>(null);
   const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(null);
   const [serviceStatus, setServiceStatus] = useState<{ running: boolean; pid: number | null; pidFile: string } | null>(null);
+  const [appVersion, setAppVersion] = useState<string>("");
+  const [openakitaVersion, setOpenakitaVersion] = useState<string>("");
 
   // unified env draft (full coverage)
   const [envDraft, setEnvDraft] = useState<EnvMap>({});
@@ -271,6 +307,12 @@ export function App() {
     let cancelled = false;
     (async () => {
       try {
+        try {
+          const v = await getVersion();
+          if (!cancelled) setAppVersion(v);
+        } catch {
+          // ignore
+        }
         await refreshAll();
       } catch (e) {
         if (!cancelled) setError(String(e));
@@ -515,6 +557,18 @@ export function App() {
       const first = parsed[0]?.slug ?? "";
       setProviderSlug((prev) => prev || first);
       setNotice(`已加载服务商：${parsed.length} 个`);
+      try {
+        const v = await invoke<string>("openakita_version", { venvDir });
+        setOpenakitaVersion(v || "");
+      } catch {
+        setOpenakitaVersion("");
+      }
+      const slugs = new Set(parsed.map((p) => (p.slug || "").toLowerCase()));
+      if (!slugs.has("kimi-cn") || !slugs.has("minimax-cn") || !slugs.has("deepseek")) {
+        setNotice(
+          `已加载服务商：${parsed.length} 个（但看起来 openakita 版本偏旧，缺少部分内置供应商）。建议回到“安装”用“本地源码/GitHub”重新安装 openakita，然后再回来刷新服务商列表。`,
+        );
+      }
     } catch (e) {
       setError(String(e));
       throw e;
@@ -525,11 +579,18 @@ export function App() {
 
   useEffect(() => {
     if (!selectedProvider) return;
+    if (isEditingEndpoint) return;
     const t = (selectedProvider.api_type as "openai" | "anthropic") || "openai";
     setApiType(t);
     setBaseUrl(selectedProvider.default_base_url || "");
-    setApiKeyEnv(selectedProvider.api_key_env_suggestion || envKeyFromSlug(selectedProvider.slug));
-  }, [selectedProvider]);
+    const suggested = selectedProvider.api_key_env_suggestion || envKeyFromSlug(selectedProvider.slug);
+    const used = new Set(Object.keys(envDraft || {}));
+    for (const ep of savedEndpoints) {
+      if (ep.api_key_env) used.add(ep.api_key_env);
+    }
+    setApiKeyEnv((prev) => prev || nextEnvKeyName(suggested, used));
+    setEndpointName((prev) => prev || `${selectedProvider.slug}-${selectedModelId || "model"}`.slice(0, 64));
+  }, [selectedProvider, selectedModelId, envDraft, savedEndpoints, isEditingEndpoint]);
 
   async function doFetchModels() {
     setError(null);
@@ -548,10 +609,172 @@ export function App() {
       setModels(parsed);
       setSelectedModelId(parsed[0]?.id ?? "");
       setNotice(`拉取到模型：${parsed.length} 个`);
+      setCapTouched(false);
     } finally {
       setBusy(null);
     }
   }
+
+  // When selected model changes, default capabilities from fetched model unless user manually edited.
+  useEffect(() => {
+    if (capTouched) return;
+    const caps = models.find((m) => m.id === selectedModelId)?.capabilities ?? {};
+    const list = Object.entries(caps)
+      .filter(([, v]) => v)
+      .map(([k]) => k);
+    setCapSelected(list.length ? list : ["text"]);
+  }, [selectedModelId, models, capTouched]);
+
+  async function loadSavedEndpoints() {
+    if (!currentWorkspaceId) {
+      setSavedEndpoints([]);
+      return;
+    }
+    try {
+      const raw = await invoke<string>("workspace_read_file", {
+        workspaceId: currentWorkspaceId,
+        relativePath: "data/llm_endpoints.json",
+      });
+      const parsed = raw ? JSON.parse(raw) : { endpoints: [] };
+      const eps = Array.isArray(parsed?.endpoints) ? parsed.endpoints : [];
+      const list: EndpointDraft[] = eps
+        .map((e: any) => ({
+          name: String(e?.name || ""),
+          provider: String(e?.provider || ""),
+          api_type: String(e?.api_type || ""),
+          base_url: String(e?.base_url || ""),
+          api_key_env: String(e?.api_key_env || ""),
+          model: String(e?.model || ""),
+          priority: Number.isFinite(Number(e?.priority)) ? Number(e?.priority) : 999,
+          max_tokens: Number.isFinite(Number(e?.max_tokens)) ? Number(e?.max_tokens) : 8192,
+          timeout: Number.isFinite(Number(e?.timeout)) ? Number(e?.timeout) : 180,
+          capabilities: Array.isArray(e?.capabilities) ? e.capabilities.map((x: any) => String(x)) : [],
+          note: e?.note ? String(e.note) : null,
+        }))
+        .filter((e: any) => e.name);
+      list.sort((a, b) => a.priority - b.priority);
+      setSavedEndpoints(list);
+
+      const maxP = list.reduce((m, e) => Math.max(m, Number.isFinite(e.priority) ? e.priority : 0), 0);
+      // 用户希望“从主模型开始”：当没有端点时默认 priority=1；否则默认填最后一个+1。
+      // 并且删除端点后应立刻回收/重算，不要沿用删除前的累加值。
+      if (!isEditingEndpoint) {
+        setEndpointPriority(list.length === 0 ? 1 : maxP + 1);
+      }
+    } catch {
+      setSavedEndpoints([]);
+    }
+  }
+
+  async function readEndpointsJson(): Promise<{ endpoints: any[]; settings: any }> {
+    if (!currentWorkspaceId) return { endpoints: [], settings: {} };
+    try {
+      const raw = await invoke<string>("workspace_read_file", {
+        workspaceId: currentWorkspaceId,
+        relativePath: "data/llm_endpoints.json",
+      });
+      const parsed = raw ? JSON.parse(raw) : { endpoints: [], settings: {} };
+      const eps = Array.isArray(parsed?.endpoints) ? parsed.endpoints : [];
+      const settings = parsed?.settings && typeof parsed.settings === "object" ? parsed.settings : {};
+      return { endpoints: eps, settings };
+    } catch {
+      return { endpoints: [], settings: {} };
+    }
+  }
+
+  async function writeEndpointsJson(endpoints: any[], settings: any) {
+    if (!currentWorkspaceId) throw new Error("未设置当前工作区");
+    const base = { endpoints, settings: settings || {} };
+    const next = JSON.stringify(base, null, 2) + "\n";
+    await invoke("workspace_write_file", {
+      workspaceId: currentWorkspaceId,
+      relativePath: "data/llm_endpoints.json",
+      content: next,
+    });
+  }
+
+  function normalizePriority(n: any, fallback: number) {
+    const x = Number(n);
+    if (!Number.isFinite(x) || x <= 0) return fallback;
+    return Math.floor(x);
+  }
+
+  async function doReorderByNames(orderedNames: string[]) {
+    if (!currentWorkspaceId) return;
+    setError(null);
+    setBusy("保存排序...");
+    try {
+      const { endpoints, settings } = await readEndpointsJson();
+      const map = new Map<string, any>();
+      for (const e of endpoints) {
+        const name = String(e?.name || "");
+        if (name) map.set(name, e);
+      }
+      const nextEndpoints: any[] = [];
+      let p = 1;
+      for (const name of orderedNames) {
+        const e = map.get(name);
+        if (!e) continue;
+        e.priority = p++;
+        nextEndpoints.push(e);
+        map.delete(name);
+      }
+      // append leftovers (if any) preserving original order, after the explicit list
+      for (const e of endpoints) {
+        const name = String(e?.name || "");
+        if (!name) continue;
+        if (map.has(name)) {
+          const ee = map.get(name);
+          ee.priority = p++;
+          nextEndpoints.push(ee);
+          map.delete(name);
+        }
+      }
+      await writeEndpointsJson(nextEndpoints, settings);
+      setNotice("已保存端点顺序（priority 已更新）");
+      await loadSavedEndpoints();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function doSetPrimaryEndpoint(name: string) {
+    const names = savedEndpoints.map((e) => e.name);
+    const idx = names.indexOf(name);
+    if (idx < 0) return;
+    const next = [name, ...names.filter((n) => n !== name)];
+    await doReorderByNames(next);
+  }
+
+  async function doStartEditEndpoint(name: string) {
+    const ep = savedEndpoints.find((e) => e.name === name);
+    if (!ep) return;
+    setEditingOriginalName(name);
+    setEndpointName(ep.name);
+    setEndpointPriority(normalizePriority(ep.priority, 1));
+    setProviderSlug(ep.provider || "");
+    setApiType((ep.api_type as any) || "openai");
+    setBaseUrl(ep.base_url || "");
+    setApiKeyEnv(ep.api_key_env || "");
+    setSelectedModelId(ep.model || "");
+    setNotice(`正在编辑端点：${name}`);
+  }
+
+  function resetEndpointEditor() {
+    setEditingOriginalName(null);
+    setEndpointName("");
+    setEndpointPriority(1);
+    setApiKeyValue("");
+    setNotice("已退出编辑模式");
+  }
+
+  useEffect(() => {
+    if (stepId !== "llm") return;
+    loadSavedEndpoints().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepId, currentWorkspaceId]);
 
   async function doSaveEndpoint() {
     if (!currentWorkspaceId) {
@@ -566,7 +789,7 @@ export function App() {
       setError("请填写 API Key 环境变量名和值（会写入工作区 .env）");
       return;
     }
-    setBusy("写入端点配置...");
+    setBusy(isEditingEndpoint ? "更新端点配置..." : "写入端点配置...");
     setError(null);
 
     try {
@@ -591,11 +814,25 @@ export function App() {
       const next = (() => {
         const base = currentJson ? JSON.parse(currentJson) : { endpoints: [], settings: {} };
         base.endpoints = Array.isArray(base.endpoints) ? base.endpoints : [];
-        const name = `${providerSlug || "provider"}-${selectedModelId}`.slice(0, 64);
-        const caps = models.find((m) => m.id === selectedModelId)?.capabilities ?? {};
-        const capList = Object.entries(caps)
-          .filter(([, v]) => v)
-          .map(([k]) => k);
+        const usedNames = new Set(base.endpoints.map((e: any) => String(e?.name || "")).filter(Boolean));
+        const baseName = (endpointName.trim() || `${providerSlug || selectedProvider?.slug || "provider"}-${selectedModelId}`).slice(0, 64);
+        const name = (() => {
+          if (isEditingEndpoint) {
+            // allow keeping the same name; prevent collision with other endpoints
+            const original = editingOriginalName || "";
+            if (baseName !== original && usedNames.has(baseName)) {
+              throw new Error(`端点名称已存在：${baseName}（请换一个）`);
+            }
+            return baseName || original;
+          }
+          if (!usedNames.has(baseName)) return baseName;
+          for (let i = 2; i < 100; i++) {
+            const n = `${baseName}-${i}`.slice(0, 64);
+            if (!usedNames.has(n)) return n;
+          }
+          return `${baseName}-${Date.now()}`.slice(0, 64);
+        })();
+        const capList = Array.isArray(capSelected) && capSelected.length ? capSelected : ["text"];
 
         const endpoint = {
           name,
@@ -604,16 +841,32 @@ export function App() {
           base_url: baseUrl,
           api_key_env: apiKeyEnv.trim(),
           model: selectedModelId,
-          priority: 0,
+          priority: normalizePriority(endpointPriority, 1),
           max_tokens: 8192,
           timeout: 180,
           capabilities: capList,
+          // DashScope 思考模式：OpenAkita 的 OpenAI provider 会识别 enable_thinking
+          extra_params:
+            capList.includes("thinking") && (providerSlug || selectedProvider?.slug) === "dashscope"
+              ? { enable_thinking: true }
+              : undefined,
         };
 
-        // 若同名则替换，否则追加
-        const idx = base.endpoints.findIndex((e: any) => e?.name === name);
-        if (idx >= 0) base.endpoints[idx] = endpoint;
-        else base.endpoints.unshift(endpoint);
+        if (isEditingEndpoint) {
+          const original = editingOriginalName || name;
+          const idx = base.endpoints.findIndex((e: any) => String(e?.name || "") === original);
+          if (idx < 0) {
+            // if missing, fall back to append
+            base.endpoints.push(endpoint);
+          } else {
+            base.endpoints[idx] = endpoint;
+          }
+        } else {
+          // 默认行为：不覆盖同名端点；自动改名后直接追加，实现“主端点 + 备份端点”
+          base.endpoints.push(endpoint);
+        }
+        // 重新按 priority 排序（越小越优先）
+        base.endpoints.sort((a: any, b: any) => (Number(a?.priority) || 999) - (Number(b?.priority) || 999));
 
         return JSON.stringify(base, null, 2) + "\n";
       })();
@@ -624,7 +877,40 @@ export function App() {
         content: next,
       });
 
-      setNotice("端点已写入：data/llm_endpoints.json（同时已写入 API Key 到 .env）");
+      setNotice(
+        isEditingEndpoint
+          ? "端点已更新：data/llm_endpoints.json（同时已写入 API Key 到 .env）。"
+          : "端点已追加写入：data/llm_endpoints.json（同时已写入 API Key 到 .env）。你可以继续添加备份端点。",
+      );
+      if (isEditingEndpoint) resetEndpointEditor();
+      await loadSavedEndpoints();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function doDeleteEndpoint(name: string) {
+    if (!currentWorkspaceId) return;
+    setError(null);
+    setBusy("删除端点...");
+    try {
+      const raw = await invoke<string>("workspace_read_file", {
+        workspaceId: currentWorkspaceId,
+        relativePath: "data/llm_endpoints.json",
+      });
+      const base = raw ? JSON.parse(raw) : { endpoints: [], settings: {} };
+      const eps = Array.isArray(base.endpoints) ? base.endpoints : [];
+      base.endpoints = eps.filter((e: any) => String(e?.name || "") !== name);
+      const next = JSON.stringify(base, null, 2) + "\n";
+      await invoke("workspace_write_file", {
+        workspaceId: currentWorkspaceId,
+        relativePath: "data/llm_endpoints.json",
+        content: next,
+      });
+      setNotice(`已删除端点：${name}`);
+      await loadSavedEndpoints();
+    } catch (e) {
+      setError(String(e));
     } finally {
       setBusy(null);
     }
@@ -644,8 +930,12 @@ export function App() {
       anthropic: "https://console.anthropic.com/settings/keys",
       moonshot: "https://platform.moonshot.cn/",
       kimi: "https://platform.moonshot.cn/",
+      "kimi-cn": "https://platform.moonshot.ai/",
+      "kimi-int": "https://platform.moonshot.ai/",
       dashscope: "https://dashscope.console.aliyun.com/",
       minimax: "https://www.minimaxi.com/",
+      "minimax-cn": "https://www.minimaxi.com/",
+      "minimax-int": "https://intl.minimaxi.com/",
       deepseek: "https://platform.deepseek.com/",
       openrouter: "https://openrouter.ai/",
       siliconflow: "https://siliconflow.cn/",
@@ -772,6 +1062,8 @@ export function App() {
 
   const headerRight = (
     <div className="row">
+      {appVersion ? <span className="pill">Setup Center：<b>v{appVersion}</b></span> : null}
+      {openakitaVersion ? <span className="pill">openakita：<b>v{openakitaVersion}</b></span> : null}
       <span className="pill">
         当前工作区：<b>{currentWorkspaceId || "未设置"}</b>
       </span>
@@ -987,8 +1279,6 @@ export function App() {
                       {e.provider} / {e.apiType} / {e.model}
                       <br />
                       {e.baseUrl}
-                      <br />
-                      api_key_env: {e.keyEnv || "—"}
                     </div>
                   </div>
                 ))}
@@ -1298,6 +1588,90 @@ export function App() {
             这一页会做两件事：1) 用 API Key 拉取模型列表 2) 把端点写入工作区 `data/llm_endpoints.json`，并把 Key 写入工作区 `.env`。
           </div>
           <div className="divider" />
+
+          {savedEndpoints.length > 0 ? (
+            <div className="card" style={{ marginTop: 0 }}>
+              <div className="cardTitle" style={{ fontSize: 14 }}>
+                已配置端点（可一直增加，用于备份/容灾）
+              </div>
+              <div className="cardHint" style={{ marginTop: 6 }}>
+                支持拖拽排序（会自动更新 priority）。也可以“一键设为主”（放到第一位）。
+              </div>
+              <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                {savedEndpoints.map((e) => (
+                  <div
+                    key={e.name}
+                    draggable
+                    onDragStart={() => {
+                      dragNameRef.current = e.name;
+                    }}
+                    onDragOver={(ev) => {
+                      ev.preventDefault();
+                    }}
+                    onDrop={(ev) => {
+                      ev.preventDefault();
+                      const src = dragNameRef.current;
+                      const dst = e.name;
+                      dragNameRef.current = null;
+                      if (!src || src === dst) return;
+                      const names = savedEndpoints.map((x) => x.name);
+                      const s = names.indexOf(src);
+                      const d = names.indexOf(dst);
+                      if (s < 0 || d < 0) return;
+                      const next = [...names];
+                      next.splice(s, 1);
+                      next.splice(d, 0, src);
+                      void doReorderByNames(next);
+                    }}
+                    className="row"
+                    style={{
+                      justifyContent: "space-between",
+                      padding: "10px 12px",
+                      border: "1px solid var(--line)",
+                      borderRadius: 14,
+                      background: "rgba(255, 255, 255, 0.75)",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 800 }}>
+                        {e.name}{" "}
+                        <span style={{ color: "var(--muted)", fontWeight: 600 }}>
+                          （priority {e.priority}）
+                        </span>
+                        {savedEndpoints[0]?.name === e.name ? (
+                          <span style={{ marginLeft: 8, color: "var(--brand)", fontWeight: 800 }}>主</span>
+                        ) : null}
+                      </div>
+                      <div className="help" style={{ marginTop: 4 }}>
+                      {e.provider}/{e.model} · {e.api_type}
+                      <br />
+                      {e.base_url}
+                      </div>
+                    </div>
+                    <div className="btnRow">
+                      {savedEndpoints[0]?.name !== e.name ? (
+                        <button onClick={() => doSetPrimaryEndpoint(e.name)} disabled={!!busy}>
+                          设为主
+                        </button>
+                      ) : null}
+                      <button onClick={() => doStartEditEndpoint(e.name)} disabled={!!busy}>
+                        编辑
+                      </button>
+                      <button className="btnDanger" onClick={() => doDeleteEndpoint(e.name)} disabled={!!busy}>
+                        删除
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="okBox" style={{ marginTop: 10 }}>
+                说明：OpenAkita 会按 priority 从小到大优先使用；主端点挂了会自动切到备份端点。
+              </div>
+            </div>
+          ) : (
+            <div className="okBox">当前还没有端点。你可以先拉取模型列表，然后“追加写入端点配置”。</div>
+          )}
+
           <div className="btnRow">
             <button className="btnPrimary" onClick={doLoadProviders} disabled={!!busy}>
               读取服务商列表
@@ -1348,7 +1722,22 @@ export function App() {
                     <div className="label">API Key 环境变量名（写入 .env）</div>
                     <div className="help">端点会引用它（api_key_env）</div>
                   </div>
-                  <input value={apiKeyEnv} onChange={(e) => setApiKeyEnv(e.target.value)} placeholder="例如：OPENAI_API_KEY" />
+                  <div className="row">
+                    <input value={apiKeyEnv} onChange={(e) => setApiKeyEnv(e.target.value)} placeholder="例如：OPENAI_API_KEY / OPENAI_API_KEY_2" />
+                    <button
+                      onClick={() => {
+                        const base = (selectedProvider?.api_key_env_suggestion || envKeyFromSlug(selectedProvider?.slug || "provider")).trim();
+                        const used = new Set(Object.keys(envDraft || {}));
+                        for (const ep of savedEndpoints) {
+                          if (ep.api_key_env) used.add(ep.api_key_env);
+                        }
+                        setApiKeyEnv(nextEnvKeyName(base, used));
+                      }}
+                      disabled={!!busy || !selectedProvider}
+                    >
+                      生成新变量名
+                    </button>
+                  </div>
                 </div>
                 <div className="field">
                   <div className="labelRow">
@@ -1371,24 +1760,104 @@ export function App() {
                     <div className="label">选择模型</div>
                     <div className="help">会写入 data/llm_endpoints.json</div>
                   </div>
-                  <div className="row" style={{ marginTop: 8 }}>
-                    <select value={selectedModelId} onChange={(e) => setSelectedModelId(e.target.value)} style={{ minWidth: 520 }}>
-                      {models.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.id}
-                        </option>
-                      ))}
-                    </select>
+                  <div className="grid2" style={{ marginTop: 10 }}>
+                    <div className="field">
+                      <div className="labelRow">
+                        <div className="label">端点名称</div>
+                        <div className="help">必须唯一；用于主/备份区分</div>
+                      </div>
+                      <input value={endpointName} onChange={(e) => setEndpointName(e.target.value)} placeholder="例如：openai-primary / openai-backup" />
+                    </div>
+                    <div className="field">
+                      <div className="labelRow">
+                        <div className="label">优先级（越小越优先）</div>
+                        <div className="help">例如 1=主端点，2=备份</div>
+                      </div>
+                      <input
+                        value={String(endpointPriority)}
+                        onChange={(e) => setEndpointPriority(Number(e.target.value))}
+                        placeholder="1 / 2 / 3 ..."
+                      />
+                    </div>
+                  </div>
+                  <div className="row" style={{ marginTop: 8, alignItems: "stretch" }}>
+                    <div style={{ flex: "1 1 auto", minWidth: 520 }}>
+                      <input
+                        value={selectedModelId}
+                        onChange={(e) => setSelectedModelId(e.target.value)}
+                        placeholder="搜索/选择模型（支持直接粘贴模型 ID）"
+                        list="openakita_model_options"
+                      />
+                      <datalist id="openakita_model_options">
+                        {models.map((m) => (
+                          <option key={m.id} value={m.id} />
+                        ))}
+                      </datalist>
+                      <div className="help" style={{ marginTop: 6 }}>
+                        已拉取 <b>{models.length}</b> 个模型
+                      </div>
+                    </div>
                     <button className="btnPrimary" onClick={doSaveEndpoint} disabled={!currentWorkspaceId || !!busy}>
-                      写入端点配置
+                      {isEditingEndpoint ? "保存修改" : "追加写入端点配置"}
+                    </button>
+                    {isEditingEndpoint ? (
+                      <button onClick={resetEndpointEditor} disabled={!!busy}>
+                        取消编辑
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="divider" />
+                  <div className="labelRow">
+                    <div className="label">模型能力（可手工调整）</div>
+                    <div className="help">文本/思考/图片/视频/原生工具</div>
+                  </div>
+                  <div className="btnRow" style={{ flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+                    {[
+                      { k: "text", name: "文本" },
+                      { k: "thinking", name: "思考" },
+                      { k: "vision", name: "图片" },
+                      { k: "video", name: "视频" },
+                      { k: "tools", name: "原生工具" },
+                    ].map((c) => {
+                      const on = capSelected.includes(c.k);
+                      return (
+                        <button
+                          key={c.k}
+                          className={on ? "btnPrimary" : ""}
+                          onClick={() => {
+                            setCapTouched(true);
+                            setCapSelected((prev) => {
+                              const set = new Set(prev);
+                              if (set.has(c.k)) set.delete(c.k);
+                              else set.add(c.k);
+                              const out = Array.from(set);
+                              return out.length ? out : ["text"];
+                            });
+                          }}
+                          disabled={!!busy}
+                        >
+                          {on ? "✓ " : ""}
+                          {c.name}
+                        </button>
+                      );
+                    })}
+                    <button
+                      onClick={() => {
+                        setCapTouched(false);
+                        const caps = models.find((m) => m.id === selectedModelId)?.capabilities ?? {};
+                        const list = Object.entries(caps)
+                          .filter(([, v]) => v)
+                          .map(([k]) => k);
+                        setCapSelected(list.length ? list : ["text"]);
+                      }}
+                      disabled={!!busy}
+                    >
+                      重置为自动识别
                     </button>
                   </div>
                   <div className="help" style={{ marginTop: 8 }}>
                     capabilities：
-                    {Object.entries(models.find((m) => m.id === selectedModelId)?.capabilities ?? {})
-                      .filter(([, v]) => v)
-                      .map(([k]) => k)
-                      .join(", ") || "（未知）"}
+                    {capSelected.join(", ") || "（未知）"}
                   </div>
                 </div>
               ) : null}

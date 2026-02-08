@@ -44,11 +44,6 @@ def list_providers() -> None:
     _json_print([_to_dict(p) for p in providers])
 
 
-def _is_openai_chat_model(model_id: str) -> bool:
-    chat_prefixes = ("gpt-4", "gpt-3.5", "o1", "chatgpt")
-    return any(model_id.startswith(p) for p in chat_prefixes)
-
-
 async def _list_models_openai(api_key: str, base_url: str, provider_slug: str | None) -> list[dict]:
     import httpx
 
@@ -64,8 +59,6 @@ async def _list_models_openai(api_key: str, base_url: str, provider_slug: str | 
     for m in data.get("data", []):
         mid = str(m.get("id", "")).strip()
         if not mid:
-            continue
-        if not _is_openai_chat_model(mid):
             continue
         out.append(
             {
@@ -124,20 +117,6 @@ async def list_models(api_type: str, base_url: str, provider_slug: str | None, a
         raise ValueError("--base-url 不能为空")
     if not api_key.strip():
         raise ValueError("缺少 API Key（Setup Center 会通过环境变量 SETUPCENTER_API_KEY 传入）")
-
-    # 优先：如果 provider_slug 能命中“注册表”，并且 base_url 未被修改，则沿用内置实现（可支持更多供应商）
-    try:
-        if provider_slug:
-            from openakita.llm.registries import get_registry
-
-            reg = get_registry(provider_slug)
-            if getattr(reg, "info", None) and getattr(reg.info, "default_base_url", None) == base_url:
-                models = await reg.list_models(api_key)
-                _json_print([_to_dict(m) for m in models])
-                return
-    except Exception:
-        # 回退到通用协议实现
-        pass
 
     if api_type == "openai":
         _json_print(await _list_models_openai(api_key, base_url, provider_slug))
