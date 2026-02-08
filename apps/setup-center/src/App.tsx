@@ -394,6 +394,9 @@ export function App() {
   const [githubRefType, setGithubRefType] = useState<"branch" | "tag">("branch");
   const [githubRef, setGithubRef] = useState<string>("main");
   const [localSourcePath, setLocalSourcePath] = useState<string>("");
+  const [pypiVersions, setPypiVersions] = useState<string[]>([]);
+  const [pypiVersionsLoading, setPypiVersionsLoading] = useState(false);
+  const [selectedPypiVersion, setSelectedPypiVersion] = useState<string>(""); // "" = 推荐同版本
 
   // providers & models
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
@@ -426,6 +429,7 @@ export function App() {
   const [compilerApiKeyValue, setCompilerApiKeyValue] = useState("");
   const [compilerModel, setCompilerModel] = useState("");
   const [compilerEndpointName, setCompilerEndpointName] = useState("");
+  const [compilerModels, setCompilerModels] = useState<ListedModel[]>([]); // models fetched for compiler section
 
   // Edit endpoint modal (do not reuse the "add" form)
   const [editingOriginalName, setEditingOriginalName] = useState<string | null>(null);
@@ -444,6 +448,7 @@ export function App() {
     caps: string[];
   } | null>(null);
   const dragNameRef = useRef<string | null>(null);
+  const [editModels, setEditModels] = useState<ListedModel[]>([]); // models fetched inside the edit modal
 
   // status panel data
   const [statusLoading, setStatusLoading] = useState(false);
@@ -495,7 +500,11 @@ export function App() {
       try {
         try {
           const v = await getVersion();
-          if (!cancelled) setAppVersion(v);
+          if (!cancelled) {
+            setAppVersion(v);
+            // Default PyPI version to match Setup Center version
+            setSelectedPypiVersion(v);
+          }
         } catch {
           // ignore
         }
@@ -719,6 +728,29 @@ export function App() {
     }
   }
 
+  async function doFetchPypiVersions() {
+    setPypiVersionsLoading(true);
+    setPypiVersions([]);
+    try {
+      const raw = await invoke<string>("fetch_pypi_versions", {
+        package: "openakita",
+        indexUrl: indexUrl.trim() ? indexUrl.trim() : null,
+      });
+      const list = JSON.parse(raw) as string[];
+      setPypiVersions(list);
+      // Auto-select: match Setup Center version if available
+      if (appVersion && list.includes(appVersion)) {
+        setSelectedPypiVersion(appVersion);
+      } else if (list.length > 0) {
+        setSelectedPypiVersion(list[0]); // latest
+      }
+    } catch (e: any) {
+      setError(`获取 PyPI 版本列表失败：${e}`);
+    } finally {
+      setPypiVersionsLoading(false);
+    }
+  }
+
   async function doSetupVenvAndInstallOpenAkita() {
     if (!canUsePython) {
       setError("请先在 Python 步骤安装/检测并选择一个可用 Python（3.11+）。");
@@ -767,6 +799,11 @@ export function App() {
             throw new Error("本地路径无效");
           }
           return `openakita${extrasPart} @ ${url}`;
+        }
+        // PyPI mode: append ==version if a specific version is selected
+        const ver = selectedPypiVersion.trim();
+        if (ver) {
+          return `openakita${extrasPart}==${ver}`;
         }
         return `openakita${extrasPart}`;
       })();
@@ -998,6 +1035,37 @@ export function App() {
     return Math.floor(x);
   }
 
+  async function doFetchCompilerModels() {
+    if (!compilerApiKeyValue.trim()) {
+      setError("请先填写编译端点的 API Key 值");
+      return;
+    }
+    if (!compilerBaseUrl.trim()) {
+      setError("请先填写编译端点的 Base URL");
+      return;
+    }
+    setError(null);
+    setCompilerModels([]);
+    setBusy("拉取编译端点模型列表...");
+    try {
+      const raw = await invoke<string>("openakita_list_models", {
+        venvDir,
+        apiType: compilerApiType,
+        baseUrl: compilerBaseUrl,
+        providerSlug: compilerProviderSlug || null,
+        apiKey: compilerApiKeyValue,
+      });
+      const parsed = JSON.parse(raw) as ListedModel[];
+      setCompilerModels(parsed);
+      setCompilerModel("");
+      setNotice(`编译端点拉取到模型：${parsed.length} 个`);
+    } catch (e: any) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function doSaveCompilerEndpoint() {
     if (!currentWorkspaceId) {
       setError("请先创建/选择一个当前工作区");
@@ -1184,6 +1252,38 @@ export function App() {
     setEditingOriginalName(null);
     setEditDraft(null);
     setEditModalOpen(false);
+    setEditModels([]);
+  }
+
+  async function doFetchEditModels() {
+    if (!editDraft) return;
+    const key = editDraft.apiKeyValue.trim() || envGet(envDraft, editDraft.apiKeyEnv);
+    if (!key) {
+      setError("请先填写 API Key 值（或确保对应环境变量已有值）");
+      return;
+    }
+    if (!editDraft.baseUrl.trim()) {
+      setError("请先填写 Base URL");
+      return;
+    }
+    setError(null);
+    setBusy("拉取模型列表...");
+    try {
+      const raw = await invoke<string>("openakita_list_models", {
+        venvDir,
+        apiType: editDraft.apiType,
+        baseUrl: editDraft.baseUrl,
+        providerSlug: editDraft.providerSlug || null,
+        apiKey: key,
+      });
+      const parsed = JSON.parse(raw) as ListedModel[];
+      setEditModels(parsed);
+      setNotice(`拉取到模型：${parsed.length} 个`);
+    } catch (e: any) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function doSaveEditedEndpoint() {
@@ -2212,6 +2312,56 @@ export function App() {
               </button>
             </div>
 
+          {installSource === "pypi" ? (
+            <div style={{ marginTop: 10 }}>
+              <div className="field">
+                <div className="labelRow">
+                  <div className="label">指定版本</div>
+                  <div className="help">
+                    建议选择与 Setup Center 同版本（<b>v{appVersion || "?"}</b>），以保证兼容性
+                  </div>
+                </div>
+                <div className="row" style={{ gap: 8 }}>
+                  <button
+                    className="btnSmall"
+                    onClick={doFetchPypiVersions}
+                    disabled={!!busy || pypiVersionsLoading}
+                    style={{ whiteSpace: "nowrap", borderRadius: 999 }}
+                  >
+                    {pypiVersionsLoading ? "获取中..." : "获取版本列表"}
+                  </button>
+                  {pypiVersions.length > 0 ? (
+                    <select
+                      value={selectedPypiVersion}
+                      onChange={(e) => setSelectedPypiVersion(e.target.value)}
+                      disabled={!!busy}
+                      style={{ flex: "1 1 auto", minWidth: 180 }}
+                    >
+                      {pypiVersions.map((v) => (
+                        <option key={v} value={v}>
+                          {v}{v === appVersion ? "（推荐 · 与 Setup Center 同版本）" : v === pypiVersions[0] ? "（最新）" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      value={selectedPypiVersion}
+                      onChange={(e) => setSelectedPypiVersion(e.target.value)}
+                      placeholder={appVersion ? `默认 ${appVersion}（同 Setup Center 版本），留空安装最新` : "留空安装最新版本，或输入版本号如 1.2.13"}
+                      disabled={!!busy}
+                      style={{ flex: "1 1 auto" }}
+                    />
+                  )}
+                </div>
+                {selectedPypiVersion && appVersion && selectedPypiVersion !== appVersion ? (
+                  <div className="help" style={{ marginTop: 6, color: "#e67e22", fontWeight: 700 }}>
+                    注意：当前选择 v{selectedPypiVersion}，与 Setup Center（v{appVersion}）版本不一致，可能存在兼容性差异
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
           {installSource === "github" ? (
             <div className="grid2" style={{ marginTop: 10 }}>
               <div className="field">
@@ -2924,14 +3074,33 @@ export function App() {
                   <input value={compilerApiKeyEnv} onChange={(e) => setCompilerApiKeyEnv(e.target.value)} placeholder="DASHSCOPE_API_KEY" />
                 </div>
               </div>
-              <div className="grid2" style={{ marginTop: 10 }}>
-                <div className="field">
-                  <div className="labelRow">
-                    <div className="label">模型名称</div>
-                    <div className="help">手动输入模型 ID</div>
-                  </div>
-                  <input value={compilerModel} onChange={(e) => setCompilerModel(e.target.value)} placeholder="qwen-turbo / gpt-4o-mini" />
+              <div style={{ marginTop: 10 }}>
+                <div className="labelRow" style={{ alignItems: "center" }}>
+                  <div className="label">模型</div>
+                  <div className="help">可先拉取列表再选，也可直接搜索/粘贴</div>
                 </div>
+                <div className="btnRow" style={{ marginBottom: 8 }}>
+                  <button
+                    onClick={doFetchCompilerModels}
+                    className="btnPrimary"
+                    disabled={!compilerApiKeyValue.trim() || !compilerBaseUrl.trim() || !!busy}
+                    style={{ whiteSpace: "nowrap" }}
+                  >
+                    拉取模型列表
+                  </button>
+                  {compilerModels.length > 0 ? (
+                    <span className="help" style={{ fontSize: 12 }}>已拉取 {compilerModels.length} 个模型</span>
+                  ) : null}
+                </div>
+                <SearchSelect
+                  value={compilerModel}
+                  onChange={(v) => setCompilerModel(v)}
+                  options={compilerModels.length > 0 ? compilerModels.map((m) => m.id) : []}
+                  placeholder="搜索/选择模型（也可手动输入，如 qwen-turbo / gpt-4o-mini）"
+                  disabled={!!busy}
+                />
+              </div>
+              <div className="grid2" style={{ marginTop: 10 }}>
                 <div className="field">
                   <div className="labelRow">
                     <div className="label">端点名称（可选）</div>
@@ -3139,14 +3308,38 @@ export function App() {
                 </div>
               </div>
               <div className="divider" />
-              <div className="labelRow">
+              <div className="labelRow" style={{ alignItems: "center" }}>
                 <div className="label">模型</div>
-                <div className="help">可搜索/下拉/粘贴</div>
+                <div className="help">可搜索/下拉/粘贴；也可先拉取列表再选</div>
+              </div>
+              <div className="btnRow" style={{ marginBottom: 8 }}>
+                <button
+                  onClick={doFetchEditModels}
+                  className="btnPrimary"
+                  disabled={!editDraft.baseUrl.trim() || !!busy}
+                  style={{ whiteSpace: "nowrap" }}
+                >
+                  拉取模型列表
+                </button>
+                {editModels.length > 0 ? (
+                  <span className="help" style={{ fontSize: 12 }}>已拉取 {editModels.length} 个模型</span>
+                ) : null}
               </div>
               <SearchSelect
                 value={editDraft.modelId}
-                onChange={(v) => setEditDraft({ ...editDraft, modelId: v })}
-                options={models.map((m) => m.id)}
+                onChange={(v) => {
+                  setEditDraft({ ...editDraft, modelId: v });
+                  // auto-update capabilities from fetched model if user hasn't manually edited
+                  const src = editModels.length > 0 ? editModels : models;
+                  const m = src.find((x) => x.id === v);
+                  if (m?.capabilities) {
+                    const list = Object.entries(m.capabilities)
+                      .filter(([, val]) => val)
+                      .map(([k]) => k);
+                    if (list.length) setEditDraft((d) => d ? { ...d, modelId: v, caps: list } : d);
+                  }
+                }}
+                options={(editModels.length > 0 ? editModels : models).map((m) => m.id)}
                 placeholder="输入或选择模型 ID"
                 disabled={!!busy}
               />

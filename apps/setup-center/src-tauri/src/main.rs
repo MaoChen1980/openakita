@@ -523,7 +523,8 @@ fn main() {
             openakita_list_skills,
             openakita_list_providers,
             openakita_list_models,
-            openakita_version
+            openakita_version,
+            fetch_pypi_versions
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -1738,6 +1739,78 @@ async fn openakita_version(venv_dir: String) -> Result<String, String> {
             return Err(format!("python failed: {}\nstdout:\n{}\nstderr:\n{}", out.status, stdout, stderr));
         }
         Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    })
+    .await
+}
+
+/// Fetch available versions of a package from PyPI JSON API.
+/// Returns JSON array of version strings, newest first.
+#[tauri::command]
+async fn fetch_pypi_versions(package: String, index_url: Option<String>) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let url = if let Some(ref idx) = index_url {
+            // For custom mirrors, try the /pypi/<pkg>/json endpoint at the mirror root.
+            // e.g. https://pypi.tuna.tsinghua.edu.cn/pypi/openakita/json
+            // Strip trailing /simple or /simple/ from index-url to get mirror root.
+            let root = idx
+                .trim_end_matches('/')
+                .trim_end_matches("/simple")
+                .trim_end_matches("/simple/");
+            format!("{}/pypi/{}/json", root, package)
+        } else {
+            format!("https://pypi.org/pypi/{}/json", package)
+        };
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .user_agent("openakita-setup-center")
+            .build()
+            .map_err(|e| format!("HTTP client error: {e}"))?;
+
+        let resp = client
+            .get(&url)
+            .send()
+            .map_err(|e| format!("fetch PyPI versions failed ({}): {}", url, e))?
+            .error_for_status()
+            .map_err(|e| format!("fetch PyPI versions failed ({}): {}", url, e))?;
+
+        let body: serde_json::Value = resp
+            .json()
+            .map_err(|e| format!("parse PyPI JSON failed: {e}"))?;
+
+        // PyPI JSON API: { "releases": { "1.0.0": [...], "1.2.3": [...], ... } }
+        let releases = body
+            .get("releases")
+            .and_then(|v| v.as_object())
+            .ok_or_else(|| "unexpected PyPI JSON format: missing 'releases'".to_string())?;
+
+        let mut versions: Vec<String> = releases
+            .keys()
+            .filter(|v| {
+                // Skip pre-release / dev versions with letters like "a", "b", "rc", "dev"
+                // unless the version contains only dots and digits
+                let v_lower = v.to_lowercase();
+                !v_lower.contains("dev") && !v_lower.contains("alpha")
+            })
+            .cloned()
+            .collect();
+
+        // Sort by semver-ish descending (newest first).
+        // Use a simple tuple-based comparison: split on '.', parse each part.
+        versions.sort_by(|a, b| {
+            let parse = |s: &str| -> Vec<i64> {
+                s.split('.')
+                    .map(|p| {
+                        // strip pre-release suffixes for sorting: "1a0" -> 1
+                        let numeric: String = p.chars().take_while(|c| c.is_ascii_digit()).collect();
+                        numeric.parse::<i64>().unwrap_or(0)
+                    })
+                    .collect()
+            };
+            parse(b).cmp(&parse(a))
+        });
+
+        Ok(serde_json::to_string(&versions).unwrap_or_else(|_| "[]".into()))
     })
     .await
 }
