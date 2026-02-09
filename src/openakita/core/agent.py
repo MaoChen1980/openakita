@@ -3584,7 +3584,10 @@ NEXT: 建议的下一步（如有）"""
                             # 使用与 _verify_task_completion 相同的方式访问 PlanHandler
                             has_active_plan_pending = False
                             try:
-                                from ..tools.handlers.plan import get_plan_handler_for_session, has_active_plan
+                                from ..tools.handlers.plan import (
+                                    get_plan_handler_for_session,
+                                    has_active_plan,
+                                )
                                 conversation_id = getattr(self, "_current_conversation_id", None) or getattr(
                                     self, "_current_session_id", None
                                 )
@@ -3840,7 +3843,8 @@ NEXT: 建议的下一步（如有）"""
                 # 检查是否有活跃 Plan：有的话用更温和的提示，避免打断正常执行
                 _self_check_has_plan = False
                 try:
-                    from ..tools.handlers.plan import get_plan_handler_for_session, has_active_plan as _has_active_plan
+                    from ..tools.handlers.plan import get_plan_handler_for_session
+                    from ..tools.handlers.plan import has_active_plan as _has_active_plan
                     _sc_conv_id = getattr(self, "_current_conversation_id", None) or getattr(
                         self, "_current_session_id", None
                     )
