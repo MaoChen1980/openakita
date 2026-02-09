@@ -110,6 +110,10 @@ class DingTalkAdapter(ChannelAdapter):
         self.media_dir = Path(media_dir) if media_dir else Path("data/media/dingtalk")
         self.media_dir.mkdir(parents=True, exist_ok=True)
 
+        # 旧版 access_token (oapi.dingtalk.com 接口用)
+        self._old_access_token: str | None = None
+        self._old_token_expires_at: float = 0
+        # 新版 access_token (api.dingtalk.com/v1.0 接口用)
         self._access_token: str | None = None
         self._token_expires_at: float = 0
         self._http_client: Any | None = None
@@ -872,9 +876,9 @@ class DingTalkAdapter(ChannelAdapter):
 
         await self._refresh_token()
 
-        # 使用钉钉文件下载 API（POST 方法）
+        # 使用钉钉新版文件下载 API（POST 方法，新版 token）
         url = f"{self.API_NEW}/robot/messageFiles/download"
-        headers = {"x-acs-dingtalk-access-token": self._access_token}
+        headers = {"x-acs-dingtalk-access-token": await self._refresh_token()}
         body = {"downloadCode": media.file_id, "robotCode": self.config.app_key}
 
         response = await self._http_client.post(url, headers=headers, json=body)
@@ -903,12 +907,13 @@ class DingTalkAdapter(ChannelAdapter):
         """
         上传媒体文件到钉钉
 
-        使用钉钉 media/upload API 上传文件，获取 media_id。
+        使用钉钉旧版 media/upload API 上传文件，获取 media_id。
+        注意: 此接口在 oapi.dingtalk.com 上，需要旧版 access_token。
         """
-        await self._refresh_token()
+        old_token = await self._refresh_old_token()
 
         url = f"{self.API_BASE}/media/upload"
-        params = {"access_token": self._access_token}
+        params = {"access_token": old_token}
 
         # 根据 mime_type 确定类型
         if mime_type.startswith("image/"):
@@ -964,9 +969,46 @@ class DingTalkAdapter(ChannelAdapter):
     # ==================== Token 管理 ====================
 
     async def _refresh_token(self) -> str:
-        """刷新 access token"""
+        """
+        刷新新版 access token (用于 api.dingtalk.com/v1.0 接口)
+
+        新版 API (robot/groupMessages/send, robot/oToMessages/batchSend 等)
+        需要通过 OAuth2 接口获取的 accessToken，
+        放在请求头 x-acs-dingtalk-access-token 中。
+        """
         if self._access_token and time.time() < self._token_expires_at:
             return self._access_token
+
+        _import_httpx()
+
+        url = f"{self.API_NEW}/oauth2/accessToken"
+        body = {
+            "appKey": self.config.app_key,
+            "appSecret": self.config.app_secret,
+        }
+
+        response = await self._http_client.post(url, json=body)
+        data = response.json()
+
+        if "accessToken" not in data:
+            raise RuntimeError(
+                f"Failed to get new access token: {data.get('message', data)}"
+            )
+
+        self._access_token = data["accessToken"]
+        self._token_expires_at = time.time() + data.get("expireIn", 7200) - 60
+        logger.info("Refreshed new-style access token (OAuth2)")
+
+        return self._access_token
+
+    async def _refresh_old_token(self) -> str:
+        """
+        刷新旧版 access token (用于 oapi.dingtalk.com 接口)
+
+        旧版 API (media/upload, gettoken 等) 使用 access_token 查询参数。
+        """
+        if self._old_access_token and time.time() < self._old_token_expires_at:
+            return self._old_access_token
 
         _import_httpx()
 
@@ -980,9 +1022,10 @@ class DingTalkAdapter(ChannelAdapter):
         data = response.json()
 
         if data.get("errcode", 0) != 0:
-            raise RuntimeError(f"Failed to get access token: {data.get('errmsg')}")
+            raise RuntimeError(f"Failed to get old access token: {data.get('errmsg')}")
 
-        self._access_token = data["access_token"]
-        self._token_expires_at = time.time() + data["expires_in"] - 60
+        self._old_access_token = data["access_token"]
+        self._old_token_expires_at = time.time() + data["expires_in"] - 60
+        logger.info("Refreshed old-style access token (gettoken)")
 
-        return self._access_token
+        return self._old_access_token
