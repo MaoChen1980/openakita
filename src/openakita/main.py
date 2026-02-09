@@ -540,6 +540,10 @@ async def run_interactive():
 
                     elif cmd == "/clear":
                         if not is_orchestration_enabled():
+                            # 清理 CLI Session 上下文（主要的对话历史）
+                            if hasattr(agent_or_master, '_cli_session') and agent_or_master._cli_session:
+                                agent_or_master._cli_session.context.clear_messages()
+                            # 兼容旧属性
                             agent_or_master._conversation_history.clear()
                             agent_or_master._context.messages.clear()
                         console.print("[green]对话历史已清空[/green]")

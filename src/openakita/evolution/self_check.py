@@ -1270,6 +1270,9 @@ ID: {result.test_id}
                 # 关键：清空历史上下文，使用干净状态
                 agent._context.messages = []
                 agent._conversation_history = []
+                # 清理 CLI Session（如果存在）
+                if hasattr(agent, '_cli_session') and agent._cli_session:
+                    agent._cli_session.context.clear_messages()
                 logger.info(
                     f"SelfChecker: Agent context cleared for fix attempt {attempt + 1}/{max_retries}"
                 )

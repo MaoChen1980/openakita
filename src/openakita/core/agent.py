@@ -2586,7 +2586,10 @@ search_github → install_skill → 使用
 
     async def chat(self, message: str, session_id: str | None = None) -> str:
         """
-        对话接口（使用全局会话历史）
+        对话接口 - 委托给 chat_with_session() 复用完整处理链路
+
+        内部创建/复用一个持久的 CLI Session，使 CLI 获得与 IM 通道一致的能力：
+        Prompt Compiler、高级循环检测、Task Monitor、记忆检索、上下文压缩等。
 
         Args:
             message: 用户消息
@@ -2598,63 +2601,38 @@ search_github → install_skill → 使用
         if not self._initialized:
             await self.initialize()
 
-        session_info = f"[{session_id}] " if session_id else ""
-        logger.info(f"{session_info}User: {message}")
+        # 懒初始化 CLI Session（在 Agent 生命周期内持久存在）
+        if not hasattr(self, '_cli_session') or self._cli_session is None:
+            from ..sessions.session import Session
+            self._cli_session = Session.create(
+                channel="cli", chat_id="cli", user_id="user"
+            )
 
-        # 添加到对话历史
+        # 模拟 Gateway 的消息管理流程：先记录用户消息到 Session
+        self._cli_session.add_message("user", message)
+        session_messages = self._cli_session.context.get_messages()
+
+        # 委托给统一的 chat_with_session
+        response = await self.chat_with_session(
+            message=message,
+            session_messages=session_messages,
+            session_id=session_id or self._cli_session.id,
+            session=self._cli_session,
+            gateway=None,  # CLI 无 Gateway
+        )
+
+        # 记录 Assistant 响应到 Session
+        self._cli_session.add_message("assistant", response)
+
+        # 同步更新旧属性（保持向后兼容：conversation_history 属性、/status 命令等依赖）
         self._conversation_history.append(
-            {
-                "role": "user",
-                "content": message,
-                "timestamp": datetime.now().isoformat(),
-            }
+            {"role": "user", "content": message, "timestamp": datetime.now().isoformat()}
         )
-
-        # 记录到记忆系统 (自动提取重要信息)
-        self.memory_manager.record_turn("user", message)
-
-        # 更新上下文
-        self._context.messages.append(
-            {
-                "role": "user",
-                "content": message,
-            }
-        )
-
-        # 统一使用工具调用流程，让 LLM 自己决定是否需要工具
-        response_text = await self._chat_with_tools(message)
-
-        # 添加响应到历史
         self._conversation_history.append(
-            {
-                "role": "assistant",
-                "content": response_text,
-                "timestamp": datetime.now().isoformat(),
-            }
+            {"role": "assistant", "content": response, "timestamp": datetime.now().isoformat()}
         )
 
-        # 更新上下文
-        self._context.messages.append(
-            {
-                "role": "assistant",
-                "content": response_text,
-            }
-        )
-
-        # 定期检查并压缩持久上下文（每 10 轮对话检查一次）
-        if len(self._context.messages) > 20:
-            current_tokens = self._estimate_messages_tokens(self._context.messages)
-            dynamic_limit = self._get_max_context_tokens()
-            if current_tokens > dynamic_limit * 0.7:  # 70% 阈值时预压缩
-                logger.info(f"Proactively compressing persistent context ({current_tokens}/{dynamic_limit} tokens)")
-                self._context.messages = await self._compress_context(self._context.messages)
-
-        # 记录到记忆系统
-        self.memory_manager.record_turn("assistant", response_text)
-
-        logger.info(f"{session_info}Agent: {response_text}")
-
-        return response_text
+        return response
 
     async def chat_with_session(
         self,
@@ -2725,9 +2703,14 @@ search_github → install_skill → 使用
             logger.warning(f"[Memory] Failed to align memory session: {e}")
 
         # 保存当前 IM 会话信息（供 IM 工具使用，协程隔离）
+        # CLI 模式（gateway=None）不暴露 session 给 IM 工具，
+        # 保持 IM 工具返回 "当前不在 IM 会话中" 的清晰提示
         from .im_context import reset_im_context, set_im_context
 
-        im_tokens = set_im_context(session=session, gateway=gateway)
+        im_tokens = set_im_context(
+            session=session if gateway else None,
+            gateway=gateway,
+        )
 
         # === 设置当前会话（供中断检查使用）===
         self._current_session = session
@@ -2866,8 +2849,10 @@ search_github → install_skill → 使用
             self._current_task_monitor = task_monitor
 
             # === 两段式 Prompt 第二阶段：主模型处理 ===
+            # 根据 session.channel 自动检测 session_type（CLI vs IM）
+            session_type = "cli" if (session and session.channel == "cli") else "im"
             response_text = await self._chat_with_tools_and_context(
-                messages, task_monitor=task_monitor, session_type="im",
+                messages, task_monitor=task_monitor, session_type=session_type,
             )
 
             # === 完成任务监控 ===
@@ -4050,6 +4035,9 @@ NEXT: 建议的下一步（如有）"""
 
     async def _chat_with_tools(self, message: str) -> str:
         """
+        DEPRECATED: 此方法已废弃，chat() 现已委托给 chat_with_session() + _chat_with_tools_and_context()。
+        保留仅为向后兼容，后续版本将移除。
+
         对话处理，支持工具调用
 
         让 LLM 自己决定是否需要工具，不做硬编码判断
