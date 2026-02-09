@@ -5,7 +5,7 @@
 <h1 align="center">OpenAkita</h1>
 
 <p align="center">
-  <strong>Your Loyal and Reliable AI Companion</strong>
+  <strong>Self-Evolving AI Agent — Learns Autonomously, Never Gives Up</strong>
 </p>
 
 <p align="center">
@@ -18,14 +18,20 @@
   <a href="https://github.com/openakita/openakita/releases">
     <img src="https://img.shields.io/github/v/release/openakita/openakita?color=green" alt="Version" />
   </a>
+  <a href="https://pypi.org/project/openakita/">
+    <img src="https://img.shields.io/pypi/v/openakita?color=green" alt="PyPI" />
+  </a>
+  <a href="https://github.com/openakita/openakita/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/openakita/openakita/ci.yml?branch=main" alt="Build Status" />
+  </a>
 </p>
 
 <p align="center">
-  <a href="#philosophy">Philosophy</a> •
+  <a href="#setup-center">Setup Center</a> •
   <a href="#features">Features</a> •
   <a href="#quick-start">Quick Start</a> •
   <a href="#architecture">Architecture</a> •
-  <a href="#multi-agent">Multi-Agent</a>
+  <a href="#documentation">Documentation</a>
 </p>
 
 <p align="center">
@@ -36,278 +42,113 @@
 
 ## What is OpenAkita?
 
-OpenAkita is a **self-evolving AI assistant** — your loyal and reliable companion in the digital world.
+OpenAkita is a **self-evolving AI Agent framework**. It autonomously learns new skills, performs daily self-checks and repairs, accumulates experience from task execution, and never gives up when facing difficulties — persisting until the task is done.
 
-Like the Akita dog it's named after, OpenAkita embodies:
-- 🤝 **Loyal Companion** — Always by your side, ready to help whenever you need
-- 🧠 **Grows With You** — Remembers your preferences and becomes more helpful over time
-- 💪 **Reliable Partner** — Commits to completing tasks, never gives up easily
-- 🛡️ **Trustworthy** — Keeps your data safe and respects your privacy
+Like the Akita dog it's named after: **loyal, reliable, never quits**.
 
-OpenAkita is more than a tool — it's a partner that remembers you, understands you, and stands by you through every challenge.
+- **Self-Evolving** — Auto-generates skills, installs dependencies, learns from mistakes
+- **Never Gives Up** — Ralph Wiggum Mode: persistent execution loop until task completion
+- **Growing Memory** — Remembers your preferences and habits, auto-consolidates daily
+- **Standards-Based** — MCP and Agent Skills standard compliance for broad ecosystem compatibility
+- **Multi-Platform** — Setup Center GUI, CLI, Telegram, Feishu, WeCom, DingTalk, QQ
 
-## Philosophy
+---
 
-### 1. Human-Centered
+## Setup Center
 
-OpenAkita's core is **serving people**, not showcasing technology. We focus on:
+<p align="center">
+  <img src="docs/assets/setupcenter.png" alt="Setup Center" width="800" />
+</p>
 
-- **Understanding Intent**: Not just executing commands, but understanding what you really want
-- **Proactive Communication**: Asks when encountering problems, rather than guessing or failing
-- **Privacy Respect**: Your data belongs to you, never misused
+OpenAkita provides a cross-platform **Setup Center** desktop app (built with Tauri + React) for intuitive installation and configuration:
 
-### 2. Continuous Evolution
+- **Python Environment** — Auto-detect system Python or install embedded Python
+- **One-Click Install** — Create venv + pip install OpenAkita (PyPI / GitHub Release / local source)
+- **Version Control** — Choose specific versions; defaults to Setup Center version for compatibility
+- **LLM Endpoint Manager** — Multi-provider, multi-endpoint, failover; fetch model lists + search selector
+- **Prompt Compiler Config** — Dedicated fast model endpoints for instruction preprocessing
+- **IM Channel Setup** — Telegram, Feishu, WeCom, DingTalk, QQ — all in one place
+- **Agent & Skills Config** — Behavior parameters, skill toggles, MCP tool management
+- **System Tray** — Background residency + auto-start on boot, one-click start/stop
+- **Status Monitor** — Live service status dashboard with real-time log viewing
 
-OpenAkita can **learn and evolve**:
+> **Download**: [GitHub Releases](https://github.com/openakita/openakita/releases)
+>
+> Available for Windows (.exe) / macOS (.dmg) / Linux (.deb / .AppImage)
 
-- **Memory System**: Remembers your preferences, habits, common operations
-- **Skill Extension**: Automatically searches or generates new capabilities for new needs
-- **Experience Accumulation**: Learns from each task, becomes more efficient
-
-### 3. Reliable Execution
-
-Once a task is assigned to OpenAkita:
-
-- **Persistent Completion**: Won't give up due to minor errors
-- **Smart Retry**: Analyzes failure reasons, tries different approaches
-- **Progress Saving**: Long tasks support checkpoint recovery
-
-### 4. Multi-Platform Collaboration
-
-Through **Multi-Agent architecture** for efficient parallelism:
-
-- **Master-Worker Architecture**: Master coordinates, Workers execute
-- **Smart Scheduling**: Allocates resources based on task complexity
-- **Fault Recovery**: Automatic detection and restart of failed nodes
+---
 
 ## Features
 
-### Basic Capabilities
-
 | Feature | Description |
 |---------|-------------|
-| **Smart Dialogue** | Multi-turn contextual conversation |
-| **Task Execution** | Shell commands, file operations, network requests |
-| **Code Abilities** | Write, debug, explain code |
-| **Knowledge Retrieval** | Search web, GitHub, local documents |
+| **Self-Learning & Evolution** | Daily self-check (04:00), memory consolidation (03:00), task retrospection, auto skill generation, auto dependency install |
+| **Ralph Wiggum Mode** | Never-give-up execution loop: Plan → Act → Verify → repeat until done; checkpoint recovery |
+| **Prompt Compiler** | Two-stage prompt architecture: fast model preprocesses instructions, compiles identity files, detects compound tasks |
+| **MCP Integration** | Model Context Protocol standard, stdio transport, auto server discovery, built-in web search |
+| **Skill System** | Agent Skills standard (SKILL.md), 8 discovery directories, GitHub install, LLM auto-generation |
+| **Plan Mode** | Auto-detect multi-step tasks, create execution plans, real-time progress tracking, persisted as Markdown |
+| **Multi-LLM Endpoints** | 9 providers, capability-based routing, priority failover, thinking mode, multimodal (text/image/video/voice) |
+| **Multi-Platform IM** | CLI / Telegram / Feishu (full support); WeCom / DingTalk / QQ (implemented) |
+| **Desktop Automation** | Windows UIAutomation + vision fallback, 9 tools: screenshot, click, type, hotkeys, window management |
+| **Multi-Agent** | Master-Worker architecture, ZMQ message bus, smart routing, dynamic scaling, fault recovery |
+| **Scheduled Tasks** | Cron / interval / one-time triggers, reminder + task types, persistent storage |
+| **Identity & Memory** | Four-file identity (SOUL / AGENT / USER / MEMORY), vector search, daily auto-consolidation |
+| **Tool System** | 11 categories, 50+ tools, 3-level progressive disclosure (catalog → detail → execute) to reduce token usage |
+| **Setup Center** | Tauri cross-platform desktop app, guided wizard, tray residency, status monitoring |
 
-### Advanced Capabilities
+---
 
-| Feature | Description |
-|---------|-------------|
-| **Plan Mode** | Intelligent multi-step task planning and execution |
-| **Skill System** | Extensible skill library, supports customization |
-| **MCP Integration** | Connect browsers, databases, external services |
-| **Scheduled Tasks** | Set reminders, periodic tasks |
-| **User Profile** | Learn your preferences, personalized service |
+## Self-Learning & Self-Evolution
 
-### Plan Mode (Multi-Step Task Management)
+The core differentiator: **OpenAkita doesn't just execute — it learns and grows autonomously**.
 
-For complex tasks requiring multiple steps, OpenAkita automatically activates **Plan Mode** to ensure reliable execution:
+| Mechanism | Trigger | Behavior |
+|-----------|---------|----------|
+| **Daily Self-Check** | Every day at 04:00 | Analyze ERROR logs → LLM diagnosis → auto-fix tool errors → generate report |
+| **Memory Consolidation** | Every day at 03:00 | Consolidate conversations → semantic dedup → extract insights → refresh MEMORY.md |
+| **Task Retrospection** | After long tasks (>60s) | Analyze efficiency → extract lessons → store in long-term memory |
+| **Skill Auto-Generation** | Missing capability detected | LLM generates SKILL.md + script → auto-test → register and load |
+| **Auto Dependency Install** | pip/npm package missing | Search GitHub → install dependency → fallback to skill generation |
+| **Real-Time Memory** | Every conversation turn | Extract preferences/rules/facts → vector storage → auto-update MEMORY.md |
+| **User Profile Learning** | During conversations | Identify preferences and habits → update USER.md → personalized experience |
 
-#### How It Works
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                       Plan Mode                              │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│   User Request                                               │
-│        ↓                                                     │
-│   ┌─────────────────────────────────────────────────────┐   │
-│   │  Multi-Step Detection                                │   │
-│   │  • 5+ action words (complex task)                    │   │
-│   │  • 3+ actions + connectors ("then", "after")         │   │
-│   │  • Compound task type                                │   │
-│   └─────────────────────────────────────────────────────┘   │
-│        ↓                                                     │
-│   ┌─────────────────────────────────────────────────────┐   │
-│   │  create_plan → Execute Steps → update_plan_step     │   │
-│   │       ↓              ↓                ↓             │   │
-│   │  Plan Created   Tool Calls    Progress Tracked      │   │
-│   │       ↓              ↓                ↓             │   │
-│   │  User Notified  Real-time     Status Updates        │   │
-│   └─────────────────────────────────────────────────────┘   │
-│        ↓                                                     │
-│   complete_plan → Summary Report                             │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
-```
-
-#### Features
-
-| Feature | Description |
-|---------|-------------|
-| **Auto Detection** | Automatically identifies multi-step tasks |
-| **Plan First** | Forces plan creation before execution |
-| **Progress Tracking** | Real-time status updates for each step |
-| **User Notification** | Sends progress to IM channels |
-| **Persistent Plans** | Saves plans as Markdown files |
-| **Step Dependencies** | Supports step dependency chains |
-
-#### Example
-
-```
-User: "Open Baidu, search for weather, and take a screenshot"
-
-📋 Task Plan: Search weather on Baidu and screenshot
-├─ 1. Launch browser and navigate to Baidu
-├─ 2. Enter search keyword
-├─ 3. Click search button
-└─ 4. Take screenshot and send
-
-Execution:
-✅ [1/4] Launch browser - Done
-✅ [2/4] Enter keyword - Done  
-✅ [3/4] Click search - Done
-✅ [4/4] Screenshot - Done
-
-🎉 Task completed! 4/4 steps successful.
-```
-
-#### Plan Tools
-
-| Tool | Description |
-|------|-------------|
-| `create_plan` | Create execution plan with steps |
-| `update_plan_step` | Update step status (pending/in_progress/completed/failed) |
-| `get_plan_status` | Get current plan progress |
-| `complete_plan` | Mark plan as completed, generate summary |
-
-### Self-Maintenance System
-
-OpenAkita's "sleep cycle" — automatic maintenance during quiet hours:
-
-| Feature | Schedule | Description |
-|---------|----------|-------------|
-| **Memory Consolidation** | 03:00 AM | Consolidate daily conversations into long-term memory |
-| **Self-Check & Repair** | 04:00 AM | Analyze errors, auto-fix tool issues, generate reports |
-| **Task Retrospection** | After long tasks | Review execution, extract lessons learned |
-| **Loop Detection** | Real-time | Prevent infinite loops |
-
-#### How It Works
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   Self-Maintenance System                    │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌─────────────────┐    ┌─────────────────┐                 │
-│  │  Log System     │    │  Memory System  │                 │
-│  │  • File rotation│    │  • Consolidation│                 │
-│  │  • Auto cleanup │    │  • Deduplication│                 │
-│  │  • Error filter │    │  • Vector search│                 │
-│  └────────┬────────┘    └────────┬────────┘                 │
-│           │                      │                           │
-│           └──────────┬───────────┘                           │
-│                      ▼                                       │
-│           ┌─────────────────────┐                            │
-│           │   Daily Self-Check  │                            │
-│           │   • Analyze errors  │                            │
-│           │   • LLM diagnosis   │                            │
-│           │   • Auto-fix tools  │                            │
-│           │   • Generate report │                            │
-│           └─────────────────────┘                            │
-│                                                              │
-│  Error Types:                                                │
-│  • Core (Brain/Memory/Scheduler) → Report only, no auto-fix │
-│  • Tool (Shell/File/Web/MCP)     → Auto-fix, self-test      │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
-```
-
-#### Configuration
-
-```bash
-# Log settings
-LOG_LEVEL=INFO
-LOG_DIR=logs
-LOG_RETENTION_DAYS=30
-
-# Self-check (system tasks, cannot be deleted, can be disabled)
-# Runs at 03:00 (memory) and 04:00 (self-check) daily
-```
-
-### Multi-Platform Support
-
-| Platform | Status | Supported Message Types |
-|----------|--------|------------------------|
-| **CLI** | ✅ Full Support | Text |
-| **Telegram** | ✅ Full Support | Text, Voice, Image, File |
-| **Feishu** | ✅ Full Support | Text, Voice, Image, File |
-| **WeCom** | ⚠️ Implemented, Not Tested | - |
-| **DingTalk** | ⚠️ Implemented, Not Tested | - |
-| **QQ** | ⚠️ Implemented, Not Tested | - |
+---
 
 ## Quick Start
 
-> ⚠️ **Early Stage Project**: This project is in early development. For faster deployment, we recommend using AI coding assistants like [Cursor](https://cursor.sh/), [Claude](https://claude.ai/), or [GitHub Copilot](https://github.com/features/copilot) to help with setup and troubleshooting.
+### Option 1: Setup Center (Recommended)
 
-### Requirements
+The easiest way — graphical guided setup, no command-line experience needed:
 
-- Python 3.11+
-- LLM API Key (Anthropic, OpenAI-compatible, or other providers)
+1. Download the installer from [GitHub Releases](https://github.com/openakita/openakita/releases)
+2. Install and launch Setup Center
+3. Follow the wizard: Python → Install OpenAkita → Configure LLM → Configure IM → Finish & Start
 
-### Recommended Models
-
-| Model | Provider | Notes |
-|-------|----------|-------|
-| `claude-sonnet-4-5-*` | Anthropic | Default, balanced |
-| `claude-opus-4-5-*` | Anthropic | Most capable |
-| `qwen3-max` | Alibaba | Strong Chinese support |
-| `minimax-2.1` | MiniMax | Good for dialogue |
-| `kimi-2.5` | Moonshot | Long-context capability |
-
-> 💡 **Tip**: Enable "extended thinking" mode for complex tasks. Set model to `*-thinking` variant (e.g., `claude-opus-4-5-20251101-thinking`) for better reasoning.
-
-### Quick Install (Recommended)
-
-**One-line install with interactive setup wizard:**
+### Option 2: PyPI Install
 
 ```bash
-# Install from PyPI
+# Install
 pip install openakita
 
-# Run setup wizard (interactive configuration)
-openakita init
-```
-
-The setup wizard will guide you through:
-- LLM API configuration (API key, model selection)
-- IM channel setup (optional: Telegram, Feishu, etc.)
-- Memory system configuration
-- Directory structure creation
-
-**Or use the quick start script:**
-
-```bash
-# Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/openakita/openakita/main/scripts/quickstart.sh | bash
-
-# Windows (PowerShell)
-irm https://raw.githubusercontent.com/openakita/openakita/main/scripts/quickstart.ps1 | iex
-```
-
-### Manual Installation
-
-```bash
-# Clone repository
-git clone https://github.com/openakita/openakita.git
-cd openakita
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install
-pip install -e .
+# Install with all optional features
+pip install openakita[all]
 
 # Run setup wizard
 openakita init
+```
 
-# Or configure manually
-cp examples/.env.example .env
-# Edit .env, fill in your API keys
+Optional extras: `feishu`, `whisper`, `browser`, `windows`
+
+### Option 3: Source Install
+
+```bash
+git clone https://github.com/openakita/openakita.git
+cd openakita
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -e ".[all]"
+openakita init
 ```
 
 ### Run
@@ -316,249 +157,120 @@ cp examples/.env.example .env
 # Interactive CLI
 openakita
 
-# Execute single task
-openakita run "Write a Python calculator"
+# Execute a single task
+openakita run "Create a Python calculator with tests"
 
-# Service mode (IM channels only)
+# Service mode (IM channels)
 openakita serve
+
+# Background daemon
+openakita daemon start
 
 # Check status
 openakita status
 ```
 
+### Recommended Models
+
+| Model | Provider | Notes |
+|-------|----------|-------|
+| `claude-sonnet-4-5-*` | Anthropic | Default, balanced |
+| `claude-opus-4-5-*` | Anthropic | Most capable |
+| `qwen3-max` | Alibaba | Strong Chinese support |
+| `deepseek-v3` | DeepSeek | Cost-effective |
+| `kimi-k2.5` | Moonshot | Long-context |
+| `minimax-m2.1` | MiniMax | Good for dialogue |
+
+> For complex tasks, enable Thinking mode by using a `*-thinking` model variant (e.g., `claude-opus-4-5-20251101-thinking`).
+
 ### Basic Configuration
 
 ```bash
-# .env file
+# .env (minimum configuration)
 
-# Required
+# LLM API (required — configure at least one)
 ANTHROPIC_API_KEY=your-api-key
 
-# Optional: Custom API endpoint
-ANTHROPIC_BASE_URL=https://api.anthropic.com
-
-# Optional: Enable Telegram
+# Telegram (optional)
 TELEGRAM_ENABLED=true
 TELEGRAM_BOT_TOKEN=your-bot-token
-
-# Optional: Enable Multi-Agent
-ORCHESTRATION_ENABLED=true
 ```
+
+---
 
 ## Architecture
 
-### Overall Architecture
-
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                              OpenAkita                                   │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│    ┌──────────────────────── Identity Layer ──────────────────────┐     │
-│    │                                                               │     │
-│    │   SOUL.md      AGENT.md      USER.md      MEMORY.md          │     │
-│    │   (Values)     (Behavior)    (Profile)    (Memory)           │     │
-│    │                                                               │     │
-│    └───────────────────────────────────────────────────────────────┘     │
-│                               │                                          │
-│                               ▼                                          │
-│    ┌──────────────────────── Core Layer ──────────────────────────┐     │
-│    │                                                               │     │
-│    │   ┌─────────┐    ┌──────────┐    ┌───────────────┐           │     │
-│    │   │  Brain  │    │ Identity │    │    Memory     │           │     │
-│    │   │  (LLM)  │    │  (Self)  │    │   (System)    │           │     │
-│    │   └─────────┘    └──────────┘    └───────────────┘           │     │
-│    │                                                               │     │
-│    └───────────────────────────────────────────────────────────────┘     │
-│                               │                                          │
-│                               ▼                                          │
-│    ┌──────────────────────── Tool Layer ──────────────────────────┐     │
-│    │                                                               │     │
-│    │   ┌───────┐  ┌───────┐  ┌───────┐  ┌───────┐                │     │
-│    │   │ Shell │  │ File  │  │  Web  │  │  MCP  │                │     │
-│    │   └───────┘  └───────┘  └───────┘  └───────┘                │     │
-│    │                                                               │     │
-│    │   ┌───────────┐  ┌────────────┐  ┌─────────────┐             │     │
-│    │   │  Skills   │  │  Scheduler │  │  Evolution  │             │     │
-│    │   └───────────┘  └────────────┘  └─────────────┘             │     │
-│    │                                                               │     │
-│    └───────────────────────────────────────────────────────────────┘     │
-│                               │                                          │
-│                               ▼                                          │
-│    ┌──────────────────────── Channel Layer ───────────────────────┐     │
-│    │                                                               │     │
-│    │   ┌─────┐  ┌──────────┐  ┌────────┐  ┌──────────┐  ┌────┐   │     │
-│    │   │ CLI │  │ Telegram │  │ Feishu │  │ DingTalk │  │ QQ │   │     │
-│    │   └─────┘  └──────────┘  └────────┘  └──────────┘  └────┘   │     │
-│    │                                                               │     │
-│    └───────────────────────────────────────────────────────────────┘     │
-│                                                                          │
-└─────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                          OpenAkita                               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────────────── Setup Center ────────────────────────┐   │
+│  │  Tauri + React Desktop App · Install · Config · Monitor   │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                              │                                   │
+│  ┌──────────────────── Identity Layer ──────────────────────┐   │
+│  │  SOUL.md · AGENT.md · USER.md · MEMORY.md                │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                              │                                   │
+│  ┌──────────────────── Core Layer ──────────────────────────┐   │
+│  │  Brain (LLM) · Identity · Memory · Ralph Loop             │   │
+│  │  Prompt Compiler · Task Monitor                           │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                              │                                   │
+│  ┌──────────────────── Tool Layer ──────────────────────────┐   │
+│  │  Shell · File · Web · MCP · Skills · Scheduler            │   │
+│  │  Browser · Desktop · Plan · Profile · IM Channel          │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                              │                                   │
+│  ┌──────────────────── Evolution Engine ────────────────────┐   │
+│  │  SelfCheck · Generator · Installer · LogAnalyzer          │   │
+│  │  DailyConsolidator · TaskRetrospection                    │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                              │                                   │
+│  ┌──────────────────── Channel Layer ───────────────────────┐   │
+│  │  CLI · Telegram · Feishu · WeCom · DingTalk · QQ          │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Core Components
 
 | Component | Description |
 |-----------|-------------|
-| **Brain** | LLM interaction layer, supports multi-endpoint failover |
-| **Identity** | Identity system, loads SOUL/AGENT/USER/MEMORY |
-| **Memory** | Vector memory system, supports semantic retrieval |
-| **Skills** | Skill system, supports dynamic loading and extension |
-| **Scheduler** | Scheduled task scheduler |
-| **Channels** | Multi-platform message channels |
+| **Brain** | Unified LLM client, multi-endpoint failover, capability routing |
+| **Identity** | Four-file identity system, compiled to token-efficient summaries |
+| **Memory** | Vector memory (ChromaDB), semantic search, daily auto-consolidation |
+| **Ralph Loop** | Never-give-up execution loop, StopHook interception, checkpoint recovery |
+| **Prompt Compiler** | Two-stage prompt architecture, fast model preprocessing |
+| **Task Monitor** | Execution monitoring, timeout model switching, task retrospection |
+| **Evolution Engine** | Self-check, skill generation, dependency install, log analysis |
+| **Skills** | Agent Skills standard, dynamic loading, GitHub install, auto-generation |
+| **MCP** | Model Context Protocol, server discovery, tool proxying |
+| **Scheduler** | Task scheduling, cron / interval / one-time triggers |
+| **Channels** | Unified message format, multi-platform IM adapters |
 
-## Multi-Agent
-
-When `ORCHESTRATION_ENABLED=true` is set, OpenAkita enters Multi-Agent collaboration mode:
-
-### Architecture
-
-```
-┌────────────────────────────────────────────────────────────────┐
-│                       Main Process                              │
-│                                                                 │
-│   ┌─────────┐    ┌──────────┐    ┌───────────┐                 │
-│   │   CLI   │    │ Gateway  │    │ Scheduler │                 │
-│   │(Command)│    │(IM Chan.)│    │  (Tasks)  │                 │
-│   └────┬────┘    └────┬─────┘    └─────┬─────┘                 │
-│        │              │                │                        │
-│        └──────────────┼────────────────┘                        │
-│                       ▼                                         │
-│              ┌────────────────┐                                 │
-│              │  MasterAgent   │                                 │
-│              │ (Coordinator)  │                                 │
-│              │                │                                 │
-│              │ • Task Routing │                                 │
-│              │ • Worker Mgmt  │                                 │
-│              │ • Health Check │                                 │
-│              │ • Fault Recov. │                                 │
-│              └───────┬────────┘                                 │
-│                      │                                          │
-│              ┌───────┴────────┐                                 │
-│              │   AgentBus     │                                 │
-│              │  (ZMQ Comm.)   │                                 │
-│              └───────┬────────┘                                 │
-│                      │                                          │
-│              ┌───────┴────────┐                                 │
-│              │ AgentRegistry  │                                 │
-│              │  (Registry)    │                                 │
-│              └────────────────┘                                 │
-│                                                                 │
-└────────────────────────────────────────────────────────────────┘
-                       │
-          ┌────────────┼────────────┐
-          ▼            ▼            ▼
-   ┌────────────┐ ┌────────────┐ ┌────────────┐
-   │  Worker 1  │ │  Worker 2  │ │  Worker N  │
-   │  (Process) │ │  (Process) │ │  (Process) │
-   │            │ │            │ │            │
-   │ • Execute  │ │ • Execute  │ │ • Execute  │
-   │ • Heartbeat│ │ • Heartbeat│ │ • Heartbeat│
-   │ • Return   │ │ • Return   │ │ • Return   │
-   └────────────┘ └────────────┘ └────────────┘
-```
-
-### Features
-
-| Feature | Description |
-|---------|-------------|
-| **Smart Routing** | Simple tasks local, complex tasks to Workers |
-| **Stateless Workers** | Session history via messages, flexible scheduling |
-| **Shared Memory** | All Workers use same memory storage |
-| **Fault Recovery** | Heartbeat + automatic Worker restart |
-| **Dynamic Scaling** | Auto-adjust Worker count based on load |
-
-### Configuration
-
-```bash
-# Enable Multi-Agent
-ORCHESTRATION_ENABLED=true
-
-# Worker count
-ORCHESTRATION_MIN_WORKERS=1
-ORCHESTRATION_MAX_WORKERS=5
-
-# Heartbeat interval (seconds)
-ORCHESTRATION_HEARTBEAT_INTERVAL=5
-
-# ZMQ addresses
-ORCHESTRATION_BUS_ADDRESS=tcp://127.0.0.1:5555
-ORCHESTRATION_PUB_ADDRESS=tcp://127.0.0.1:5556
-```
-
-### CLI Commands
-
-```bash
-# View Agent status
-/agents
-
-# View collaboration stats
-/status
-```
-
-## Project Structure
-
-```
-openakita/
-├── identity/                 # Identity configs
-│   ├── SOUL.md               # Values
-│   ├── AGENT.md              # Behavior rules
-│   ├── USER.md               # User profile
-│   └── MEMORY.md             # Working memory
-├── src/openakita/
-│   ├── core/                 # Core modules
-│   │   ├── agent.py          # Agent main class
-│   │   ├── brain.py          # LLM interaction
-│   │   ├── identity.py       # Identity system
-│   │   └── ralph.py          # Task loop
-│   ├── orchestration/        # Multi-Agent
-│   │   ├── master.py         # MasterAgent
-│   │   ├── worker.py         # WorkerAgent
-│   │   ├── registry.py       # Registry
-│   │   ├── bus.py            # ZMQ communication
-│   │   └── monitor.py        # Monitoring
-│   ├── tools/                # Tool layer
-│   ├── skills/               # Skill system
-│   ├── channels/             # Message channels
-│   ├── memory/               # Memory system
-│   └── scheduler/            # Scheduled tasks
-├── skills/                   # Skills directory
-├── data/                     # Data storage
-└── docs/                     # Documentation
-```
+---
 
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
 | [Quick Start](docs/getting-started.md) | Installation and basic usage |
+| [Architecture](docs/architecture.md) | System design and components |
 | [Configuration](docs/configuration.md) | All configuration options |
-| [Skill System](docs/skills.md) | Creating and using skills |
+| [Deployment](docs/deploy.md) | Production deployment (systemd / Docker / nohup) |
 | [MCP Integration](docs/mcp-integration.md) | Connecting external services |
-| [IM Channels](docs/im-channels.md) | Telegram/Feishu/DingTalk setup |
-| [Deployment](docs/deploy_en.md) | Production deployment |
+| [IM Channels](docs/im-channels.md) | Telegram / Feishu / DingTalk setup |
+| [Skill System](docs/skills.md) | Creating and using skills |
+| [Testing](docs/testing.md) | Testing framework and coverage |
 
-## Contributing
-
-Contributions welcome! See [Contributing Guide](CONTRIBUTING.md).
-
-```bash
-# Development environment
-pip install -e ".[dev]"
-
-# Run tests
-pytest tests/ -v
-
-# Code check
-ruff check src/
-mypy src/
-```
+---
 
 ## Community
 
-Join our community for help, discussions, and updates!
-
-### Instant Communication
+Join our community for help, discussions, and updates:
 
 <table>
   <tr>
@@ -568,34 +280,36 @@ Join our community for help, discussions, and updates!
       <sub>Scan to join (Chinese)</sub>
     </td>
     <td>
-      <b>💬 WeChat</b> - Chinese community chat<br/><br/>
-      <b>🎮 Discord</b> - <a href="https://discord.gg/Mkpd3rsm">Join Discord</a><br/><br/>
-      <b>🐦 X (Twitter)</b> - <a href="https://x.com/openakita">@openakita</a><br/><br/>
-      <b>📧 Email</b> - <a href="mailto:zacon365@gmail.com">zacon365@gmail.com</a>
+      <b>WeChat</b> — Chinese community chat<br/><br/>
+      <b>Discord</b> — <a href="https://discord.gg/Mkpd3rsm">Join Discord</a><br/><br/>
+      <b>X (Twitter)</b> — <a href="https://x.com/openakita">@openakita</a><br/><br/>
+      <b>Email</b> — <a href="mailto:zacon365@gmail.com">zacon365@gmail.com</a>
     </td>
   </tr>
 </table>
 
-### Project Resources
+- [Documentation](docs/) — Complete guides
+- [Issues](https://github.com/openakita/openakita/issues) — Bug reports & feature requests
+- [Discussions](https://github.com/openakita/openakita/discussions) — Q&A and ideas
+- [Star us](https://github.com/openakita/openakita) — Show your support
 
-- 📖 [Documentation](docs/) - Complete guides
-- 🐛 [Issues](https://github.com/openakita/openakita/issues) - Bug reports & feature requests
-- 💬 [Discussions](https://github.com/openakita/openakita/discussions) - Q&A and ideas
-- ⭐ [Star us](https://github.com/openakita/openakita) - Show your support
+---
 
 ## Acknowledgments
 
 - [Anthropic Claude](https://www.anthropic.com/claude) — LLM Engine
+- [Tauri](https://tauri.app/) — Cross-platform desktop framework for Setup Center
 - [browser-use](https://github.com/browser-use/browser-use) — AI browser automation
 - [AGENTS.md Standard](https://agentsmd.io/) — Agent behavior specification
-- [ZeroMQ](https://zeromq.org/) — Inter-process communication
+- [Agent Skills](https://agentskills.io/) — Skill standardization specification
+- [ZeroMQ](https://zeromq.org/) — Multi-agent inter-process communication
 
 ## License
 
-MIT License - See [LICENSE](LICENSE)
+MIT License — See [LICENSE](LICENSE)
 
 ---
 
 <p align="center">
-  <strong>OpenAkita — Your Loyal and Reliable AI Companion</strong>
+  <strong>OpenAkita — Self-Evolving AI Agent, Learns Autonomously, Never Gives Up</strong>
 </p>
