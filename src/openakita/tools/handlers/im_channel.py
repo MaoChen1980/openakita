@@ -3,7 +3,6 @@ IM 通道处理器
 
 处理 IM 通道相关的系统技能：
 - deliver_artifacts: 通过网关交付附件并返回回执（推荐）
-- send_to_chat: 旧的发送入口（已弃用，保留兼容；模型侧不再暴露）
 - get_voice_file: 获取语音文件
 - get_image_file: 获取图片文件
 - get_chat_history: 获取聊天历史
@@ -39,7 +38,6 @@ class IMChannelHandler:
 
     TOOLS = [
         "deliver_artifacts",
-        "send_to_chat",
         "get_voice_file",
         "get_image_file",
         "get_chat_history",
@@ -53,16 +51,9 @@ class IMChannelHandler:
         from ...core.im_context import get_im_session
 
         if not get_im_session():
-            # CLI 模式下静默成功，避免死循环（建议 3）
-            if tool_name == "send_to_chat":
-                message = params.get("message", "")[:50]
-                logger.info(f"[CLI Mode] send_to_chat called but no IM session: {message}...")
-                return "（CLI 模式，消息已记录但未发送到 IM）"
             return "❌ 当前不在 IM 会话中，无法使用此工具"
 
-        if tool_name == "send_to_chat":
-            return await self._send_to_chat(params)
-        elif tool_name == "deliver_artifacts":
+        if tool_name == "deliver_artifacts":
             return await self._deliver_artifacts(params)
         elif tool_name == "get_voice_file":
             return self._get_voice_file(params)
@@ -106,64 +97,6 @@ class IMChannelHandler:
             return None, None, channel
 
         return adapter, current_message.chat_id, channel
-
-    async def _send_to_chat(self, params: dict) -> str:
-        """
-        发送消息到聊天
-
-        支持发送：
-        - text: 文本消息
-        - file_path: 文件（包括图片）
-        - image_path: 图片（会自动检测并使用图片发送方式）
-        - voice_path: 语音
-
-        Args:
-            params: 参数字典
-                - text: 文本内容
-                - file_path: 文件路径
-                - image_path: 图片路径
-                - voice_path: 语音路径
-                - caption: 文件/图片说明文字
-        """
-        adapter, chat_id, channel = self._get_adapter_and_chat_id()
-
-        if not adapter:
-            if channel:
-                return f"❌ 找不到通道适配器: {channel}"
-            return "❌ 无法发送消息：缺少 gateway 或消息上下文"
-
-        text = params.get("text")
-        file_path = params.get("file_path")
-        image_path = params.get("image_path")
-        voice_path = params.get("voice_path")
-        caption = params.get("caption", "")
-
-        try:
-            # 优先处理语音
-            if voice_path:
-                return await self._send_voice(adapter, chat_id, voice_path, caption, channel)
-
-            # 处理图片（显式指定或文件是图片格式）
-            if image_path:
-                return await self._send_image(adapter, chat_id, image_path, caption, channel)
-
-            # 处理文件（自动检测图片）
-            if file_path:
-                # 检测是否是图片文件
-                if self._is_image_file(file_path):
-                    return await self._send_image(adapter, chat_id, file_path, caption, channel)
-                else:
-                    return await self._send_file(adapter, chat_id, file_path, caption, channel)
-
-            # 处理文本
-            if text:
-                return await self._send_text(adapter, chat_id, text, channel)
-
-            return "❌ 请指定 text、file_path、image_path 或 voice_path"
-
-        except Exception as e:
-            logger.error(f"Send message failed: {e}", exc_info=True)
-            return f"❌ 发送失败: {e}"
 
     async def _deliver_artifacts(self, params: dict) -> str:
         """

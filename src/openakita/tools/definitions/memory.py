@@ -10,7 +10,8 @@ Memory 工具定义
 MEMORY_TOOLS = [
     {
         "name": "add_memory",
-        "description": "Record important information to long-term memory for learning user preferences, successful patterns, and error lessons. When you need to: (1) Remember user preferences, (2) Save successful patterns, (3) Record lessons from errors.",
+        "category": "Memory",
+        "description": "Record important information to long-term memory for learning user preferences, successful patterns, and error lessons. When you need to: (1) Remember user preferences, (2) Save successful patterns, (3) Record lessons from errors. NOTE: For structured user profile fields (name, work_field, os, etc.), use update_user_profile instead. Use add_memory for free-form, unstructured information that doesn't fit profile fields.",
         "detail": """记录重要信息到长期记忆。
 
 **适用场景**：
@@ -42,6 +43,7 @@ MEMORY_TOOLS = [
     },
     {
         "name": "search_memory",
+        "category": "Memory",
         "description": "Search relevant memories by keyword and optional type filter. When you need to: (1) Recall past information, (2) Find user preferences, (3) Check learned patterns.",
         "detail": """搜索相关记忆。
 
@@ -68,6 +70,7 @@ MEMORY_TOOLS = [
     },
     {
         "name": "get_memory_stats",
+        "category": "Memory",
         "description": "Get memory system statistics including total count and breakdown by type. When you need to: (1) Check memory usage, (2) Understand memory distribution.",
         "detail": """获取记忆系统统计信息。
 

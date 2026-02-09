@@ -16,6 +16,7 @@ Skills 工具定义
 SKILLS_TOOLS = [
     {
         "name": "list_skills",
+        "category": "Skills",
         "description": "List all installed skills following Agent Skills specification. When you need to: (1) Check available skills, (2) Find skill for a task, (3) Verify skill installation.",
         "detail": """列出已安装的技能（遵循 Agent Skills 规范）。
 
@@ -32,7 +33,8 @@ SKILLS_TOOLS = [
     },
     {
         "name": "get_skill_info",
-        "description": "Get skill detailed instructions and usage guide (Level 2 disclosure). When you need to: (1) Understand how to use a skill, (2) Check skill capabilities, (3) Learn skill parameters.",
+        "category": "Skills",
+        "description": "Get skill detailed instructions and usage guide (Level 2 disclosure). When you need to: (1) Understand how to use a skill, (2) Check skill capabilities, (3) Learn skill parameters. NOTE: This is for SKILL instructions (pdf, docx, code-review, etc.). For system TOOL parameter schemas (run_shell, browser_navigate, etc.), use get_tool_info instead.",
         "detail": """获取技能的详细信息和指令（Level 2 披露）。
 
 **返回信息**：
@@ -53,6 +55,7 @@ SKILLS_TOOLS = [
     },
     {
         "name": "run_skill_script",
+        "category": "Skills",
         "description": "Execute a skill's script file with arguments. When you need to: (1) Run skill functionality, (2) Execute specific operations, (3) Process data with skill.",
         "detail": """运行技能的脚本。
 
@@ -76,6 +79,7 @@ SKILLS_TOOLS = [
     },
     {
         "name": "get_skill_reference",
+        "category": "Skills",
         "description": "Get skill reference documentation for additional guidance. When you need to: (1) Get detailed technical docs, (2) Find examples, (3) Understand advanced usage.",
         "detail": """获取技能的参考文档。
 
@@ -100,6 +104,7 @@ SKILLS_TOOLS = [
     },
     {
         "name": "install_skill",
+        "category": "Skills",
         "description": "Install skill from URL or Git repository to local skills/ directory. When you need to: (1) Add new skill from GitHub, (2) Install SKILL.md from URL. Supports Git repos and single SKILL.md files.",
         "detail": """从 URL 或 Git 仓库安装技能到本地 skills/ 目录。
 
@@ -132,6 +137,7 @@ SKILLS_TOOLS = [
     },
     {
         "name": "load_skill",
+        "category": "Skills",
         "description": "Load a newly created skill from skills/ directory. Use after creating a skill with skill-creator to make it immediately available.",
         "detail": """加载新创建的技能到系统中。
 
@@ -157,6 +163,7 @@ SKILLS_TOOLS = [
     },
     {
         "name": "reload_skill",
+        "category": "Skills",
         "description": "Reload an existing skill to apply changes. Use after modifying a skill's SKILL.md or scripts.",
         "detail": """重新加载已存在的技能以应用修改。
 

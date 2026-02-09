@@ -10,6 +10,7 @@ MCP 工具定义
 MCP_TOOLS = [
     {
         "name": "call_mcp_tool",
+        "category": "MCP",
         "description": "Call MCP server tool for extended capabilities. Check 'MCP Servers' section in system prompt for available servers and tools. When you need to: (1) Use external service, (2) Access specialized functionality.",
         "detail": """调用 MCP 服务器的工具。
 
@@ -36,6 +37,7 @@ MCP_TOOLS = [
     },
     {
         "name": "list_mcp_servers",
+        "category": "MCP",
         "description": "List all configured MCP servers and their connection status. When you need to: (1) Check available MCP servers, (2) Verify server connections.",
         "detail": """列出所有配置的 MCP 服务器及其连接状态。
 
@@ -52,6 +54,7 @@ MCP_TOOLS = [
     },
     {
         "name": "get_mcp_instructions",
+        "category": "MCP",
         "description": "Get MCP server detailed usage instructions (INSTRUCTIONS.md). When you need to: (1) Understand server full capabilities, (2) Learn server-specific usage patterns.",
         "detail": """获取 MCP 服务器的详细使用说明（INSTRUCTIONS.md）。
 

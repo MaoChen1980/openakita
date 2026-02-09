@@ -8,16 +8,17 @@
 
 结构：
 - base.py         # 基础类型、验证器、构建器
-- browser.py      # Browser 工具（10 个）
+- browser.py      # Browser 工具（11 个）
 - filesystem.py   # File System 工具（4 个）
 - skills.py       # Skills 工具（7 个）
 - memory.py       # Memory 工具（3 个）
 - scheduled.py    # Scheduled Tasks 工具（5 个）
 - im_channel.py   # IM Channel 工具（4 个）
 - profile.py      # User Profile 工具（3 个）
-- system.py       # System 工具（3 个）
+- system.py       # System 工具（5 个）
 - mcp.py          # MCP 工具（3 个）
 - plan.py         # Plan 模式工具（4 个）
+- web_search.py   # Web Search 工具（2 个）
 """
 
 # 基础模块
@@ -48,6 +49,7 @@ from .profile import PROFILE_TOOLS
 from .scheduled import SCHEDULED_TOOLS
 from .skills import SKILLS_TOOLS
 from .system import SYSTEM_TOOLS
+from .web_search import WEB_SEARCH_TOOLS
 
 # 合并所有工具定义
 BASE_TOOLS = (
@@ -61,6 +63,7 @@ BASE_TOOLS = (
     + PROFILE_TOOLS
     + MCP_TOOLS
     + PLAN_TOOLS
+    + WEB_SEARCH_TOOLS
 )
 
 __all__ = [
@@ -90,4 +93,5 @@ __all__ = [
     "SYSTEM_TOOLS",
     "MCP_TOOLS",
     "PLAN_TOOLS",
+    "WEB_SEARCH_TOOLS",
 ]

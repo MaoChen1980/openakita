@@ -58,6 +58,7 @@ from ..tools.handlers.profile import create_handler as create_profile_handler
 from ..tools.handlers.scheduled import create_handler as create_scheduled_handler
 from ..tools.handlers.skills import create_handler as create_skills_handler
 from ..tools.handlers.system import create_handler as create_system_handler
+from ..tools.handlers.web_search import create_handler as create_web_search_handler
 
 # MCP 系统
 from ..tools.mcp import mcp_client
@@ -345,9 +346,7 @@ class Agent:
         self._builtin_mcp_count = 0
 
         # 系统工具目录（渐进式披露）
-        # Include desktop tools on Windows
-        # 说明：send_to_chat 已逐步下沉到网关能力，不再作为模型工具暴露
-        _all_tools = [t for t in BASE_TOOLS if t.get("name") != "send_to_chat"]
+        _all_tools = list(BASE_TOOLS)
         if _DESKTOP_AVAILABLE:
             _all_tools.extend(DESKTOP_TOOLS)
         self.tool_catalog = ToolCatalog(_all_tools)
@@ -366,8 +365,7 @@ class Agent:
         self.profile_manager = get_profile_manager()
 
         # 动态工具列表（基础工具 + 技能工具）
-        # 说明：send_to_chat 已逐步下沉到网关能力，不再作为模型工具暴露
-        self._tools = [t for t in BASE_TOOLS if t.get("name") != "send_to_chat"]
+        self._tools = list(BASE_TOOLS)
 
         # Add desktop tools on Windows
         if _DESKTOP_AVAILABLE:
@@ -752,6 +750,13 @@ class Agent:
                 "load_skill",
                 "reload_skill",
             ],
+        )
+
+        # Web 搜索
+        self.handler_registry.register(
+            "web_search",
+            create_web_search_handler(self),
+            ["web_search", "news_search"],
         )
 
         # 桌面工具（仅 Windows）

@@ -10,7 +10,8 @@ User Profile 工具定义
 PROFILE_TOOLS = [
     {
         "name": "update_user_profile",
-        "description": "Update user profile information when user shares preferences, habits, or work details. When you need to: (1) Save user preferences, (2) Remember user's work domain, (3) Provide personalized service.",
+        "category": "Profile",
+        "description": "Update structured user profile fields (name, work_field, os, ide, timezone, etc.) when user shares personal info. When you need to: (1) Save user preferences to a structured field, (2) Remember user's work domain, (3) Provide personalized service. NOTE: For free-form observations, lessons, or patterns that don't map to a profile field, use add_memory instead.",
         "detail": """更新用户档案信息。
 
 **适用场景**：
@@ -39,6 +40,7 @@ PROFILE_TOOLS = [
     },
     {
         "name": "skip_profile_question",
+        "category": "Profile",
         "description": "Skip profile question when user explicitly refuses to answer. When user says 'I don't want to answer' or 'skip this question', use this tool to stop asking about that item.",
         "detail": """当用户明确表示不想回答某个问题时，跳过该问题（以后不再询问）。
 
@@ -54,6 +56,7 @@ PROFILE_TOOLS = [
     },
     {
         "name": "get_user_profile",
+        "category": "Profile",
         "description": "Get current user profile summary to understand user's preferences and context. When you need to: (1) Check known user info, (2) Personalize responses.",
         "detail": """获取当前用户档案信息摘要。
 

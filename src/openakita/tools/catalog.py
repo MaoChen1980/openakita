@@ -29,6 +29,9 @@
 """
 
 import logging
+from collections import OrderedDict
+
+from .definitions.base import infer_category
 
 logger = logging.getLogger(__name__)
 
@@ -53,50 +56,29 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
 {tool_list}
 """
 
-    # 工具分类
-    TOOL_CATEGORIES = {
-        "File System": ["run_shell", "write_file", "read_file", "list_directory"],
-        "Skills Management": [
-            "list_skills",
-            "get_skill_info",
-            "run_skill_script",
-            "get_skill_reference",
-            "install_skill",
-        ],
-        "Memory": ["add_memory", "search_memory", "get_memory_stats"],
-        "Browser": [
-            "browser_open",
-            "browser_status",
-            "browser_list_tabs",
-            "browser_navigate",
-            "browser_new_tab",
-            "browser_switch_tab",
-            "browser_click",
-            "browser_type",
-            "browser_get_content",
-            "browser_screenshot",
-        ],
-        "Desktop (Windows)": [
-            "desktop_screenshot",
-            "desktop_find_element",
-            "desktop_click",
-            "desktop_type",
-            "desktop_hotkey",
-            "desktop_scroll",
-            "desktop_window",
-            "desktop_wait",
-            "desktop_inspect",
-        ],
-        "Scheduled Tasks": [
-            "schedule_task",
-            "list_scheduled_tasks",
-            "cancel_scheduled_task",
-            "trigger_scheduled_task",
-        ],
-        "IM Channel": ["deliver_artifacts", "get_voice_file", "get_image_file", "get_chat_history"],
-        "User Profile": ["update_user_profile", "skip_profile_question", "get_user_profile"],
-        "System": ["enable_thinking", "get_session_logs", "get_tool_info", "generate_image"],
-        "MCP": ["call_mcp_tool", "list_mcp_servers", "get_mcp_instructions"],
+    # 分类展示顺序（决定系统提示中的排列顺序）
+    # 不在此列表中的分类会自动追加到末尾
+    CATEGORY_ORDER = [
+        "File System",
+        "Skills",
+        "Memory",
+        "Browser",
+        "Desktop",
+        "Scheduled",
+        "IM Channel",
+        "Profile",
+        "System",
+        "MCP",
+        "Plan",
+    ]
+
+    # 分类显示名映射（内部名 -> 系统提示中的显示名）
+    # 未在此映射中的分类直接使用内部名
+    CATEGORY_DISPLAY_NAMES = {
+        "Desktop": "Desktop (Windows)",
+        "Skills": "Skills Management",
+        "Scheduled": "Scheduled Tasks",
+        "Profile": "User Profile",
     }
 
     TOOL_ENTRY_TEMPLATE = "- **{name}**: {description}"
@@ -116,7 +98,8 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
         """
         生成工具清单（Level 1）
 
-        只包含 name + short_description，用于系统提示
+        从工具定义的 category 字段自动聚合分类，按 CATEGORY_ORDER 排序输出。
+        新增工具只要有 category 字段就会自动出现，无需修改此处代码。
 
         Returns:
             格式化的工具清单字符串
@@ -124,44 +107,47 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
         if not self._tools:
             return "\n## Available System Tools\n\nNo system tools available.\n"
 
+        # 1. 按 category 字段自动聚合工具
+        categories: OrderedDict[str, list[tuple[str, dict]]] = OrderedDict()
+        uncategorized: list[tuple[str, dict]] = []
+
+        for name, tool in self._tools.items():
+            cat = tool.get("category")
+            if not cat:
+                cat = infer_category(name)  # fallback 到 base.py 的推断
+            if cat:
+                categories.setdefault(cat, []).append((name, tool))
+            else:
+                uncategorized.append((name, tool))
+
+        # 2. 按 CATEGORY_ORDER 排序输出
         category_sections = []
-        categorized_tools = set()
+        emitted_cats: set[str] = set()
 
-        # 按类别生成
-        for category, tool_names in self.TOOL_CATEGORIES.items():
-            tools_in_category = []
-            for name in tool_names:
-                if name in self._tools:
-                    tool = self._tools[name]
-                    # 优先使用 short_description，否则截取 description
-                    desc = tool.get("short_description") or self._get_short_description(
-                        tool.get("description", "")
-                    )
-                    entry = self.TOOL_ENTRY_TEMPLATE.format(name=name, description=desc)
-                    tools_in_category.append(entry)
-                    categorized_tools.add(name)
+        for cat in self.CATEGORY_ORDER:
+            if cat not in categories:
+                continue
+            display_name = self.CATEGORY_DISPLAY_NAMES.get(cat, cat)
+            tools_in_cat = categories[cat]
+            section = self._format_category_section(display_name, tools_in_cat)
+            if section:
+                category_sections.append(section)
+            emitted_cats.add(cat)
 
-            if tools_in_category:
-                section = self.CATEGORY_TEMPLATE.format(
-                    category=category, tools="\n".join(tools_in_category)
-                )
+        # 3. 未在 CATEGORY_ORDER 中的分类（新分类自动出现在末尾）
+        for cat, tools_in_cat in categories.items():
+            if cat in emitted_cats:
+                continue
+            display_name = self.CATEGORY_DISPLAY_NAMES.get(cat, cat)
+            section = self._format_category_section(display_name, tools_in_cat)
+            if section:
                 category_sections.append(section)
 
-        # 未分类的工具
-        uncategorized = []
-        for name, tool in self._tools.items():
-            if name not in categorized_tools:
-                desc = tool.get("short_description") or self._get_short_description(
-                    tool.get("description", "")
-                )
-                entry = self.TOOL_ENTRY_TEMPLATE.format(name=name, description=desc)
-                uncategorized.append(entry)
-
+        # 4. 未分类工具（兜底）
         if uncategorized:
-            section = self.CATEGORY_TEMPLATE.format(
-                category="Other", tools="\n".join(uncategorized)
-            )
-            category_sections.append(section)
+            section = self._format_category_section("Other", uncategorized)
+            if section:
+                category_sections.append(section)
 
         tool_list = "\n".join(category_sections)
         catalog = self.CATALOG_TEMPLATE.format(tool_list=tool_list)
@@ -169,6 +155,34 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
 
         logger.info(f"Generated tool catalog with {len(self._tools)} tools")
         return catalog
+
+    def _format_category_section(
+        self, display_name: str, tools: list[tuple[str, dict]]
+    ) -> str | None:
+        """
+        格式化一个分类的工具条目
+
+        Args:
+            display_name: 分类显示名
+            tools: (name, tool_def) 列表
+
+        Returns:
+            格式化字符串，无工具时返回 None
+        """
+        if not tools:
+            return None
+
+        entries = []
+        for name, tool in tools:
+            desc = tool.get("short_description") or self._get_short_description(
+                tool.get("description", "")
+            )
+            entry = self.TOOL_ENTRY_TEMPLATE.format(name=name, description=desc)
+            entries.append(entry)
+
+        return self.CATEGORY_TEMPLATE.format(
+            category=display_name, tools="\n".join(entries)
+        )
 
     def _get_short_description(self, description: str) -> str:
         """

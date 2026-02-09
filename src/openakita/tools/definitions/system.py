@@ -5,11 +5,14 @@ System 工具定义
 - enable_thinking: 控制深度思考模式
 - get_session_logs: 获取会话日志
 - get_tool_info: 获取工具详细信息
+- generate_image: AI 生成图片
+- set_task_timeout: 调整任务超时策略
 """
 
 SYSTEM_TOOLS = [
     {
         "name": "enable_thinking",
+        "category": "System",
         "description": "Control deep thinking mode. Default enabled. For very simple tasks (simple reminders, greetings, quick queries), can temporarily disable to speed up response. Auto-restores to enabled after completion.",
         "detail": """控制深度思考模式。
 
@@ -34,6 +37,7 @@ SYSTEM_TOOLS = [
     },
     {
         "name": "get_session_logs",
+        "category": "System",
         "description": "Get current session system logs. IMPORTANT: When commands fail, encounter errors, or need to understand previous operation results, call this tool. Logs contain: command details, error info, system status.",
         "detail": """获取当前会话的系统日志。
 
@@ -66,7 +70,8 @@ SYSTEM_TOOLS = [
     },
     {
         "name": "get_tool_info",
-        "description": "Get system tool detailed parameter definition (Level 2 disclosure). When you need to: (1) Understand unfamiliar tool usage, (2) Check tool parameters, (3) Learn tool examples. Call before using unfamiliar tools.",
+        "category": "System",
+        "description": "Get system tool detailed parameter definition (Level 2 disclosure). When you need to: (1) Understand unfamiliar tool usage, (2) Check tool parameters, (3) Learn tool examples. Call before using unfamiliar tools. NOTE: This is for system TOOLS (run_shell, browser_navigate, etc.). For external SKILL instructions (pdf, docx, etc.), use get_skill_info instead.",
         "detail": """获取系统工具的详细参数定义（Level 2 披露）。
 
 **适用场景**：
@@ -84,6 +89,7 @@ SYSTEM_TOOLS = [
     },
     {
         "name": "generate_image",
+        "category": "System",
         "description": "Generate an image from a text prompt using the configured image model API, saving to a local .png file. Use when user asks for image generation, posters, illustrations, or visual concepts that must be rendered as an actual image file.",
         "detail": """文生图：根据提示词生成图片并保存为本地 PNG 文件。
 
@@ -136,6 +142,7 @@ SYSTEM_TOOLS = [
     },
     {
         "name": "set_task_timeout",
+        "category": "System",
         "description": "Adjust current task timeout policy. Use when the task is expected to take long, or when the system is too aggressive switching models. Prefer increasing timeout for long-running tasks with steady progress; decrease to catch hangs sooner.",
         "detail": """动态调整当前任务的超时策略（主要用于避免“卡死检测”误触发）。\n\n- 本项目的超时重点是：**检测无进展卡死**，而不是限制长任务。\n- 你可以在长任务开始前，或发现任务被频繁触发超时警告时，调高超时秒数。\n\n注意：该设置只影响当前会话正在执行的任务，不影响全局配置。""",
         "input_schema": {

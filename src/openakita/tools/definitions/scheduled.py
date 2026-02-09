@@ -12,6 +12,7 @@ Scheduled Tasks 工具定义
 SCHEDULED_TOOLS = [
     {
         "name": "schedule_task",
+        "category": "Scheduled",
         "description": "Create scheduled task or reminder. IMPORTANT: Must actually call this tool to create task - just saying 'OK I will remind you' does NOT create the task! Task types: (1) reminder - sends message at scheduled time (default, 90%% of cases), (2) task - AI executes operations.",
         "detail": """创建定时任务或提醒。
 
@@ -77,6 +78,7 @@ SCHEDULED_TOOLS = [
     },
     {
         "name": "list_scheduled_tasks",
+        "category": "Scheduled",
         "description": "List all scheduled tasks with their ID, name, type, status, and next execution time. When you need to: (1) Check existing tasks, (2) Find task ID for cancel/update, (3) Verify task creation.",
         "detail": """列出所有定时任务。
 
@@ -104,6 +106,7 @@ SCHEDULED_TOOLS = [
     },
     {
         "name": "cancel_scheduled_task",
+        "category": "Scheduled",
         "description": "PERMANENTLY DELETE scheduled task. When user says 'cancel/delete task' → use this. When user says 'turn off notification' → use update_scheduled_task with notify=false. When user says 'pause task' → use update_scheduled_task with enabled=false.",
         "detail": """【永久删除】定时任务。
 
@@ -121,6 +124,7 @@ SCHEDULED_TOOLS = [
     },
     {
         "name": "update_scheduled_task",
+        "category": "Scheduled",
         "description": "Modify scheduled task settings WITHOUT deleting. Can modify: notify_on_start, notify_on_complete, enabled. Common uses: (1) 'Turn off notification' → notify=false, (2) 'Pause task' → enabled=false, (3) 'Resume task' → enabled=true.",
         "detail": """修改定时任务设置【不删除任务】。
 
@@ -149,6 +153,7 @@ SCHEDULED_TOOLS = [
     },
     {
         "name": "trigger_scheduled_task",
+        "category": "Scheduled",
         "description": "Immediately trigger scheduled task without waiting for scheduled time. When you need to: (1) Test task execution, (2) Run task ahead of schedule.",
         "detail": """立即触发定时任务（不等待计划时间）。
 

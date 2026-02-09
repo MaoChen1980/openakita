@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 DESKTOP_TOOLS = [
     {
         "name": "desktop_screenshot",
+        "category": "Desktop",
         "description": "Capture Windows desktop screenshot with automatic file saving. When you need to: (1) Show user the desktop state, (2) Capture application windows, (3) Record operation results. IMPORTANT: Must actually call this tool - never say 'screenshot done' without calling. Returns file_path for deliver_artifacts. For browser-only screenshots, use browser_screenshot instead.",
         "detail": """截取 Windows 桌面屏幕截图并保存到文件。
 
@@ -70,6 +71,7 @@ DESKTOP_TOOLS = [
     },
     {
         "name": "desktop_find_element",
+        "category": "Desktop",
         "description": "Find desktop UI elements using UIAutomation (fast, accurate) or vision recognition (fallback). When you need to: (1) Locate buttons/menus/icons, (2) Get element positions before clicking, (3) Verify UI state. Supports: natural language ('save button'), name: prefix, id: prefix, type: prefix. For browser webpage elements, use browser_* tools instead.",
         "detail": """查找桌面 UI 元素。优先使用 UIAutomation（快速准确），失败时用视觉识别（通用）。
 
@@ -110,6 +112,7 @@ DESKTOP_TOOLS = [
     },
     {
         "name": "desktop_click",
+        "category": "Desktop",
         "description": "Click desktop elements or coordinates. When you need to: (1) Click buttons/icons in applications, (2) Select menu items, (3) Interact with desktop UI. Supports: element description ('save button'), name: prefix, coordinates ('100,200'). Left/right/middle button and double-click supported. For browser webpage elements, use browser_click instead.",
         "detail": """点击桌面上的 UI 元素或指定坐标。
 
@@ -153,6 +156,7 @@ DESKTOP_TOOLS = [
     },
     {
         "name": "desktop_type",
+        "category": "Desktop",
         "description": "Type text at current cursor position in desktop applications. When you need to: (1) Enter text in application dialogs, (2) Fill input fields, (3) Type in text editors. Supports Chinese input. Use clear_first=true to replace existing text. For browser webpage forms, use browser_type instead.",
         "detail": """在当前焦点位置输入文本。
 
@@ -184,6 +188,7 @@ DESKTOP_TOOLS = [
     },
     {
         "name": "desktop_hotkey",
+        "category": "Desktop",
         "description": "Execute keyboard shortcuts. When you need to: (1) Copy/paste (Ctrl+C/V), (2) Save files (Ctrl+S), (3) Close windows (Alt+F4), (4) Undo/redo (Ctrl+Z/Y), (5) Select all (Ctrl+A). Common shortcuts: ['ctrl','c'], ['ctrl','v'], ['ctrl','s'], ['alt','f4'], ['ctrl','z'].",
         "detail": """执行键盘快捷键。
 
@@ -215,6 +220,7 @@ keys 是按键数组，如 ['ctrl', 'c']""",
     },
     {
         "name": "desktop_scroll",
+        "category": "Desktop",
         "description": "Scroll mouse wheel in specified direction. When you need to: (1) Scroll page/document content, (2) Navigate long lists, (3) Zoom in/out (with Ctrl). Directions: up/down/left/right. Default amount is 3 scroll units.",
         "detail": """滚动鼠标滚轮。
 
@@ -247,6 +253,7 @@ keys 是按键数组，如 ['ctrl', 'c']""",
     },
     {
         "name": "desktop_window",
+        "category": "Desktop",
         "description": "Window management operations. When you need to: (1) List all open windows, (2) Switch to a specific window, (3) Minimize/maximize/restore windows, (4) Close windows. Actions: list, switch, minimize, maximize, restore, close. Use title parameter for targeting specific window (fuzzy match).",
         "detail": """窗口管理操作。
 
@@ -281,6 +288,7 @@ keys 是按键数组，如 ['ctrl', 'c']""",
     },
     {
         "name": "desktop_wait",
+        "category": "Desktop",
         "description": "Wait for UI element or window to appear. When you need to: (1) Wait for dialog to open, (2) Wait for loading to complete, (3) Synchronize with application state before next action. Target types: element (UI element), window (window title). Default timeout is 10 seconds.",
         "detail": """等待某个 UI 元素或窗口出现。
 
@@ -318,6 +326,7 @@ keys 是按键数组，如 ['ctrl', 'c']""",
     },
     {
         "name": "desktop_inspect",
+        "category": "Desktop",
         "description": "Inspect window UI element tree structure for debugging and understanding interface layout. When you need to: (1) Debug UI automation issues, (2) Understand application structure, (3) Find correct element identifiers for clicking/typing. Returns element names, types, and IDs at specified depth.",
         "detail": """检查窗口的 UI 元素树结构（用于调试和了解界面结构）。
 

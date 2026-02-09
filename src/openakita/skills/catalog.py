@@ -57,11 +57,6 @@ Use `get_skill_info(skill_name)` to load full instructions when needed.
 
         skill_entries = []
         for skill in skills:
-            # 过滤已弃用/不应暴露给模型的技能（例如旧的 IM 发送能力）
-            # 说明：这些能力已下沉到网关或被新的协议替代，保留文件仅用于兼容/人工参考
-            if skill.name == "send-to-chat" or skill.tool_name == "send_to_chat":
-                continue
-
             # 获取描述第一行
             desc = skill.description
             first_line = desc.split("\n")[0].strip()
@@ -104,11 +99,7 @@ Use `get_skill_info(skill_name)` to load full instructions when needed.
         if not skills:
             return "No skills installed."
 
-        names = [
-            s.name
-            for s in skills
-            if not (s.name == "send-to-chat" or s.tool_name == "send_to_chat")
-        ]
+        names = [s.name for s in skills]
         if not names:
             return "No skills installed."
         return f"Available skills: {', '.join(names)}"
@@ -129,8 +120,6 @@ Use `get_skill_info(skill_name)` to load full instructions when needed.
         external_names: list[str] = []
 
         for s in skills:
-            if s.name == "send-to-chat" or s.tool_name == "send_to_chat":
-                continue
             if getattr(s, "system", False):
                 system_names.append(s.name)
             else:

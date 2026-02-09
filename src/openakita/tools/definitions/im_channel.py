@@ -11,6 +11,7 @@ IM Channel 工具定义
 IM_CHANNEL_TOOLS = [
     {
         "name": "deliver_artifacts",
+        "category": "IM Channel",
         "description": "Deliver artifacts (files/images/voice) to current IM chat via gateway, returning a receipt. Use this as the only delivery proof for attachments.",
         "detail": """通过网关向当前 IM 聊天交付附件（文件/图片/语音），并返回结构化回执（receipt）。
 
@@ -67,6 +68,7 @@ IM_CHANNEL_TOOLS = [
     },
     {
         "name": "get_voice_file",
+        "category": "IM Channel",
         "description": "Get local file path of voice message sent by user. When user sends voice message, system auto-downloads it. When you need to: (1) Process user's voice message, (2) Transcribe voice to text.",
         "detail": """获取用户发送的语音消息的本地文件路径。
 
@@ -83,6 +85,7 @@ IM_CHANNEL_TOOLS = [
     },
     {
         "name": "get_image_file",
+        "category": "IM Channel",
         "description": "Get local file path of image sent by user. When user sends image, system auto-downloads it. When you need to: (1) Process user's image, (2) Analyze image content.",
         "detail": """获取用户发送的图片的本地文件路径。
 
@@ -98,6 +101,7 @@ IM_CHANNEL_TOOLS = [
     },
     {
         "name": "get_chat_history",
+        "category": "IM Channel",
         "description": "Get current chat history including user messages, your replies, and system task notifications. When user says 'check previous messages' or 'what did I just send', use this tool.",
         "detail": """获取当前聊天的历史消息记录。
 

@@ -11,6 +11,7 @@ Plan 模式工具定义
 PLAN_TOOLS = [
     {
         "name": "create_plan",
+        "category": "Plan",
         "description": "⚠️ MUST CALL FIRST for multi-step tasks! If user request needs 2+ tool calls (like 'open + search + screenshot'), call create_plan BEFORE any other tool. Examples: '打开百度搜索天气截图' → create_plan first!",
         "detail": """创建任务执行计划。
 
@@ -63,6 +64,7 @@ PLAN_TOOLS = [
     },
     {
         "name": "update_plan_step",
+        "category": "Plan",
         "description": "Update the status of a plan step. MUST call after completing each step to track progress.",
         "detail": """更新计划中某个步骤的状态。
 
@@ -94,6 +96,7 @@ PLAN_TOOLS = [
     },
     {
         "name": "get_plan_status",
+        "category": "Plan",
         "description": "Get the current plan execution status. Shows all steps and their completion status.",
         "detail": """获取当前计划的执行状态。
 
@@ -106,6 +109,7 @@ PLAN_TOOLS = [
     },
     {
         "name": "complete_plan",
+        "category": "Plan",
         "description": "Mark the plan as completed and generate a summary report. Call when ALL steps are done.",
         "detail": """标记计划完成，生成最终报告。
 

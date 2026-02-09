@@ -11,6 +11,7 @@ File System 工具定义
 FILESYSTEM_TOOLS = [
     {
         "name": "run_shell",
+        "category": "File System",
         "description": "Execute shell commands for system operations, directory creation, and script execution. When you need to: (1) Run system commands, (2) Execute scripts, (3) Install packages, (4) Manage processes. Note: If commands fail consecutively, try different approaches.",
         "detail": """执行 Shell 命令，用于运行系统命令、创建目录、执行脚本等。
 
@@ -41,6 +42,7 @@ FILESYSTEM_TOOLS = [
     },
     {
         "name": "write_file",
+        "category": "File System",
         "description": "Write content to file, creating new or overwriting existing. When you need to: (1) Create new files, (2) Update file content, (3) Save generated code or data.",
         "detail": """写入文件内容，可以创建新文件或覆盖已有文件。
 
@@ -64,6 +66,7 @@ FILESYSTEM_TOOLS = [
     },
     {
         "name": "read_file",
+        "category": "File System",
         "description": "Read file content for text files. When you need to: (1) Check file content, (2) Analyze code or data, (3) Get configuration values.",
         "detail": """读取文件内容。
 
@@ -84,6 +87,7 @@ FILESYSTEM_TOOLS = [
     },
     {
         "name": "list_directory",
+        "category": "File System",
         "description": "List directory contents including files and subdirectories. When you need to: (1) Explore directory structure, (2) Find specific files, (3) Check what exists in a folder.",
         "detail": """列出目录内容，包括文件和子目录。
 

@@ -90,6 +90,8 @@ ToolCategory = Literal[
     "Profile",
     "System",
     "MCP",
+    "Plan",
+    "Web Search",
 ]
 
 CATEGORY_PREFIXES = {
@@ -101,6 +103,8 @@ CATEGORY_PREFIXES = {
         "run_skill_script",
         "get_skill_reference",
         "install_skill",
+        "load_skill",
+        "reload_skill",
     ),
     "Memory": ("add_memory", "search_memory", "get_memory_stats"),
     "Scheduled": (
@@ -110,12 +114,13 @@ CATEGORY_PREFIXES = {
         "update_scheduled_task",
         "trigger_scheduled_task",
     ),
-    # IM 通道：send_to_chat 已弃用并不再作为模型工具暴露
     "IM Channel": ("deliver_artifacts", "get_voice_file", "get_image_file", "get_chat_history"),
     "Profile": ("update_user_profile", "skip_profile_question", "get_user_profile"),
-    "System": ("enable_thinking", "get_session_logs", "get_tool_info", "generate_image"),
+    "System": ("enable_thinking", "get_session_logs", "get_tool_info", "generate_image", "set_task_timeout"),
     "MCP": ("call_mcp_tool", "list_mcp_servers", "get_mcp_instructions"),
     "File System": ("run_shell", "write_file", "read_file", "list_directory"),
+    "Plan": ("create_plan", "update_plan_step", "get_plan_status", "complete_plan"),
+    "Web Search": ("web_search", "news_search"),
 }
 
 
