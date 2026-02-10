@@ -167,17 +167,33 @@ async def start_im_channels(agent_or_master):
     # 企业微信
     if settings.wework_enabled and settings.wework_corp_id:
         try:
-            from .channels.adapters import WeWorkAdapter
+            if settings.wework_mode == "bot":
+                # 智能机器人模式（默认）：JSON 回调、response_url 回复、流式消息
+                from .channels.adapters import WeWorkBotAdapter
 
-            wework = WeWorkAdapter(
-                corp_id=settings.wework_corp_id,
-                agent_id=settings.wework_agent_id,
-                secret=settings.wework_secret,
-                token=settings.wework_token,
-                encoding_aes_key=settings.wework_encoding_aes_key,
-                callback_port=settings.wework_callback_port,
-                callback_host=settings.wework_callback_host,
-            )
+                wework = WeWorkBotAdapter(
+                    corp_id=settings.wework_corp_id,
+                    token=settings.wework_token,
+                    encoding_aes_key=settings.wework_encoding_aes_key,
+                    callback_port=settings.wework_callback_port,
+                    callback_host=settings.wework_callback_host,
+                )
+                logger.info("WeWork: using Smart Robot (bot) mode")
+            else:
+                # 自建应用模式：XML 回调、access_token API
+                from .channels.adapters import WeWorkAdapter
+
+                wework = WeWorkAdapter(
+                    corp_id=settings.wework_corp_id,
+                    agent_id=settings.wework_agent_id,
+                    secret=settings.wework_secret,
+                    token=settings.wework_token,
+                    encoding_aes_key=settings.wework_encoding_aes_key,
+                    callback_port=settings.wework_callback_port,
+                    callback_host=settings.wework_callback_host,
+                )
+                logger.info("WeWork: using Self-built App (app) mode")
+
             await _message_gateway.register_adapter(wework)
             adapters_started.append("wework")
             logger.info("WeWork adapter registered")

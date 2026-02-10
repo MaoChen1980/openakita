@@ -300,6 +300,9 @@ class IMChannelHandler:
             return f"✅ 已发送图片: {image_path} (message_id={message_id})"
         except NotImplementedError:
             pass
+        except Exception as e:
+            logger.warning(f"[IM] send_image failed for {channel}: {e}")
+            # 非 NotImplementedError（如 stream 过期、图片处理失败）→ 降级到 send_file
 
         # 降级：以文件形式发送图片
         try:

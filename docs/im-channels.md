@@ -9,7 +9,7 @@ OpenAkita 支持多个即时通讯平台，每个平台通过独立的适配器 
 | Telegram | ✅ 稳定 | Long Polling | ❌ 不需要 | 默认包含 |
 | 飞书 | ✅ 稳定 | WebSocket 长连接 | ❌ 不需要 | `pip install openakita[feishu]` |
 | 钉钉 | ✅ 稳定 | Stream 模式 (WebSocket) | ❌ 不需要 | `pip install openakita[dingtalk]` |
-| 企业微信 | ✅ 稳定 | HTTP 回调 | ⚠️ 需要 | `pip install openakita[wework]` |
+| 企业微信 | ✅ 稳定 | HTTP 回调（bot 智能机器人 / app 自建应用） | ⚠️ 需要公网 IP | `pip install openakita[wework]` |
 | QQ | 🧪 Beta | OneBot WebSocket | ❌ 不需要 | `pip install openakita[qq]` |
 
 ## 媒体类型支持矩阵
@@ -26,12 +26,14 @@ OpenAkita 支持多个即时通讯平台，每个平台通过独立的适配器 
 
 ### 发送消息 (OpenAkita → 平台)
 
-| 方法 | Telegram | 飞书 | 钉钉 | 企业微信 | QQ |
-|------|----------|------|------|---------|-----|
-| send_text | ✅ | ✅ | ✅ | ✅ | ✅ |
-| send_image | ✅ | ✅ | ✅ | ✅ | ✅ |
-| send_file | ✅ | ✅ | ✅ (降级为链接) | ✅ | ✅ (upload_file API) |
-| send_voice | ✅ | ✅ | ✅ (降级为文件) | ✅ | ✅ (record) |
+| 方法 | Telegram | 飞书 | 钉钉 | 企业微信(bot) | 企业微信(app) | QQ |
+|------|----------|------|------|-------------|-------------|-----|
+| send_text | ✅ | ✅ | ✅ | ✅ (stream 被动回复) | ✅ | ✅ |
+| send_image | ✅ | ✅ | ✅ | ✅ (stream msg_item, base64+md5) | ✅ (media_id) | ✅ |
+| send_file | ✅ | ✅ | ✅ (降级为链接) | ❌ 降级为文本 | ✅ | ✅ (upload_file API) |
+| send_voice | ✅ | ✅ | ✅ (降级为文件) | ❌ 不支持 | ✅ | ✅ (record) |
+
+> **企业微信智能机器人 (bot 模式) 消息机制**：使用**流式被动回复** (stream) 发送消息。文本通过 `stream.content`（支持 markdown），图片通过 `stream.msg_item`（base64+md5，仅 JPG/PNG，≤10MB，最多 10 张）在 `finish=true` 时一并发出。文件和语音不支持，降级为文本描述。如 stream 超时（6 分钟），自动降级为 `response_url` 发送纯文本。
 
 > **注意**: 图片和语音由 MessageGateway 自动下载并预处理。语音会自动通过 Whisper 转写为文本。文件和视频不会自动下载，需要通过 `deliver_artifacts` 工具主动处理。
 
@@ -193,13 +195,103 @@ DINGTALK_CLIENT_SECRET=xxx
 
 ## 企业微信
 
-### 前置条件
+企业微信支持两种接入模式，通过 `WEWORK_MODE` 配置切换：
+
+| 模式 | 说明 | 域名要求 | 消息格式 | 回复方式 |
+|------|------|---------|---------|---------|
+| `bot`（默认） | 智能机器人 | 公网 IP 即可，无需备案域名 | JSON | stream 被动回复（文本+图片） |
+| `app` | 自建应用 | 需要备案域名（要求较严格） | XML | access_token API（全类型） |
+
+**推荐使用 `bot`（智能机器人）模式**，配置更简单，不需要备案域名。但文件/语音发送仅 `app` 模式支持。
+
+### 模式一：智能机器人（bot，默认）
+
+#### 前置条件
+
+- 企业微信管理员账号
+- **公网可访问的 URL**（IP 即可，不需要备案域名）
+
+#### 平台侧配置
+
+1. **创建智能机器人**: 进入 [企业微信管理后台](https://work.weixin.qq.com/) → 应用管理 → 智能机器人 → 创建
+2. **获取企业 ID (Corp ID)**: 在「我的企业」→「企业信息」页面底部
+3. **配置回调地址**:
+   - 在机器人配置页面 → 「接收消息服务器配置」
+   - **URL**: 填写回调地址，如 `http://your-ip:9880/callback`
+   - **Token**: 自动生成或自定义，记下来
+   - **EncodingAESKey**: 自动生成或自定义，记下来
+   - 点击保存（企业微信会发送 GET 验证请求到 URL）
+4. **设置可见范围**: 配置哪些部门/人员可以使用此机器人
+
+#### OpenAkita 配置
+
+```bash
+# 安装企业微信依赖
+pip install openakita[wework]
+
+# .env
+WEWORK_ENABLED=true
+WEWORK_MODE=bot
+WEWORK_CORP_ID=ww_xxx
+
+# 回调加解密（必填！在机器人配置页获取）
+WEWORK_TOKEN=xxx
+WEWORK_ENCODING_AES_KEY=xxx
+WEWORK_CALLBACK_PORT=9880
+```
+
+> **注意**: 智能机器人模式不需要 `WEWORK_AGENT_ID` 和 `WEWORK_SECRET`。
+
+#### 消息回复机制
+
+智能机器人使用**流式被动回复 (stream)** 作为主要回复方式，`response_url` 作为备用降级：
+
+**流式回复流程**:
+1. 用户发消息 → 企业微信推送加密 JSON 到回调 URL
+2. OpenAkita 被动回复 `stream(finish=false)` 开启流式会话
+3. 企业微信定期发送 stream 刷新回调（约 1-2 秒/次）
+4. Agent 处理中 → 刷新回调返回当前内容 `(finish=false)`
+5. Agent 完成 → 下次刷新回调返回最终内容 `(finish=true)` + 图片
+
+**stream 能力**:
+- `stream.content`: 文本内容（支持 markdown）
+- `stream.msg_item`: 图片列表（base64+md5，仅 `finish=true` 时有效）
+- 图片限制: 仅 JPG/PNG，单张 ≤ 10MB，最多 10 张
+- stream 最长持续 **6 分钟**
+
+**降级策略**:
+- stream 超时（6 分钟内 Agent 未完成）→ 自动使用 `response_url` 发送 markdown
+- `response_url` 有效期 1 小时，仅可调用一次，仅支持 text/markdown
+
+#### 支持的消息类型
+
+| 接收 | 说明 |
+|------|------|
+| 文本 | 群聊 @机器人 或单聊发送 |
+| 图文混排 | 群聊 @机器人 或单聊发送 |
+| 图片 | 仅单聊 |
+| 语音 | 仅单聊，**自动转文字** |
+| 文件 | 仅单聊，最大 100MB |
+| 引用消息 | 群聊 @机器人 或单聊发送 |
+
+> **注意**: 图片/文件的下载 URL 经 AES 加密且仅 5 分钟有效，适配器会自动处理解密。
+
+#### 验证方法
+
+1. 启动 OpenAkita，日志应显示 `WeWorkBot callback server listening on 0.0.0.0:9880`
+2. 确保回调 URL 可从公网访问（`curl http://your-ip:9880/health` 应返回 `{"status":"ok","mode":"bot"}`）
+3. 在企业微信中找到智能机器人并发消息
+4. 观察日志中的消息解密和处理记录
+
+### 模式二：自建应用（app）
+
+#### 前置条件
 
 - 企业微信管理员账号
 - 在 [企业微信管理后台](https://work.weixin.qq.com/) 创建自建应用
-- **公网可访问的 URL**（用于接收回调消息）
+- **备案域名**（自建应用对域名要求较严格）
 
-### 平台侧配置
+#### 平台侧配置
 
 1. **创建应用**: 进入管理后台 → 应用管理 → 自建 → 创建应用
 2. **获取凭证**:
@@ -213,7 +305,7 @@ DINGTALK_CLIENT_SECRET=xxx
    - 点击保存（企业微信会向 URL 发送验证请求）
 4. **配置权限**: 在「API 接口权限」中确认消息发送/接收权限
 
-### OpenAkita 配置
+#### OpenAkita 配置
 
 ```bash
 # 安装企业微信依赖
@@ -221,6 +313,7 @@ pip install openakita[wework]
 
 # .env
 WEWORK_ENABLED=true
+WEWORK_MODE=app
 WEWORK_CORP_ID=ww_xxx
 WEWORK_AGENT_ID=1000001
 WEWORK_SECRET=xxx
@@ -231,11 +324,11 @@ WEWORK_ENCODING_AES_KEY=xxx
 WEWORK_CALLBACK_PORT=9880
 ```
 
-### 部署模式
+### 公网访问（两种模式通用）
 
 企业微信 **不支持** WebSocket/长连接模式，只能通过 HTTP 回调接收消息。
 
-- **公网服务器**: 直接在服务器上运行，回调 URL 指向服务器 IP
+- **公网服务器**: 直接在服务器上运行，回调 URL 指向服务器 IP/域名
 - **内网穿透（无公网 IP）**: 使用以下工具将本地端口映射到公网：
 
 #### ngrok
@@ -265,19 +358,14 @@ custom_domains = your-domain.com
 cpolar http 9880
 ```
 
-### 验证方法
-
-1. 启动 OpenAkita，日志应显示 `WeWork callback server listening on 0.0.0.0:9880`
-2. 确保回调 URL 可从公网访问（`curl https://your-domain.com/health` 应返回 `{"status":"ok"}`)
-3. 在企业微信中找到应用并发消息
-4. 观察日志中的消息解密和处理记录
-
 ### 常见问题
 
 - **URL 验证失败**: 确认 Token 和 EncodingAESKey 与企业微信后台一致
 - **签名校验失败**: 检查 Corp ID 是否正确
 - **端口被占用**: 修改 `WEWORK_CALLBACK_PORT` 为其他端口
 - **内网穿透不稳定**: 建议使用付费版 ngrok 或自建 frp
+- **bot 模式收不到消息**: 确认机器人回调地址配置正确，且服务器端口可访问
+- **app 模式域名限制**: 自建应用对域名备案有要求，推荐切换到 bot 模式
 
 ---
 
