@@ -311,11 +311,15 @@ class IMChannelHandler:
             return f"❌ 图片不存在: {image_path}"
 
         # 优先使用 send_image，失败则降级到 send_file
+        # 将 channel_user_id 通过 metadata 传递，避免直接 kwarg 导致
+        # 未重写 send_image 的适配器（飞书/QQ/Telegram）在构造 OutgoingMessage 时报错
+        send_kwargs: dict = {"reply_to": reply_to}
+        if channel_user_id:
+            send_kwargs["metadata"] = {"channel_user_id": channel_user_id}
         try:
             message_id = await adapter.send_image(
                 chat_id, image_path, caption,
-                reply_to=reply_to,
-                channel_user_id=channel_user_id,
+                **send_kwargs,
             )
             logger.info(f"[IM] Sent image to {channel}:{chat_id}: {image_path}")
             return f"✅ 已发送图片: {image_path} (message_id={message_id})"
