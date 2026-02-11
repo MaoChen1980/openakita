@@ -508,10 +508,16 @@ async def run_interactive():
     console.print()
 
     try:
+        # 使用 run_in_executor 异步获取用户输入，避免阻塞事件循环
+        # 这样 IM 通道（钉钉、飞书等）的消息处理不会被 CLI 等待输入阻塞
+        loop = asyncio.get_running_loop()
+
         while True:
             try:
-                # 获取用户输入
-                user_input = Prompt.ask("[bold blue]You[/bold blue]")
+                # 获取用户输入（在线程池中执行，不阻塞事件循环）
+                user_input = await loop.run_in_executor(
+                    None, Prompt.ask, "[bold blue]You[/bold blue]"
+                )
 
                 if not user_input.strip():
                     continue
