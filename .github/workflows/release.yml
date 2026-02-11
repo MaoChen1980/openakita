@@ -75,7 +75,7 @@ jobs:
           pip install twine
           twine upload dist/*
 
-  setup_center_release:
+  desktop_release:
     needs: python_release
     permissions:
       contents: write
@@ -161,21 +161,6 @@ jobs:
             base="$(basename "$f")"
             # 统一文件名：把空格换成点，避免 Release 里出现重复/难找的资产名
             local norm="${base// /.}"
-
-            # Windows：强制使用 CN 后缀（避免 Release 资产显示 en-US / 并与本地“中文安装器”保持一致）
-            if [ "${RUNNER_OS}" = "Windows" ]; then
-              norm="${norm/_x64_en-US/_x64_CN}"
-              norm="${norm/_x64_zh-CN/_x64_CN}"
-              norm="${norm/_x64_zh_CN/_x64_CN}"
-              norm="${norm/_arm64_en-US/_arm64_CN}"
-              norm="${norm/_arm64_zh-CN/_arm64_CN}"
-              norm="${norm/_arm64_zh_CN/_arm64_CN}"
-
-              # 新版 NSIS 输出可能是 *_x64-setup.exe（不含 locale），这里统一追加 _CN
-              if [[ "${norm}" == *.exe ]] && [[ "${norm}" != *_CN.exe ]]; then
-                norm="${norm%.exe}_CN.exe"
-              fi
-            fi
             cp -f "$f" "${OUT_DIR}/${norm}"
           }
 
