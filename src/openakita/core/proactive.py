@@ -327,9 +327,11 @@ class ProactiveEngine:
             sticker_mood = "greeting"
 
         elif msg_type == "idle_chat":
-            options = templates.get("idle") or ["好久没聊了，最近怎么样？"]
-            if not options:
+            raw = templates.get("idle")
+            # 空列表表示该角色不发闲聊（如 business），不使用 fallback
+            if raw is not None and len(raw) == 0:
                 return None
+            options = raw or ["好久没聊了，最近怎么样？"]
             content = random.choice(options)
 
         elif msg_type == "task_followup":

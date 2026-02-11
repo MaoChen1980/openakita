@@ -700,6 +700,9 @@ class TaskExecutor:
         seen: set[tuple[str, str]] = set()
         targets: list[tuple[str, str]] = []
 
+        if not self.gateway:
+            return targets
+
         # 1. 先从内存中的会话找
         session_manager = getattr(self.gateway, "session_manager", None)
         if not session_manager:

@@ -84,12 +84,14 @@ class StickerHandler:
 
         session = get_im_session()
         if not session:
+            logger.warning("[Sticker] No IM session in context, cannot send sticker")
             return None, None
 
         gateway = session.get_metadata("_gateway")
         current_message = session.get_metadata("_current_message")
 
         if not gateway or not current_message:
+            logger.warning("[Sticker] Missing gateway or current_message in session metadata")
             return None, None
 
         channel = current_message.channel
@@ -98,6 +100,7 @@ class StickerHandler:
             adapter = getattr(gateway, "_adapters", {}).get(channel)
 
         if not adapter:
+            logger.warning(f"[Sticker] No adapter found for channel: {channel}")
             return None, None
 
         return adapter, current_message.chat_id
