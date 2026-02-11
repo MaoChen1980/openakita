@@ -1823,42 +1823,93 @@ export function App() {
     setStatusLoading(true);
     setStatusError(null);
     try {
-      // When service is running (local or remote), prefer HTTP API for real data
+      // When service is running, try HTTP API first (works for both local and remote)
       const useHttpApi = serviceStatus?.running || dataMode === "remote";
       if (useHttpApi) {
-        // ── HTTP API mode: fetch everything from running service ──
+        // ── Try HTTP API, fall back to Tauri on failure ──
+        let httpOk = false;
         try {
-          // Env
+          // Try new config API (may not exist in older service versions)
           const envRes = await fetch(`${apiBaseUrl}/api/config/env`);
-          const envData = await envRes.json();
-          const env = envData.env || {};
-          setEnvDraft((prev) => ({ ...prev, ...env }));
-          envLoadedForWs.current = "__remote__";
+          if (envRes.ok) {
+            const envData = await envRes.json();
+            const env = envData.env || {};
+            setEnvDraft((prev) => ({ ...prev, ...env }));
+            envLoadedForWs.current = "__remote__";
 
-          // Endpoints
-          const epRes = await fetch(`${apiBaseUrl}/api/config/endpoints`);
-          const epData = await epRes.json();
-          const eps = Array.isArray(epData?.endpoints) ? epData.endpoints : [];
-          const list = eps
-            .map((e: any) => {
+            const epRes = await fetch(`${apiBaseUrl}/api/config/endpoints`);
+            if (epRes.ok) {
+              const epData = await epRes.json();
+              const eps = Array.isArray(epData?.endpoints) ? epData.endpoints : [];
+              const list = eps
+                .map((e: any) => {
+                  const keyEnv = String(e?.api_key_env || "");
+                  const keyPresent = !!(keyEnv && (env[keyEnv] ?? "").trim());
+                  return {
+                    name: String(e?.name || ""),
+                    provider: String(e?.provider || ""),
+                    apiType: String(e?.api_type || ""),
+                    baseUrl: String(e?.base_url || ""),
+                    model: String(e?.model || ""),
+                    keyEnv,
+                    keyPresent,
+                  };
+                })
+                .filter((e: any) => e.name);
+              setEndpointSummary(list);
+              httpOk = true;
+            }
+          }
+        } catch {
+          // Config API not available — will fall back below
+        }
+
+        // Fall back: try /api/models (always available in running service)
+        if (!httpOk) {
+          try {
+            const modelsRes = await fetch(`${apiBaseUrl}/api/models`);
+            if (modelsRes.ok) {
+              const modelsData = await modelsRes.json();
+              const models = Array.isArray(modelsData?.models) ? modelsData.models : [];
+              const list = models.map((m: any) => ({
+                name: String(m?.name || m?.endpoint || ""),
+                provider: String(m?.provider || ""),
+                apiType: "",
+                baseUrl: "",
+                model: String(m?.model || ""),
+                keyEnv: "",
+                keyPresent: true, // If model is listed, key is working
+              })).filter((e: any) => e.name);
+              if (list.length > 0) setEndpointSummary(list);
+              httpOk = true;
+            }
+          } catch { /* ignore */ }
+        }
+
+        // Fall back to Tauri local file system if HTTP API completely failed
+        if (!httpOk && currentWorkspaceId) {
+          try {
+            const env = await ensureEnvLoaded(currentWorkspaceId);
+            const raw = await readWorkspaceFile("data/llm_endpoints.json");
+            const parsed = JSON.parse(raw);
+            const eps = Array.isArray(parsed?.endpoints) ? parsed.endpoints : [];
+            const list = eps.map((e: any) => {
               const keyEnv = String(e?.api_key_env || "");
               const keyPresent = !!(keyEnv && (env[keyEnv] ?? "").trim());
               return {
-                name: String(e?.name || ""),
-                provider: String(e?.provider || ""),
-                apiType: String(e?.api_type || ""),
-                baseUrl: String(e?.base_url || ""),
-                model: String(e?.model || ""),
-                keyEnv,
-                keyPresent,
+                name: String(e?.name || ""), provider: String(e?.provider || ""),
+                apiType: String(e?.api_type || ""), baseUrl: String(e?.base_url || ""),
+                model: String(e?.model || ""), keyEnv, keyPresent,
               };
-            })
-            .filter((e: any) => e.name);
-          setEndpointSummary(list);
+            }).filter((e: any) => e.name);
+            setEndpointSummary(list);
+          } catch { /* ignore */ }
+        }
 
-          // Skills
-          try {
-            const skRes = await fetch(`${apiBaseUrl}/api/skills`);
+        // Skills via HTTP
+        try {
+          const skRes = await fetch(`${apiBaseUrl}/api/skills`);
+          if (skRes.ok) {
             const skData = await skRes.json();
             const skills = Array.isArray(skData?.skills) ? skData.skills : [];
             const systemCount = skills.filter((s: any) => !!s.system).length;
@@ -1866,25 +1917,36 @@ export function App() {
             setSkillSummary({ count: skills.length, systemCount, externalCount });
             setSkillsDetail(
               skills.map((s: any) => ({
-                name: String(s?.name || ""),
-                description: String(s?.description || ""),
-                system: !!s?.system,
-                enabled: typeof s?.enabled === "boolean" ? s.enabled : undefined,
-                tool_name: s?.tool_name ?? null,
-                category: s?.category ?? null,
-                path: s?.path ?? null,
+                name: String(s?.name || ""), description: String(s?.description || ""),
+                system: !!s?.system, enabled: typeof s?.enabled === "boolean" ? s.enabled : undefined,
+                tool_name: s?.tool_name ?? null, category: s?.category ?? null, path: s?.path ?? null,
               })),
             );
-          } catch {
-            setSkillSummary(null);
-            setSkillsDetail(null);
           }
+        } catch {
+          // Fall back to Tauri for skills
+          if (currentWorkspaceId) {
+            try {
+              const skillsRaw = await invoke<string>("openakita_list_skills", { venvDir, workspaceId: currentWorkspaceId });
+              const skillsParsed = JSON.parse(skillsRaw) as { count: number; skills: any[] };
+              const skills = Array.isArray(skillsParsed.skills) ? skillsParsed.skills : [];
+              const systemCount = skills.filter((s) => !!s.system).length;
+              setSkillSummary({ count: skills.length, systemCount, externalCount: skills.length - systemCount });
+              setSkillsDetail(skills.map((s) => ({
+                name: String(s?.name || ""), description: String(s?.description || ""),
+                system: !!s?.system, enabled: typeof s?.enabled === "boolean" ? s.enabled : undefined,
+                tool_name: s?.tool_name ?? null, category: s?.category ?? null, path: s?.path ?? null,
+              })));
+            } catch { setSkillSummary(null); setSkillsDetail(null); }
+          }
+        }
 
-          // Service is running if we can reach the API
-          setServiceStatus({ running: true, pid: null, pidFile: "" });
-        } catch (e) {
-          setStatusError(String(e));
-          setServiceStatus({ running: false, pid: null, pidFile: "" });
+        // Service status
+        if (currentWorkspaceId) {
+          try {
+            const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_status", { workspaceId: currentWorkspaceId });
+            setServiceStatus(ss);
+          } catch { /* keep existing status */ }
         }
         return;
       }
