@@ -4259,20 +4259,24 @@ export function App() {
 
         {/* ── Connect Dialog ── */}
         {connectDialogOpen && (
-          <div className="dialogOverlay" onClick={() => setConnectDialogOpen(false)}>
-            <div className="dialogBox" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
-              <div className="dialogTitle">{t("connect.title")}</div>
-              <div className="cardHint" style={{ marginBottom: 12 }}>{t("connect.hint")}</div>
-              <div className="field">
-                <div className="label">{t("connect.address")}</div>
+          <div className="modalOverlay" onClick={() => setConnectDialogOpen(false)}>
+            <div className="modalContent" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+              <div className="dialogHeader">
+                <span className="cardTitle">{t("connect.title")}</span>
+                <button className="dialogCloseBtn" onClick={() => setConnectDialogOpen(false)}>&times;</button>
+              </div>
+              <div className="dialogSection">
+                <p style={{ color: "#64748b", fontSize: 13, margin: "0 0 16px" }}>{t("connect.hint")}</p>
+                <div className="dialogLabel">{t("connect.address")}</div>
                 <input
                   value={connectAddress}
                   onChange={(e) => setConnectAddress(e.target.value)}
                   placeholder="127.0.0.1:18900"
                   autoFocus
+                  style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 14 }}
                 />
               </div>
-              <div className="btnRow" style={{ marginTop: 16 }}>
+              <div className="dialogFooter">
                 <button className="btnSmall" onClick={() => setConnectDialogOpen(false)}>{t("common.cancel")}</button>
                 <button className="btnPrimary" disabled={!!busy} onClick={async () => {
                   const addr = connectAddress.trim();
