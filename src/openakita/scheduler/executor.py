@@ -44,6 +44,7 @@ class TaskExecutor:
         # 可选：由 Agent 设置，用于活人感心跳等系统任务
         self.persona_manager = None
         self.memory_manager = None
+        self.proactive_engine = None  # 复用 agent 上的实例，保留 _last_user_interaction 状态
 
     def _escape_telegram_chars(self, text: str) -> str:
         """
@@ -515,6 +516,9 @@ class TaskExecutor:
 
         每 30 分钟触发一次，大多数时候只是检查然后跳过。
         只有满足所有条件时才真正生成并发送消息。
+
+        优先复用 agent 上的 ProactiveEngine 实例（保留 _last_user_interaction 状态），
+        仅在实例不存在时 fallback 新建（此时 idle_chat 不可用）。
         """
         try:
             from ..config import settings
@@ -522,26 +526,28 @@ class TaskExecutor:
             if not settings.proactive_enabled:
                 return True, "Proactive mode disabled, skipping heartbeat"
 
-            # 动态导入避免循环依赖
-            from ..core.proactive import ProactiveConfig, ProactiveEngine
+            engine = self.proactive_engine
+            if not engine:
+                # fallback: 无法获取 agent 实例时新建（idle_chat 不可用）
+                from ..core.proactive import ProactiveConfig, ProactiveEngine
 
-            # 构建配置
-            config = ProactiveConfig(
-                enabled=settings.proactive_enabled,
-                max_daily_messages=settings.proactive_max_daily_messages,
-                min_interval_minutes=settings.proactive_min_interval_minutes,
-                quiet_hours_start=settings.proactive_quiet_hours_start,
-                quiet_hours_end=settings.proactive_quiet_hours_end,
-                idle_threshold_hours=settings.proactive_idle_threshold_hours,
-            )
+                config = ProactiveConfig(
+                    enabled=settings.proactive_enabled,
+                    max_daily_messages=settings.proactive_max_daily_messages,
+                    min_interval_minutes=settings.proactive_min_interval_minutes,
+                    quiet_hours_start=settings.proactive_quiet_hours_start,
+                    quiet_hours_end=settings.proactive_quiet_hours_end,
+                    idle_threshold_hours=settings.proactive_idle_threshold_hours,
+                )
 
-            feedback_file = settings.project_root / "data" / "proactive_feedback.json"
-            engine = ProactiveEngine(
-                config=config,
-                feedback_file=feedback_file,
-                persona_manager=self.persona_manager,
-                memory_manager=self.memory_manager,
-            )
+                feedback_file = settings.project_root / "data" / "proactive_feedback.json"
+                engine = ProactiveEngine(
+                    config=config,
+                    feedback_file=feedback_file,
+                    persona_manager=self.persona_manager,
+                    memory_manager=self.memory_manager,
+                )
+                logger.debug("ProactiveEngine fallback: created new instance (idle_chat unavailable)")
 
             # 执行心跳
             result = await engine.heartbeat()

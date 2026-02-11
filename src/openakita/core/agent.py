@@ -1254,9 +1254,10 @@ class Agent:
 
             # 创建执行器（gateway 稍后通过 set_scheduler_gateway 设置）
             self._task_executor = TaskExecutor(timeout_seconds=settings.scheduler_task_timeout)
-            # 预设 persona/memory 引用，供活人感心跳等系统任务使用
+            # 预设 persona/memory/proactive 引用，供活人感心跳等系统任务使用
             self._task_executor.persona_manager = getattr(self, "persona_manager", None)
             self._task_executor.memory_manager = getattr(self, "memory_manager", None)
+            self._task_executor.proactive_engine = getattr(self, "proactive_engine", None)
 
             # 创建调度器
             self.task_scheduler = TaskScheduler(
@@ -4884,9 +4885,10 @@ NEXT: 建议的下一步（如有）"""
         """
         if hasattr(self, "_task_executor") and self._task_executor:
             self._task_executor.gateway = gateway
-            # 同时传递 persona/memory 引用，供活人感心跳等系统任务使用
+            # 同时传递 persona/memory/proactive 引用，供活人感心跳等系统任务使用
             self._task_executor.persona_manager = getattr(self, "persona_manager", None)
             self._task_executor.memory_manager = getattr(self, "memory_manager", None)
+            self._task_executor.proactive_engine = getattr(self, "proactive_engine", None)
             logger.info("Scheduler gateway configured")
 
     async def shutdown(
