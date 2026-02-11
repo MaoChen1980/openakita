@@ -95,6 +95,9 @@ OpenAkita 提供跨平台的 **Setup Center** 桌面应用（基于 Tauri + Reac
 | **多 Agent 协同** | Master-Worker 架构，ZMQ 消息总线，智能路由，动态扩缩容，故障自恢复 |
 | **定时任务** | Cron / 间隔 / 一次性触发，提醒型 + 任务型，持久化存储 |
 | **身份与记忆** | 四文件身份架构（SOUL / AGENT / USER / MEMORY），向量检索，每日自动整理 |
+| **人格系统** | 8 种角色预设（默认/商务/技术/管家/女友/男友/家人/贾维斯），三层人格架构（预设 + 用户偏好 + 上下文适配），LLM 驱动偏好挖掘 |
+| **活人感模式** | 主动引擎：问候、任务跟进、记忆回忆；频率控制、安静时段、反馈闭环；让 Agent 像真人助理 |
+| **表情包引擎** | 集成 ChineseBQB（5700+ 表情包），关键词搜索、情绪映射、按角色定制表情包策略 |
 | **工具体系** | 11 个类别、50+ 工具，三层渐进式披露（目录 → 详情 → 执行）减少 token 消耗 |
 | **Setup Center** | Tauri 跨平台桌面应用，全流程引导式安装配置，托盘常驻，状态监控 |
 
@@ -112,6 +115,7 @@ OpenAkita 的核心差异：**不只是工具，而是会自主学习和成长�
 | **技能自动生成** | 遇到缺失能力时 | LLM 生成 SKILL.md + 脚本 → 自动测试验证 → 注册加载 |
 | **依赖自动安装** | pip/npm 缺失时 | 搜索 GitHub → 安装依赖 → 失败则自动生成技能替代 |
 | **实时记忆提取** | 每轮对话 | 提取偏好/规则/事实 → 向量存储 → MEMORY.md 自动更新 |
+| **人格偏好挖掘** | 每轮对话 | LLM 分析用户消息 → 提取性格偏好 → 每日归纳晋升到身份文件 |
 | **用户画像学习** | 对话过程中 | 识别用户偏好和习惯 → 更新 USER.md → 越用越懂你 |
 
 ---
@@ -230,16 +234,19 @@ FEISHU_APP_SECRET=your-app-secret
 │                              │                                   │
 │  ┌──────────────────── 身份层 ──────────────────────────────┐   │
 │  │  SOUL.md(灵魂) · AGENT.md(行为) · USER.md(用户) · MEMORY.md │
+│  │  Personas(8 种预设 + 用户自定义人格)                       │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                              │                                   │
 │  ┌──────────────────── 核心层 ──────────────────────────────┐   │
 │  │  Brain(LLM) · Identity(身份) · Memory(记忆) · Ralph(循环) │   │
 │  │  Prompt Compiler(提示词编译) · Task Monitor(任务监控)      │   │
+│  │  PersonaManager(人格) · TraitMiner(偏好挖掘) · Proactive(活人感) │
 │  └──────────────────────────────────────────────────────────┘   │
 │                              │                                   │
 │  ┌──────────────────── 工具层 ──────────────────────────────┐   │
 │  │  Shell · File · Web · MCP · Skills · Scheduler            │   │
 │  │  Browser · Desktop · Plan · Profile · IM Channel          │   │
+│  │  Persona(人格切换) · Sticker(表情包)                      │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                              │                                   │
 │  ┌──────────────────── 进化引擎 ────────────────────────────┐   │
@@ -268,6 +275,9 @@ FEISHU_APP_SECRET=your-app-secret
 | **Skills** | Agent Skills 标准，动态加载，GitHub 安装，自动生成 |
 | **MCP** | Model Context Protocol，服务发现，工具代理 |
 | **Scheduler** | 定时任务调度，Cron / 间隔 / 一次性 |
+| **Persona** | 三层人格架构（预设 + 用户偏好 + 上下文），8 种角色预设，LLM 偏好挖掘，运行时状态持久化 |
+| **Proactive** | 活人感引擎：主动问候、任务跟进、记忆回忆，反馈驱动的频率控制 |
+| **Sticker** | 表情包引擎：ChineseBQB 集成，关键词/情绪搜索，按角色定制策略 |
 | **Channels** | 统一消息格式，多平台 IM 适配 |
 
 ---
@@ -322,6 +332,7 @@ FEISHU_APP_SECRET=your-app-secret
 - [AGENTS.md Standard](https://agentsmd.io/) — Agent 行为规范标准
 - [Agent Skills](https://agentskills.io/) — 技能标准化规范
 - [ZeroMQ](https://zeromq.org/) — 多 Agent 进程间通信
+- [ChineseBQB](https://github.com/zhaoolee/ChineseBQB) — 中文表情包资源库
 
 ## 许可证
 

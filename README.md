@@ -94,6 +94,9 @@ OpenAkita provides a cross-platform **Setup Center** desktop app (built with Tau
 | **Multi-Agent** | Master-Worker architecture, ZMQ message bus, smart routing, dynamic scaling, fault recovery |
 | **Scheduled Tasks** | Cron / interval / one-time triggers, reminder + task types, persistent storage |
 | **Identity & Memory** | Four-file identity (SOUL / AGENT / USER / MEMORY), vector search, daily auto-consolidation |
+| **Persona System** | 8 role presets (default / business / tech / butler / girlfriend / boyfriend / family / Jarvis), layered persona architecture (preset + user preferences + context-adaptive), LLM-driven trait mining |
+| **Living Presence** | Proactive engine: greetings, task follow-ups, memory recall; frequency control, quiet hours, feedback loop; feels like a real assistant |
+| **Sticker Engine** | ChineseBQB integration (5700+ stickers), keyword search, mood mapping, per-persona sticker strategy |
 | **Tool System** | 11 categories, 50+ tools, 3-level progressive disclosure (catalog → detail → execute) to reduce token usage |
 | **Setup Center** | Tauri cross-platform desktop app, guided wizard, tray residency, status monitoring |
 
@@ -111,6 +114,7 @@ The core differentiator: **OpenAkita doesn't just execute — it learns and grow
 | **Skill Auto-Generation** | Missing capability detected | LLM generates SKILL.md + script → auto-test → register and load |
 | **Auto Dependency Install** | pip/npm package missing | Search GitHub → install dependency → fallback to skill generation |
 | **Real-Time Memory** | Every conversation turn | Extract preferences/rules/facts → vector storage → auto-update MEMORY.md |
+| **Persona Trait Mining** | Every conversation turn | LLM analyzes user messages → extract personality preferences → daily promotion to identity |
 | **User Profile Learning** | During conversations | Identify preferences and habits → update USER.md → personalized experience |
 
 ---
@@ -211,16 +215,19 @@ TELEGRAM_BOT_TOKEN=your-bot-token
 │                              │                                   │
 │  ┌──────────────────── Identity Layer ──────────────────────┐   │
 │  │  SOUL.md · AGENT.md · USER.md · MEMORY.md                │   │
+│  │  Personas (8 presets + user_custom)                       │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                              │                                   │
 │  ┌──────────────────── Core Layer ──────────────────────────┐   │
 │  │  Brain (LLM) · Identity · Memory · Ralph Loop             │   │
 │  │  Prompt Compiler · Task Monitor                           │   │
+│  │  PersonaManager · TraitMiner · ProactiveEngine            │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                              │                                   │
 │  ┌──────────────────── Tool Layer ──────────────────────────┐   │
 │  │  Shell · File · Web · MCP · Skills · Scheduler            │   │
 │  │  Browser · Desktop · Plan · Profile · IM Channel          │   │
+│  │  Persona · Sticker                                        │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                              │                                   │
 │  ┌──────────────────── Evolution Engine ────────────────────┐   │
@@ -249,6 +256,9 @@ TELEGRAM_BOT_TOKEN=your-bot-token
 | **Skills** | Agent Skills standard, dynamic loading, GitHub install, auto-generation |
 | **MCP** | Model Context Protocol, server discovery, tool proxying |
 | **Scheduler** | Task scheduling, cron / interval / one-time triggers |
+| **Persona** | 3-layer persona architecture, 8 presets, LLM-driven trait mining, runtime state persistence |
+| **Proactive Engine** | Living presence mode: proactive greetings, task follow-ups, memory recall, feedback-driven frequency control |
+| **Sticker Engine** | ChineseBQB sticker integration, keyword/mood search, per-persona sticker strategy |
 | **Channels** | Unified message format, multi-platform IM adapters |
 
 ---
@@ -303,6 +313,7 @@ Join our community for help, discussions, and updates:
 - [AGENTS.md Standard](https://agentsmd.io/) — Agent behavior specification
 - [Agent Skills](https://agentskills.io/) — Skill standardization specification
 - [ZeroMQ](https://zeromq.org/) — Multi-agent inter-process communication
+- [ChineseBQB](https://github.com/zhaoolee/ChineseBQB) — Chinese sticker/emoji pack collection
 
 ## License
 
