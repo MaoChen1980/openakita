@@ -305,9 +305,12 @@ async def health_check_im(workspace_dir: str, channel: str | None) -> None:
                     aes_key = env.get("WEWORK_ENCODING_AES_KEY", "").strip()
                     if not corp_id or not token or not aes_key:
                         missing = []
-                        if not corp_id: missing.append("WEWORK_CORP_ID")
-                        if not token: missing.append("WEWORK_TOKEN")
-                        if not aes_key: missing.append("WEWORK_ENCODING_AES_KEY")
+                        if not corp_id:
+                            missing.append("WEWORK_CORP_ID")
+                        if not token:
+                            missing.append("WEWORK_TOKEN")
+                        if not aes_key:
+                            missing.append("WEWORK_ENCODING_AES_KEY")
                         raise Exception(f"缺少必填参数: {', '.join(missing)}")
                 elif ch["id"] == "dingtalk":
                     client_id = env["DINGTALK_CLIENT_ID"]
