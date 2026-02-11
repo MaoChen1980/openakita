@@ -130,8 +130,8 @@ class FilesystemHandler:
         if "\n" not in code:
             return command
 
-        # 写入临时文件
-        tmp = tempfile.NamedTemporaryFile(
+        # 写入临时文件 (delete=False requires manual cleanup, not context manager)
+        tmp = tempfile.NamedTemporaryFile(  # noqa: SIM115
             mode="w",
             suffix=".py",
             prefix="oa_shell_",

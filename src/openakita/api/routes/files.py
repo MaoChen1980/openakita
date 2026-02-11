@@ -57,10 +57,7 @@ async def serve_file(request: Request, path: str = ""):
 
     # Handle both relative and absolute paths
     requested = Path(path)
-    if requested.is_absolute():
-        full_path = requested
-    else:
-        full_path = workspace / path
+    full_path = requested if requested.is_absolute() else workspace / path
 
     # Resolve to prevent path traversal
     try:

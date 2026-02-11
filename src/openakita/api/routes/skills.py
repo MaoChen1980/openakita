@@ -71,8 +71,8 @@ async def update_skill_config(request: Request):
 async def search_marketplace(q: str = "agent"):
     """Proxy to skills.sh search API (bypasses CORS for desktop app)."""
     from openakita.llm.providers.proxy_utils import (
-        get_proxy_config,
         get_httpx_transport,
+        get_proxy_config,
     )
 
     try:
