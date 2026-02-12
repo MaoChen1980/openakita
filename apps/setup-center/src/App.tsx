@@ -2362,12 +2362,12 @@ export function App() {
    * 启动进程（PID 存活）不代表 HTTP 可达，FastAPI+uvicorn 需要额外几秒初始化。
    * @returns true 如果在 maxWaitMs 内服务响应了 /api/health
    */
-  async function waitForServiceReady(baseUrl: string, maxWaitMs = 15000): Promise<boolean> {
+  async function waitForServiceReady(baseUrl: string, maxWaitMs = 60000): Promise<boolean> {
     const start = Date.now();
-    const interval = 800;
+    const interval = 1000;
     while (Date.now() - start < maxWaitMs) {
       try {
-        const res = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(2000) });
+        const res = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(3000) });
         if (res.ok) return true;
       } catch { /* not ready yet */ }
       await new Promise((r) => setTimeout(r, interval));
@@ -2553,8 +2553,23 @@ export function App() {
           }
         } catch { /* ignore */ }
       } else if (real.running) {
-        setError(t("topbar.startFail") + " (HTTP API not reachable)");
-        await refreshStatus("local", "http://127.0.0.1:18900", true);
+        // Process is alive but HTTP API not yet reachable — keep waiting in background
+        setBusy(t("topbar.starting") + "…");
+        const bgReady = await waitForServiceReady("http://127.0.0.1:18900", 60000);
+        if (bgReady) {
+          setNotice(t("connect.success"));
+          await refreshStatus("local", "http://127.0.0.1:18900", true);
+          try {
+            const hRes = await fetch("http://127.0.0.1:18900/api/health", { signal: AbortSignal.timeout(2000) });
+            if (hRes.ok) {
+              const hData = await hRes.json();
+              checkVersionMismatch(hData.version || "");
+            }
+          } catch { /* ignore */ }
+        } else {
+          setError(t("topbar.startFail") + " (HTTP API not reachable)");
+          await refreshStatus("local", "http://127.0.0.1:18900", true);
+        }
       } else {
         setError(t("topbar.startFail"));
       }
@@ -3416,6 +3431,7 @@ export function App() {
                 <button className="dialogCloseBtn" onClick={() => { setAddEpDialogOpen(false); resetEndpointEditor(); }}><IconX size={14} /></button>
               </div>
 
+              <div className="dialogBody">
               {/* Provider */}
               <div className="dialogSection">
                 <div className="dialogLabel">{t("llm.provider")}</div>
@@ -3530,8 +3546,9 @@ export function App() {
                   </div>
                 </div>
               </details>
+              </div>
 
-              {/* Footer */}
+              {/* Footer — fixed at bottom */}
               <div className="dialogFooter">
                 <button className="btnSmall" onClick={() => { setAddEpDialogOpen(false); resetEndpointEditor(); }}>{t("common.cancel")}</button>
                 <button className="btnPrimary" style={{ padding: "8px 20px", borderRadius: 8 }} onClick={async () => { await doSaveEndpoint(); setAddEpDialogOpen(false); }} disabled={!selectedModelId.trim() || !apiKeyEnv.trim() || !apiKeyValue.trim() || !baseUrl.trim() || (!currentWorkspaceId && dataMode !== "remote") || !!busy}>
@@ -3550,6 +3567,7 @@ export function App() {
                 <div className="cardTitle">{t("llm.editEndpoint")}: {editDraft.name}</div>
                 <button className="dialogCloseBtn" onClick={() => resetEndpointEditor()}><IconX size={14} /></button>
               </div>
+              <div className="dialogBody">
               <div className="dialogSection">
                 <div className="dialogLabel">{t("status.model")}</div>
                 <input value={editDraft.modelId || ""} onChange={(e) => setEditDraft({ ...editDraft, modelId: e.target.value })} />
@@ -3561,6 +3579,7 @@ export function App() {
               <div className="dialogSection">
                 <div className="dialogLabel">API Key</div>
                 <input value={envDraft[editDraft.apiKeyEnv || ""] || ""} onChange={(e) => { const k = editDraft.apiKeyEnv || ""; setEnvDraft((m) => ({ ...m, [k]: e.target.value })); }} type="password" />
+              </div>
               </div>
               <div className="dialogFooter">
                 <button className="btnSmall" onClick={() => resetEndpointEditor()}>{t("common.cancel")}</button>
@@ -3578,6 +3597,7 @@ export function App() {
                 <div className="cardTitle">{t("llm.addCompiler")}</div>
                 <button className="dialogCloseBtn" onClick={() => setAddCompDialogOpen(false)}><IconX size={14} /></button>
               </div>
+              <div className="dialogBody">
               <div className="dialogSection">
                 <div className="dialogLabel">{t("llm.provider")}</div>
                 <select value={compilerProviderSlug} onChange={(e) => {
@@ -3643,6 +3663,7 @@ export function App() {
               <div className="dialogSection">
                 <div className="dialogLabel">{t("llm.endpointName")} <span style={{ color: "var(--muted)", fontSize: 11 }}>({t("common.optional")})</span></div>
                 <input value={compilerEndpointName} onChange={(e) => setCompilerEndpointName(e.target.value)} placeholder={`compiler-${compilerProviderSlug || "custom"}-${compilerModel || "model"}`} />
+              </div>
               </div>
               <div className="dialogFooter">
                 <button className="btnSmall" onClick={() => setAddCompDialogOpen(false)}>{t("common.cancel")}</button>

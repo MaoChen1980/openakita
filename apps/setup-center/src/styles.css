@@ -950,7 +950,9 @@ button:disabled {
   width: 480px;
   max-width: 100%;
   max-height: 85vh;
-  overflow-y: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   box-shadow: 0 24px 64px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.05);
   animation: slideUp 0.2s ease-out;
 }
@@ -965,14 +967,21 @@ button:disabled {
   padding-bottom: 20px;
 }
 
-/* Dialog header */
+/* Dialog body — scrollable middle area */
+.dialogBody {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* Dialog header — sticky top */
 .dialogHeader {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 20px 24px 12px;
   border-bottom: 1px solid var(--line);
-  margin-bottom: 4px;
+  flex-shrink: 0;
 }
 .dialogHeader .cardTitle {
   margin: 0;
@@ -1028,11 +1037,11 @@ button:disabled {
   box-shadow: 0 0 0 3px rgba(37,99,235,0.08);
 }
 
-/* Dialog footer */
+/* Dialog footer — sticky bottom */
 .dialogFooter {
   padding: 12px 24px 20px;
   border-top: 1px solid var(--line);
-  margin-top: 8px;
+  flex-shrink: 0;
   display: flex;
   justify-content: flex-end;
   gap: 8px;

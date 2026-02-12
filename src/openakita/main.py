@@ -986,6 +986,7 @@ def _reset_globals():
     _session_manager = None
 
 
+@app.command()
 def serve():
     """
     启动服务模式 (无 CLI，只运行 IM 通道)
@@ -1145,6 +1146,10 @@ def serve():
             console.print("\n[yellow]服务已停止（重启被取消）[/yellow]")
             break
 
+        # 在进入 _serve() 前，记录当前 restart flag，
+        # _serve() 内部 shutdown 会读取它，但我们需要在 asyncio.run() 返回后仍能判断。
+        restart_flag_before = cfg._restart_requested
+
         try:
             asyncio.run(_serve())
         except KeyboardInterrupt:
@@ -1159,6 +1164,13 @@ def serve():
                     console.print("\n[yellow]服务已停止[/yellow]")
             else:
                 raise
+        except asyncio.CancelledError:
+            # asyncio.run() 退出时可能抛出 CancelledError（BaseException）
+            # 对于重启场景，这是正常的
+            if not cfg._restart_requested:
+                if not shutdown_triggered:
+                    console.print("\n[yellow]服务已停止[/yellow]")
+                break
         except Exception as e:
             # 捕获其他异常，检查是否是 InvalidStateError
             if "InvalidState" in str(type(e).__name__) or "invalid state" in str(e).lower():
@@ -1167,9 +1179,15 @@ def serve():
             else:
                 raise
 
-        # 如果不是重启请求，跳出循环
-        if not cfg._restart_requested:
-            break
+        # 如果是 API 触发的重启（不是 Ctrl+C / 信号触发的关闭），
+        # 需要重置 shutdown_triggered 以允许重启循环继续。
+        if cfg._restart_requested or restart_flag_before:
+            shutdown_triggered = False
+            cfg._restart_requested = True  # 确保循环条件成立
+            continue
+
+        # 不是重启请求，跳出循环
+        break
 
 
 if __name__ == "__main__":
