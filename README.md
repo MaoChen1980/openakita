@@ -64,7 +64,6 @@ OpenAkita provides a cross-platform **Desktop Terminal** (built with Tauri + Rea
 
 - **AI Chat Assistant** — Streaming output, Markdown rendering, multimodal input, Thinking display, Plan mode
 - **Bilingual (CN/EN)** — Auto-detects system language, one-click switch, fully internationalized
-- **Guided Setup Flow** — 9-step wizard, streamlined and focused, dialog-based LLM endpoint management
 - **Localization & i18n** — First-class support for Chinese and international ecosystems, PyPI mirrors, IM channels
 - **LLM Endpoint Manager** — Multi-provider, multi-endpoint, auto-failover, online model list fetching
 - **IM Channel Setup** — Telegram, Feishu, WeCom, DingTalk, QQ — all in one place
@@ -77,134 +76,92 @@ OpenAkita provides a cross-platform **Desktop Terminal** (built with Tauri + Rea
 >
 > Available for Windows (.exe) / macOS (.dmg) / Linux (.deb / .AppImage)
 
+### 3-Minute Quick Setup — Zero to Chatting
+
+No command line. No config files. **From install to conversation in 3 minutes**:
+
+<p align="center">
+  <img src="docs/assets/desktop_quick_config.png" alt="OpenAkita Quick Setup vs Full Setup" width="800" />
+</p>
+
+<table>
+<tr>
+<td width="50%">
+
+**Quick Setup (Recommended for new users)**
+
+```
+① Fill in  → Add LLM endpoint + IM (optional)
+② One-click → Auto-create env, install deps, write config
+③ Done      → Launch service, start chatting
+```
+
+Just one API Key, everything else is automatic:
+- Auto-create workspace
+- Auto-download & install Python 3.11
+- Auto-create venv + pip install
+- Auto-write 40+ recommended defaults
+- Auto-save IM channel settings
+
+</td>
+<td width="50%">
+
+**Full Setup (Power users)**
+
+```
+Workspace → Python → Install → LLM Endpoints
+→ IM Channels → Tools & Skills → Agent System → Finish
+```
+
+8-step guided wizard with full control:
+- Custom workspaces (multi-env isolation)
+- Choose Python version & install source
+- Configure desktop automation, MCP tools
+- Tune persona, living presence parameters
+- Logging, memory, scheduler & more
+
+</td>
+</tr>
+</table>
+
+> Switch between modes anytime — click "Switch Setup Mode" in the sidebar to return to the selection page without losing existing configuration.
+>
+> See [Configuration Guide](docs/configuration-guide.md) for full details.
+
 ---
 
 ## Features
 
-| Feature | Description |
-|---------|-------------|
-| **Self-Learning & Evolution** | Daily self-check (04:00), memory consolidation (03:00), task retrospection, auto skill generation, auto dependency install |
-| **Ralph Wiggum Mode** | Never-give-up execution loop: Plan → Act → Verify → repeat until done; checkpoint recovery |
-| **Prompt Compiler** | Two-stage prompt architecture: fast model preprocesses instructions, compiles identity files, detects compound tasks |
-| **MCP Integration** | Model Context Protocol standard, stdio transport, auto server discovery, built-in web search |
-| **Skill System** | Agent Skills standard (SKILL.md), 8 discovery directories, GitHub install, LLM auto-generation |
-| **Plan Mode** | Auto-detect multi-step tasks, create execution plans, real-time progress tracking, persisted as Markdown |
-| **Multi-LLM Endpoints** | 9 providers, capability-based routing, priority failover, thinking mode, multimodal (text/image/video/voice) |
-| **Multi-Platform IM** | CLI / Telegram / Feishu / DingTalk / WeCom (full support); QQ (implemented) |
-| **Desktop Automation** | Windows UIAutomation + vision fallback, 9 tools: screenshot, click, type, hotkeys, window management |
-| **Multi-Agent** | Master-Worker architecture, ZMQ message bus, smart routing, dynamic scaling, fault recovery |
-| **Scheduled Tasks** | Cron / interval / one-time triggers, reminder + task types, persistent storage |
-| **Identity & Memory** | Four-file identity (SOUL / AGENT / USER / MEMORY), vector search, daily auto-consolidation |
-| **Persona System** | 8 role presets (default / business / tech / butler / girlfriend / boyfriend / family / Jarvis), layered persona architecture (preset + user preferences + context-adaptive), LLM-driven trait mining |
-| **Living Presence** | Proactive engine: greetings, task follow-ups, memory recall; frequency control, quiet hours, feedback loop; feels like a real assistant |
-| **Sticker Engine** | ChineseBQB integration (5700+ stickers), keyword search, mood mapping, per-persona sticker strategy |
-| **Tool System** | 11 categories, 50+ tools, 3-level progressive disclosure (catalog → detail → execute) to reduce token usage |
-| **Desktop App** | Tauri cross-platform desktop app, AI chat, guided wizard, tray residency, status monitoring |
+| | Feature | In One Line |
+|:---:|---------|-------------|
+| **1** | **Self-Learning & Evolution** | Daily self-check, memory consolidation, task retrospection, auto skill generation — it gets smarter while you sleep |
+| **2** | **8 Personas + Living Presence** | Girlfriend / Butler / Jarvis… not just role-play — proactive greetings, remembers your birthday, auto-mutes at night |
+| **3** | **3-Min Quick Setup** | Desktop app, one-click start — just drop in an API Key, Python/env/deps/config all automatic |
+| **4** | **Plan Mode** | Complex tasks auto-decomposed into multi-step plans, real-time tracking, Plan → Act → Verify loop until done |
+| **5** | **Dynamic Multi-LLM** | 9+ providers hot-swappable, priority routing + auto-failover, one goes down, next picks up seamlessly |
+| **6** | **Skill + MCP Standards** | Agent Skills / MCP open standards, one-click GitHub skill install, plug-and-play ecosystem |
+| **7** | **6 IM Platforms** | Telegram / Feishu / WeCom / DingTalk / QQ / CLI — wherever you are, it's there |
+| **8** | **AI That Sends Memes** | Probably the first AI Agent that "meme-battles" — 5700+ stickers, mood-aware, persona-matched (powered by [ChineseBQB](https://github.com/zhaoolee/ChineseBQB)) |
 
 ---
 
-## Persona & Living Presence
+## How Does It Keep Getting Smarter?
 
-One of OpenAkita's most distinctive features — **not just a tool, but a lifelike assistant with personality, memory, and warmth**:
+Other AIs forget you the moment you close the chat. OpenAkita **self-evolves** — while you sleep, it's learning:
 
-| Capability | Description |
-|-----------|-------------|
-| **8 Role Presets** | Default / Business / Tech Expert / Butler / Girlfriend / Boyfriend / Family / Jarvis |
-| **3-Layer Persona** | Preset base → User preference learning → Context-adaptive, gets to know you over time |
-| **Living Presence** | Proactive greetings, task follow-ups, memory recall ("Last time you mentioned learning guitar...") |
-| **Auto Trait Mining** | LLM analyzes user personality every conversation turn, daily promotion to identity files |
-| **Quiet Hours** | Auto-mutes at night, present but never intrusive |
-| **Sticker Engine** | ChineseBQB 5700+ stickers, per-persona sticker strategy |
-
-> The Agent proactively greets you during idle time, remembers your birthday, preferences, and work habits — like a real friend.
-
----
-
-## Localization & i18n
-
-OpenAkita offers **first-class support for both Chinese and international ecosystems**:
-
-- **Chinese LLM Providers** — Alibaba DashScope (Qwen), Moonshot Kimi, MiniMax, DeepSeek, SiliconFlow
-- **Global LLM Support** — Anthropic, OpenAI, Google Gemini, and more
-- **Chinese IM Channels** — Feishu (Lark), WeCom, DingTalk, QQ native support
-- **PyPI Mirrors** — Built-in Tsinghua TUNA and Alibaba mirrors for faster installs in China
-- **Full i18n** — `react-i18next` based, auto system language detection, one-click switch
-
----
-
-## Self-Learning & Self-Evolution
-
-The core differentiator: **OpenAkita doesn't just execute — it learns and grows autonomously**.
-
-| Mechanism | Trigger | Behavior |
-|-----------|---------|----------|
-| **Daily Self-Check** | Every day at 04:00 | Analyze ERROR logs → LLM diagnosis → auto-fix tool errors → generate report |
-| **Memory Consolidation** | Every day at 03:00 | Consolidate conversations → semantic dedup → extract insights → refresh MEMORY.md |
-| **Task Retrospection** | After long tasks (>60s) | Analyze efficiency → extract lessons → store in long-term memory |
-| **Skill Auto-Generation** | Missing capability detected | LLM generates SKILL.md + script → auto-test → register and load |
-| **Auto Dependency Install** | pip/npm package missing | Search GitHub → install dependency → fallback to skill generation |
-| **Real-Time Memory** | Every conversation turn | Extract preferences/rules/facts → vector storage → auto-update MEMORY.md |
-| **Persona Trait Mining** | Every conversation turn | LLM analyzes user messages → extract personality preferences → daily promotion to identity |
-| **User Profile Learning** | During conversations | Identify preferences and habits → update USER.md → personalized experience |
-
----
-
-## Quick Start
-
-### Option 1: OpenAkita Desktop (Recommended)
-
-The easiest way — graphical guided setup, no command-line experience needed:
-
-1. Download the installer from [GitHub Releases](https://github.com/openakita/openakita/releases)
-2. Install and launch OpenAkita Desktop
-3. Follow the wizard: Workspace → Python → Install → LLM Endpoints → IM Channels → Finish & Start
-
-### Option 2: PyPI Install
-
-```bash
-# Install
-pip install openakita
-
-# Install with all optional features
-pip install openakita[all]
-
-# Run setup wizard
-openakita init
+```
+Every day 03:00  →  Memory consolidation: semantic dedup, extract insights, refresh MEMORY.md
+Every day 04:00  →  Self-check: analyze error logs → LLM diagnosis → auto-fix → report
+After each task   →  Retrospection: analyze efficiency, extract lessons, store long-term
+When stuck        →  Auto-generate skills + install dependencies — it won't be stuck next time
+Every chat turn   →  Mine your preferences and habits — gets to know you over time
 ```
 
-Optional extras: `feishu`, `whisper`, `browser`, `windows`
+> Example: You ask it to write Python, it finds a missing package — auto `pip install`. Needs a new tool — auto-generates a Skill. Next morning, it's already fixed yesterday's bugs.
 
-### Option 3: Source Install
+---
 
-```bash
-git clone https://github.com/openakita/openakita.git
-cd openakita
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -e ".[all]"
-openakita init
-```
-
-### Run
-
-```bash
-# Interactive CLI
-openakita
-
-# Execute a single task
-openakita run "Create a Python calculator with tests"
-
-# Service mode (IM channels)
-openakita serve
-
-# Background daemon
-openakita daemon start
-
-# Check status
-openakita status
-```
-
-### Recommended Models
+## Recommended Models
 
 | Model | Provider | Notes |
 |-------|----------|-------|
@@ -213,21 +170,58 @@ openakita status
 | `qwen3-max` | Alibaba | Strong Chinese support |
 | `deepseek-v3` | DeepSeek | Cost-effective |
 | `kimi-k2.5` | Moonshot | Long-context |
-| `minimax-m2.1` | MiniMax | Good for dialogue |
+| `minimax-m2.1` | MiniMax | Great for dialogue |
 
-> For complex tasks, enable Thinking mode by using a `*-thinking` model variant (e.g., `claude-opus-4-5-20251101-thinking`).
+> For complex reasoning, enable Thinking mode — just add `-thinking` suffix to the model name (e.g., `claude-opus-4-5-20251101-thinking`).
 
-### Basic Configuration
+---
+
+## Quick Start
+
+### Option 1: Desktop App (Recommended)
+
+The easiest way — download, drop in an API Key, click, done:
+
+1. Download from [GitHub Releases](https://github.com/openakita/openakita/releases) (Windows / macOS / Linux)
+2. Install and launch OpenAkita Desktop
+3. Choose **Quick Setup** → Add LLM endpoint → Click "Start Setup" → All automatic → Start chatting
+
+> Need full control? Choose **Full Setup**: Workspace → Python → Install → LLM → IM → Tools → Agent → Finish
+
+### Option 2: pip Install
 
 ```bash
-# .env (minimum configuration)
+pip install openakita[all]    # Install (with all optional features)
+openakita init                # Run setup wizard
+openakita                     # Launch interactive CLI
+```
 
-# LLM API (required — configure at least one)
-ANTHROPIC_API_KEY=your-api-key
+### Option 3: Source Install
 
-# Telegram (optional)
-TELEGRAM_ENABLED=true
-TELEGRAM_BOT_TOKEN=your-bot-token
+```bash
+git clone https://github.com/openakita/openakita.git
+cd openakita
+python -m venv venv && source venv/bin/activate
+pip install -e ".[all]"
+openakita init
+```
+
+### Commands
+
+```bash
+openakita                              # Interactive chat
+openakita run "Build a calculator"     # Execute a single task
+openakita serve                        # Service mode (IM channels)
+openakita daemon start                 # Background daemon
+openakita status                       # Check status
+```
+
+### Minimum Config
+
+```bash
+# .env (just two lines to get started)
+ANTHROPIC_API_KEY=your-api-key     # Or DASHSCOPE_API_KEY, etc.
+TELEGRAM_BOT_TOKEN=your-bot-token  # Optional — connect Telegram
 ```
 
 ---
@@ -235,92 +229,52 @@ TELEGRAM_BOT_TOKEN=your-bot-token
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                          OpenAkita                               │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌──────────────────── Desktop App ────────────────────────┐   │
-│  │  Tauri + React · AI Chat · Config · Monitor · Skills    │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                              │                                   │
-│  ┌──────────────────── Identity Layer ──────────────────────┐   │
-│  │  SOUL.md · AGENT.md · USER.md · MEMORY.md                │   │
-│  │  Personas (8 presets + user_custom)                       │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                              │                                   │
-│  ┌──────────────────── Core Layer ──────────────────────────┐   │
-│  │  Brain (LLM) · Identity · Memory · Ralph Loop             │   │
-│  │  Prompt Compiler · Task Monitor                           │   │
-│  │  PersonaManager · TraitMiner · ProactiveEngine            │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                              │                                   │
-│  ┌──────────────────── Tool Layer ──────────────────────────┐   │
-│  │  Shell · File · Web · MCP · Skills · Scheduler            │   │
-│  │  Browser · Desktop · Plan · Profile · IM Channel          │   │
-│  │  Persona · Sticker                                        │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                              │                                   │
-│  ┌──────────────────── Evolution Engine ────────────────────┐   │
-│  │  SelfCheck · Generator · Installer · LogAnalyzer          │   │
-│  │  DailyConsolidator · TaskRetrospection                    │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                              │                                   │
-│  ┌──────────────────── Channel Layer ───────────────────────┐   │
-│  │  CLI · Telegram · Feishu · WeCom · DingTalk · QQ          │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+Desktop App (Tauri + React)
+    │
+Identity ─── SOUL.md · AGENT.md · USER.md · MEMORY.md · 8 Persona Presets
+    │
+Core     ─── Brain(LLM) · Memory(Vector) · Ralph(Never-Give-Up Loop)
+    │        Prompt Compiler · PersonaManager · ProactiveEngine
+    │
+Tools    ─── Shell · File · Web · Browser · Desktop · MCP · Skills
+    │        Scheduler · Plan · Sticker · Persona
+    │
+Evolution ── SelfCheck · Generator · Installer · LogAnalyzer
+    │        DailyConsolidator
+    │
+Channels ─── CLI · Telegram · Feishu · WeCom · DingTalk · QQ
 ```
 
-### Core Components
-
-| Component | Description |
-|-----------|-------------|
-| **Brain** | Unified LLM client, multi-endpoint failover, capability routing |
-| **Identity** | Four-file identity system, compiled to token-efficient summaries |
-| **Memory** | Vector memory (ChromaDB), semantic search, daily auto-consolidation |
-| **Ralph Loop** | Never-give-up execution loop, StopHook interception, checkpoint recovery |
-| **Prompt Compiler** | Two-stage prompt architecture, fast model preprocessing |
-| **Task Monitor** | Execution monitoring, timeout model switching, task retrospection |
-| **Evolution Engine** | Self-check, skill generation, dependency install, log analysis |
-| **Skills** | Agent Skills standard, dynamic loading, GitHub install, auto-generation |
-| **MCP** | Model Context Protocol, server discovery, tool proxying |
-| **Scheduler** | Task scheduling, cron / interval / one-time triggers |
-| **Persona** | 3-layer persona architecture, 8 presets, LLM-driven trait mining, runtime state persistence |
-| **Proactive Engine** | Living presence mode: proactive greetings, task follow-ups, memory recall, feedback-driven frequency control |
-| **Sticker Engine** | ChineseBQB sticker integration, keyword/mood search, per-persona sticker strategy |
-| **Channels** | Unified message format, multi-platform IM adapters |
+> See [Architecture Doc](docs/architecture.md) for full details.
 
 ---
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [Quick Start](docs/getting-started.md) | Installation and basic usage |
+| Document | Content |
+|----------|---------|
+| [Configuration Guide](docs/configuration-guide.md) | Desktop Quick Setup & Full Setup walkthrough |
+| [Quick Start](docs/getting-started.md) | Installation and basics |
 | [Architecture](docs/architecture.md) | System design and components |
-| [Configuration](docs/configuration.md) | All configuration options |
-| [Deployment](docs/deploy.md) | Production deployment (systemd / Docker / nohup) |
-| [MCP Integration](docs/mcp-integration.md) | Connecting external services |
+| [Configuration](docs/configuration.md) | All config options |
+| [Deployment](docs/deploy.md) | Production deployment (systemd / Docker) |
 | [IM Channels](docs/im-channels.md) | Telegram / Feishu / DingTalk setup |
+| [MCP Integration](docs/mcp-integration.md) | Connecting external services |
 | [Skill System](docs/skills.md) | Creating and using skills |
-| [Testing](docs/testing.md) | Testing framework and coverage |
 
 ---
 
 ## Community
-
-Join our community for help, discussions, and updates:
 
 <table>
   <tr>
     <td align="center">
       <img src="docs/assets/wechat_group.jpg" width="200" alt="WeChat Group QR Code" /><br/>
       <b>WeChat Group</b><br/>
-      <sub>Scan to join (Chinese)</sub>
+      <sub>Scan to join</sub>
     </td>
     <td>
-      <b>WeChat</b> — Chinese community chat<br/><br/>
+      <b>WeChat</b> — Chinese community<br/><br/>
       <b>Discord</b> — <a href="https://discord.gg/Mkpd3rsm">Join Discord</a><br/><br/>
       <b>X (Twitter)</b> — <a href="https://x.com/openakita">@openakita</a><br/><br/>
       <b>Email</b> — <a href="mailto:zacon365@gmail.com">zacon365@gmail.com</a>
@@ -328,33 +282,27 @@ Join our community for help, discussions, and updates:
   </tr>
 </table>
 
-- [Documentation](docs/) — Complete guides
-- [Issues](https://github.com/openakita/openakita/issues) — Bug reports & feature requests
-- [Discussions](https://github.com/openakita/openakita/discussions) — Q&A and ideas
-- [Star us](https://github.com/openakita/openakita) — Show your support
+[Issues](https://github.com/openakita/openakita/issues) · [Discussions](https://github.com/openakita/openakita/discussions) · [Star](https://github.com/openakita/openakita)
 
 ---
 
 ## Acknowledgments
 
-- [Anthropic Claude](https://www.anthropic.com/claude) — LLM Engine
+- [Anthropic Claude](https://www.anthropic.com/claude) — Core LLM engine
 - [Tauri](https://tauri.app/) — Cross-platform desktop framework
+- [ChineseBQB](https://github.com/zhaoolee/ChineseBQB) — 5700+ stickers that give AI a soul
 - [browser-use](https://github.com/browser-use/browser-use) — AI browser automation
-- [AGENTS.md Standard](https://agentsmd.io/) — Agent behavior specification
-- [Agent Skills](https://agentskills.io/) — Skill standardization specification
-- [ZeroMQ](https://zeromq.org/) — Multi-agent inter-process communication
-- [ChineseBQB](https://github.com/zhaoolee/ChineseBQB) — Chinese sticker/emoji pack collection
+- [AGENTS.md](https://agentsmd.io/) / [Agent Skills](https://agentskills.io/) — Open standards
+- [ZeroMQ](https://zeromq.org/) — Multi-agent IPC
 
 ## License
 
 MIT License — See [LICENSE](LICENSE)
 
-This project includes third-party skills licensed under Apache 2.0 and other
-open-source licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for
-details.
+Third-party licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
 ---
 
 <p align="center">
-  <strong>OpenAkita — Self-Evolving AI Agent, Learns Autonomously, Never Gives Up</strong>
+  <strong>OpenAkita — Self-Evolving AI Agent That Sends Memes, Learns Autonomously, Never Gives Up</strong>
 </p>
