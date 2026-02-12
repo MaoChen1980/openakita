@@ -130,7 +130,6 @@ async def health_check_endpoint(workspace_dir: str, endpoint_name: str | None) -
     import time
 
     from openakita.llm.client import LLMClient
-    from openakita.llm.config import load_config
 
     wd = Path(workspace_dir).expanduser().resolve()
     config_path = wd / "data" / "llm_endpoints.json"
@@ -148,8 +147,7 @@ async def health_check_endpoint(workspace_dir: str, endpoint_name: str | None) -
             if eq > 0:
                 os.environ.setdefault(line[:eq].strip(), line[eq + 1:])
 
-    config = load_config(str(config_path))
-    client = LLMClient(config=config, config_path=config_path)
+    client = LLMClient(config_path=config_path)
 
     results = []
     targets = list(client._providers.items())

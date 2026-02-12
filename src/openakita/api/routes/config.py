@@ -13,7 +13,7 @@ import logging
 import re
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -172,6 +172,45 @@ async def write_endpoints(body: EndpointsWriteRequest):
     )
     logger.info("[Config API] Updated llm_endpoints.json")
     return {"status": "ok"}
+
+
+@router.post("/api/config/reload")
+async def reload_config(request: Request):
+    """Hot-reload LLM endpoints config from disk into the running agent.
+
+    This should be called after writing llm_endpoints.json so the running
+    service picks up changes without a full restart.
+    """
+    agent = getattr(request.app.state, "agent", None)
+    if agent is None:
+        return {"status": "ok", "reloaded": False, "reason": "agent not initialized"}
+
+    # Navigate: agent → brain → _llm_client
+    brain = getattr(agent, "brain", None) or getattr(agent, "_local_agent", None)
+    if brain and hasattr(brain, "brain"):
+        brain = brain.brain  # agent wrapper → actual agent → brain
+    llm_client = getattr(brain, "_llm_client", None) if brain else None
+    if llm_client is None:
+        # Try direct attribute on agent
+        llm_client = getattr(agent, "_llm_client", None)
+
+    if llm_client is None:
+        return {"status": "ok", "reloaded": False, "reason": "llm_client not found"}
+
+    try:
+        success = llm_client.reload()
+        if success:
+            logger.info("[Config API] LLM endpoints reloaded successfully")
+            return {
+                "status": "ok",
+                "reloaded": True,
+                "endpoints": len(llm_client.endpoints),
+            }
+        else:
+            return {"status": "ok", "reloaded": False, "reason": "reload returned false"}
+    except Exception as e:
+        logger.error(f"[Config API] Reload failed: {e}", exc_info=True)
+        return {"status": "error", "reloaded": False, "reason": str(e)}
 
 
 @router.get("/api/config/skills")

@@ -329,6 +329,7 @@
     "imWeworkCorpIdHelp": "Found at bottom of 'My Corp → Corp Info' page in WeCom admin",
     "imWeworkTokenHelp": "From Smart Bot 'Receive Messages' server config",
     "imWeworkAesKeyHelp": "From Smart Bot 'Receive Messages' server config",
+    "imWeworkCallbackUrlHint": "In WeCom admin 'Receive Messages' server config, set URL to: ",
     "imTypeLongPolling": "Bot (Long Polling)",
     "imTypeCustomApp": "Custom App (WebSocket)",
     "imTypeSmartBot": "Smart Bot (HTTP Callback)",
@@ -419,10 +420,30 @@
     "hint": "Enter the address of a running OpenAkita service (default port 18900)",
     "address": "Service Address",
     "testing": "Testing connection...",
-    "success": "Successfully connected to remote service",
+    "success": "Connected to service",
     "fail": "Cannot connect to service. Check the address and ensure the service is running",
     "confirm": "Connect",
     "remoteMode": "Remote",
     "remoteHint": "Connected to remote service at {{url}}"
+  },
+  "conflict": {
+    "title": "Existing Service Detected",
+    "message": "An OpenAkita service is already running on local port 18900",
+    "detail": "PID: {{pid}} · Version: {{version}}",
+    "connectExisting": "Connect to Existing",
+    "stopAndRestart": "Stop & Restart",
+    "cancel": "Cancel"
+  },
+  "version": {
+    "mismatch": "Version Mismatch",
+    "mismatchDetail": "Backend version {{backend}} differs from desktop version {{desktop}}, which may cause issues.",
+    "updatePip": "Update Backend (pip)",
+    "pipCommand": "pip install --upgrade openakita",
+    "copied": "Copied to clipboard",
+    "newRelease": "New Version Available",
+    "newReleaseDetail": "OpenAkita {{latest}} is available (current: {{current}})",
+    "viewRelease": "View Release",
+    "dismiss": "Later",
+    "checking": "Checking for updates..."
   }
 }

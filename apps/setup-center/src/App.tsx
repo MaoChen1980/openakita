@@ -312,6 +312,25 @@ const PIP_INDEX_PRESETS: { id: "official" | "tuna" | "aliyun" | "custom"; label:
   { id: "custom", label: "自定义…", url: "" },
 ];
 
+/**
+ * fetch wrapper: 在 HTTP 4xx/5xx 时自动抛异常（原生 fetch 只在网络错误时才抛）。
+ * 所有对后端 API 的调用都应使用此函数，以确保错误被正确捕获。
+ */
+async function safeFetch(url: string, init?: RequestInit): Promise<Response> {
+  // Apply a default timeout (10s) if the caller didn't supply an AbortSignal
+  const effectiveInit = init?.signal ? init : { ...init, signal: AbortSignal.timeout(10_000) };
+  const res = await fetch(url, effectiveInit);
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.text();
+      if (body) detail = body.slice(0, 200);
+    } catch { /* ignore */ }
+    throw new Error(`HTTP ${res.status}: ${detail}`);
+  }
+  return res;
+}
+
 export function App() {
   const { t, i18n } = useTranslation();
   const [info, setInfo] = useState<PlatformInfo | null>(null);
@@ -333,6 +352,20 @@ export function App() {
   function askConfirm(message: string, onConfirm: () => void) {
     setConfirmDialog({ message, onConfirm });
   }
+
+  // ── Service conflict & version state ──
+  const [conflictDialog, setConflictDialog] = useState<{ pid: number; version: string } | null>(null);
+  const [pendingStartWsId, setPendingStartWsId] = useState<string | null>(null); // workspace ID waiting for conflict resolution
+  const [versionMismatch, setVersionMismatch] = useState<{ backend: string; desktop: string } | null>(null);
+  const [newRelease, setNewRelease] = useState<{ latest: string; current: string; url: string } | null>(null);
+  const [desktopVersion, setDesktopVersion] = useState("0.0.0");
+  const [backendVersion, setBackendVersion] = useState<string | null>(null);
+  const GITHUB_REPO = "openakita/openakita";
+
+  // Read desktop app version from Tauri on mount
+  useEffect(() => {
+    getVersion().then((v) => setDesktopVersion(v)).catch(() => setDesktopVersion("1.10.5")); // fallback
+  }, []);
 
   // Ensure boot overlay is removed once React actually mounts.
   useEffect(() => {
@@ -738,7 +771,7 @@ export function App() {
     if (dataMode === "remote") {
       // Remote mode: fetch from HTTP API
       try {
-        const res = await fetch(`${apiBaseUrl}/api/config/env`);
+        const res = await safeFetch(`${apiBaseUrl}/api/config/env`);
         const data = await res.json();
         parsed = data.env || {};
       } catch {
@@ -1057,7 +1090,7 @@ export function App() {
   }, [selectedModelId, models, capTouched]);
 
   async function loadSavedEndpoints() {
-    if (!currentWorkspaceId) {
+    if (!currentWorkspaceId && dataMode !== "remote") {
       setSavedEndpoints([]);
       setSavedCompilerEndpoints([]);
       return;
@@ -1120,7 +1153,7 @@ export function App() {
   async function readEndpointsJson(): Promise<{ endpoints: any[]; settings: any }> {
     if (dataMode === "remote") {
       try {
-        const res = await fetch(`${apiBaseUrl}/api/config/endpoints`);
+        const res = await safeFetch(`${apiBaseUrl}/api/config/endpoints`);
         const data = await res.json();
         const eps = Array.isArray(data?.endpoints) ? data.endpoints : [];
         return { endpoints: eps, settings: data?.raw?.settings || {} };
@@ -1145,16 +1178,18 @@ export function App() {
       // Read existing content from remote to preserve extra fields
       let existing: any = {};
       try {
-        const res = await fetch(`${apiBaseUrl}/api/config/endpoints`);
+        const res = await safeFetch(`${apiBaseUrl}/api/config/endpoints`);
         const data = await res.json();
         existing = data?.raw || {};
       } catch { /* ignore */ }
       const base = { ...existing, endpoints, settings: settings || {} };
-      await fetch(`${apiBaseUrl}/api/config/endpoints`, {
+      await safeFetch(`${apiBaseUrl}/api/config/endpoints`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: base }),
       });
+      // Hot-reload the running service (fire-and-forget)
+      triggerConfigReload().catch(() => {});
       return;
     }
     if (!currentWorkspaceId) throw new Error("未设置当前工作区");
@@ -1173,17 +1208,17 @@ export function App() {
     if (dataMode === "remote") {
       // For known paths, use dedicated APIs
       if (relativePath === "data/llm_endpoints.json") {
-        const res = await fetch(`${apiBaseUrl}/api/config/endpoints`);
+        const res = await safeFetch(`${apiBaseUrl}/api/config/endpoints`);
         const data = await res.json();
         return JSON.stringify(data.raw || { endpoints: data.endpoints || [] });
       }
       if (relativePath === "data/skills.json") {
-        const res = await fetch(`${apiBaseUrl}/api/config/skills`);
+        const res = await safeFetch(`${apiBaseUrl}/api/config/skills`);
         const data = await res.json();
         return JSON.stringify(data.skills || {});
       }
       if (relativePath === ".env") {
-        const res = await fetch(`${apiBaseUrl}/api/config/env`);
+        const res = await safeFetch(`${apiBaseUrl}/api/config/env`);
         const data = await res.json();
         return data.raw || "";
       }
@@ -1195,15 +1230,17 @@ export function App() {
   async function writeWorkspaceFile(relativePath: string, content: string): Promise<void> {
     if (dataMode === "remote") {
       if (relativePath === "data/llm_endpoints.json") {
-        await fetch(`${apiBaseUrl}/api/config/endpoints`, {
+        await safeFetch(`${apiBaseUrl}/api/config/endpoints`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ content: JSON.parse(content) }),
         });
+        // Hot-reload the running service (fire-and-forget)
+        triggerConfigReload().catch(() => {});
         return;
       }
       if (relativePath === "data/skills.json") {
-        await fetch(`${apiBaseUrl}/api/config/skills`, {
+        await safeFetch(`${apiBaseUrl}/api/config/skills`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ content: JSON.parse(content) }),
@@ -1213,6 +1250,22 @@ export function App() {
       throw new Error(`Remote write not supported for: ${relativePath}`);
     }
     await invoke("workspace_write_file", { workspaceId: currentWorkspaceId, relativePath, content });
+    // If we just wrote endpoints config locally, also try hot-reload
+    if (relativePath === "data/llm_endpoints.json") {
+      triggerConfigReload().catch(() => {});
+    }
+  }
+
+  /**
+   * 通知运行中的后端热重载 LLM 端点配置。
+   * 在写入 llm_endpoints.json 之后调用，确保服务端不需要重启即可生效。
+   * 静默失败（服务可能尚未启动）。
+   */
+  async function triggerConfigReload(): Promise<void> {
+    const base = dataMode === "remote" ? apiBaseUrl : "http://127.0.0.1:18900";
+    try {
+      await safeFetch(`${base}/api/config/reload`, { method: "POST", signal: AbortSignal.timeout(3000) });
+    } catch { /* service not running or reload not supported — that's ok */ }
   }
 
   function normalizePriority(n: any, fallback: number) {
@@ -1275,12 +1328,12 @@ export function App() {
       // Write API key to .env
       if (dataMode === "remote") {
         try {
-          await fetch(`${apiBaseUrl}/api/config/env`, {
+          await safeFetch(`${apiBaseUrl}/api/config/env`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ entries: [{ key: compilerApiKeyEnv.trim(), value: compilerApiKeyValue.trim() }] }),
+            body: JSON.stringify({ entries: { [compilerApiKeyEnv.trim()]: compilerApiKeyValue.trim() } }),
           });
-        } catch { /* ignore */ }
+        } catch { /* remote env write failed, continue anyway */ }
       } else {
         await invoke("workspace_update_env", {
           workspaceId: currentWorkspaceId,
@@ -1355,8 +1408,13 @@ export function App() {
         .map((e: any, i: number) => ({ ...e, priority: i + 1 }));
 
       await writeWorkspaceFile("data/llm_endpoints.json", JSON.stringify(base, null, 2) + "\n");
+
+      // Immediately update local state (don't rely solely on re-read which may be stale in remote mode)
+      setSavedCompilerEndpoints((prev) => prev.filter((e) => e.name !== epName));
       setNotice(`编译端点 ${epName} 已删除`);
-      await loadSavedEndpoints();
+
+      // Also re-read to sync fully (background)
+      loadSavedEndpoints().catch(() => {});
     } catch (e) {
       setError(String(e));
     } finally {
@@ -1544,7 +1602,7 @@ export function App() {
     if (stepId !== "llm") return;
     loadSavedEndpoints().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepId, currentWorkspaceId]);
+  }, [stepId, currentWorkspaceId, dataMode]);
 
   async function doSaveEndpoint() {
     if (!currentWorkspaceId) {
@@ -1654,7 +1712,7 @@ export function App() {
   }
 
   async function doDeleteEndpoint(name: string) {
-    if (!currentWorkspaceId) return;
+    if (!currentWorkspaceId && dataMode !== "remote") return;
     setError(null);
     setBusy("删除端点...");
     try {
@@ -1664,8 +1722,13 @@ export function App() {
       base.endpoints = eps.filter((e: any) => String(e?.name || "") !== name);
       const next = JSON.stringify(base, null, 2) + "\n";
       await writeWorkspaceFile("data/llm_endpoints.json", next);
+
+      // Immediately update local state
+      setSavedEndpoints((prev) => prev.filter((e) => e.name !== name));
       setNotice(`已删除端点：${name}`);
-      await loadSavedEndpoints();
+
+      // Background re-read to fully sync
+      loadSavedEndpoints().catch(() => {});
     } catch (e) {
       setError(String(e));
     } finally {
@@ -1681,7 +1744,7 @@ export function App() {
           entries[k] = envDraft[k] ?? "";
         }
       }
-      await fetch(`${apiBaseUrl}/api/config/env`, {
+      await safeFetch(`${apiBaseUrl}/api/config/env`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ entries }),
@@ -1828,21 +1891,29 @@ export function App() {
     ensureEnvLoaded(currentWorkspaceId).catch(() => {});
   }, [currentWorkspaceId]);
 
-  async function refreshStatus(overrideDataMode?: "local" | "remote", overrideApiBaseUrl?: string) {
+  async function refreshStatus(overrideDataMode?: "local" | "remote", overrideApiBaseUrl?: string, forceAliveCheck?: boolean) {
     const effectiveDataMode = overrideDataMode || dataMode;
     const effectiveApiBaseUrl = overrideApiBaseUrl || apiBaseUrl;
-    if (!info && !serviceStatus?.running && effectiveDataMode !== "remote") return;
+    // forceAliveCheck bypasses the guard (used after connecting to a known-alive service)
+    if (!forceAliveCheck && !info && !serviceStatus?.running && effectiveDataMode !== "remote") return;
     setStatusLoading(true);
     setStatusError(null);
     try {
       // Verify the service is actually alive before trying HTTP API
       let serviceAlive = false;
-      if (serviceStatus?.running || effectiveDataMode === "remote") {
+      if (forceAliveCheck || serviceStatus?.running || effectiveDataMode === "remote") {
         try {
           const ping = await fetch(`${effectiveApiBaseUrl}/api/health`, { signal: AbortSignal.timeout(3000) });
           serviceAlive = ping.ok;
-          if (serviceAlive && effectiveDataMode === "remote") {
-            // Ensure running state is set for remote mode
+          if (serviceAlive) {
+            // Extract backend version from health response
+            try {
+              const healthData = await ping.json();
+              if (healthData.version) setBackendVersion(healthData.version);
+            } catch { /* ignore parse error */ }
+            // Ensure running state is set whenever health check succeeds
+            // (fixes stale-closure issues where setServiceStatus({running:true})
+            //  from the caller may not have been applied yet)
             setServiceStatus((prev) =>
               prev ? { ...prev, running: true } : { running: true, pid: null, pidFile: "" }
             );
@@ -1850,6 +1921,7 @@ export function App() {
         } catch {
           // Service is not reachable
           serviceAlive = false;
+          setBackendVersion(null);
           if (effectiveDataMode !== "remote") {
             setServiceStatus((prev) =>
               prev ? { ...prev, running: false } : { running: false, pid: null, pidFile: "" }
@@ -1985,11 +2057,19 @@ export function App() {
           }
         }
 
-        // Service status – only check local PID if NOT in remote mode
+        // Service status – enrich with PID info from Tauri, but do NOT override
+        // the running flag: the HTTP health check is the source of truth for whether
+        // the service is alive.  The Tauri PID file may not exist when the service
+        // was started externally (not via this app).
         if (effectiveDataMode !== "remote" && currentWorkspaceId) {
           try {
             const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_status", { workspaceId: currentWorkspaceId });
-            setServiceStatus(ss);
+            // Merge PID info but keep running=true since health check passed
+            setServiceStatus((prev) => ({
+              running: prev?.running ?? serviceAlive, // health check wins
+              pid: ss.pid ?? prev?.pid ?? null,
+              pidFile: ss.pidFile ?? prev?.pidFile ?? "",
+            }));
           } catch { /* keep existing status */ }
         }
         return;
@@ -2056,8 +2136,8 @@ export function App() {
         setAutostartEnabled(null);
       }
 
-      // Local mode: check PID-based service status
-      // Remote mode: skip PID check — status is determined by HTTP health check
+      // Local mode (HTTP not reachable): check PID-based service status
+      // This is the fallback when the HTTP API is not alive.
       if (effectiveDataMode !== "remote") {
         try {
           const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_status", {
@@ -2065,7 +2145,7 @@ export function App() {
           });
           setServiceStatus(ss);
         } catch {
-          setServiceStatus(null);
+          // keep existing status rather than wiping it
         }
       }
       // Auto-fetch IM channel status from running service
@@ -2089,6 +2169,262 @@ export function App() {
       setStatusLoading(false);
     }
   }
+
+  /**
+   * 轮询等待后端 HTTP 服务就绪。
+   * 启动进程（PID 存活）不代表 HTTP 可达，FastAPI+uvicorn 需要额外几秒初始化。
+   * @returns true 如果在 maxWaitMs 内服务响应了 /api/health
+   */
+  async function waitForServiceReady(baseUrl: string, maxWaitMs = 15000): Promise<boolean> {
+    const start = Date.now();
+    const interval = 800;
+    while (Date.now() - start < maxWaitMs) {
+      try {
+        const res = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(2000) });
+        if (res.ok) return true;
+      } catch { /* not ready yet */ }
+      await new Promise((r) => setTimeout(r, interval));
+    }
+    return false;
+  }
+
+  /**
+   * 启动本地服务前，检测端口 18900 是否已有服务运行。
+   * @returns null = 没有冲突可以启动，否则返回现有服务信息
+   */
+  async function detectLocalServiceConflict(): Promise<{ pid: number; version: string; service: string } | null> {
+    try {
+      const res = await fetch("http://127.0.0.1:18900/api/health", { signal: AbortSignal.timeout(2000) });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data.status === "ok") {
+        return {
+          pid: data.pid || 0,
+          version: data.version || "unknown",
+          service: data.service || "openakita",
+        };
+      }
+    } catch { /* service not running */ }
+    return null;
+  }
+
+  /**
+   * 检查后端服务版本与桌面端版本是否一致。
+   * 在成功连接到服务后调用。
+   */
+  function checkVersionMismatch(backendVersion: string) {
+    if (!backendVersion || backendVersion === "0.0.0-dev") return;
+    if (!desktopVersion || desktopVersion === "0.0.0") return; // not yet loaded from Tauri
+    // Normalize: strip leading 'v'
+    const bv = backendVersion.replace(/^v/, "");
+    const dv = desktopVersion.replace(/^v/, "");
+    if (bv !== dv) {
+      setVersionMismatch({ backend: bv, desktop: dv });
+    } else {
+      setVersionMismatch(null);
+    }
+  }
+
+  /**
+   * 检查 GitHub 是否有新版本发布。
+   *
+   * 缓存策略（localStorage）：
+   * - 成功：缓存 24 小时，期间不再请求
+   * - 失败：指数退避 — 1h → 4h → 12h → 48h → 72h（上限），
+   *   适应国内网络环境下 GitHub API 不可达的情况
+   */
+  async function checkGitHubRelease() {
+    const cacheKey = "openakita_release_check";
+    const failKey = "openakita_release_fail";
+    const dismissKey = "openakita_release_dismissed";
+    const SUCCESS_TTL = 24 * 60 * 60 * 1000;   // 24h
+    const BACKOFF_BASE = 60 * 60 * 1000;        // 1h
+    const BACKOFF_MAX = 72 * 60 * 60 * 1000;    // 72h
+    const FETCH_TIMEOUT = 4000;                  // 4s (shorter — don't block UX)
+
+    try {
+      // ── 1. Check success cache ──
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        try {
+          const { ts, tag } = JSON.parse(cached);
+          if (Date.now() - ts < SUCCESS_TTL) {
+            // Still within cache window — show notification if newer
+            const dismissed = localStorage.getItem(dismissKey);
+            if (tag && tag !== desktopVersion && dismissed !== tag) {
+              setNewRelease({
+                latest: tag,
+                current: desktopVersion,
+                url: `https://github.com/${GITHUB_REPO}/releases/tag/v${tag}`,
+              });
+            }
+            return;
+          }
+        } catch { /* corrupted cache, proceed to fetch */ }
+      }
+
+      // ── 2. Check failure backoff ──
+      const failRaw = localStorage.getItem(failKey);
+      if (failRaw) {
+        try {
+          const { ts, count } = JSON.parse(failRaw);
+          const backoff = Math.min(BACKOFF_BASE * Math.pow(2, count - 1), BACKOFF_MAX);
+          if (Date.now() - ts < backoff) {
+            return; // Still in cooldown after previous failure
+          }
+        } catch { /* corrupted, proceed */ }
+      }
+
+      // ── 3. Fetch from GitHub API ──
+      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+        signal: AbortSignal.timeout(FETCH_TIMEOUT),
+        headers: { Accept: "application/vnd.github.v3+json" },
+      });
+
+      if (!res.ok) {
+        // HTTP error (403 rate limit, 404, etc.) — record failure for backoff
+        const prev = failRaw ? JSON.parse(failRaw) : { count: 0 };
+        localStorage.setItem(failKey, JSON.stringify({ ts: Date.now(), count: (prev.count || 0) + 1 }));
+        return;
+      }
+
+      // ── 4. Parse response ──
+      const data = await res.json();
+      const tagName = (data.tag_name || "").replace(/^v/, "");
+
+      // Success — cache result and clear failure counter
+      localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), tag: tagName }));
+      localStorage.removeItem(failKey);
+
+      if (tagName && tagName !== desktopVersion) {
+        const dismissed = localStorage.getItem(dismissKey);
+        if (dismissed !== tagName) {
+          setNewRelease({
+            latest: tagName,
+            current: desktopVersion,
+            url: data.html_url || `https://github.com/${GITHUB_REPO}/releases`,
+          });
+        }
+      }
+    } catch {
+      // Network error / timeout — record failure for exponential backoff
+      try {
+        const prevRaw = localStorage.getItem(failKey);
+        const prevCount = prevRaw ? (JSON.parse(prevRaw).count || 0) : 0;
+        localStorage.setItem(failKey, JSON.stringify({ ts: Date.now(), count: prevCount + 1 }));
+      } catch { /* localStorage full or unavailable */ }
+    }
+  }
+
+  /**
+   * 包装本地服务启动流程：检测冲突 → 处理冲突 → 启动。
+   * 返回 true = 已处理（连接已有或启动新服务），false = 用户取消。
+   */
+  async function startLocalServiceWithConflictCheck(effectiveWsId: string): Promise<boolean> {
+    // Step 1: Detect existing service
+    const existing = await detectLocalServiceConflict();
+    if (existing) {
+      // Show conflict dialog and let user choose
+      setPendingStartWsId(effectiveWsId);
+      setConflictDialog({ pid: existing.pid, version: existing.version });
+      return false; // Will be resolved by dialog callbacks
+    }
+    // Step 2: No conflict — start normally
+    await doStartLocalService(effectiveWsId);
+    return true;
+  }
+
+  /**
+   * 实际启动本地服务（跳过冲突检测）。
+   */
+  async function doStartLocalService(effectiveWsId: string) {
+    setBusy(t("topbar.starting"));
+    setError(null);
+    try {
+      setDataMode("local");
+      setApiBaseUrl("http://127.0.0.1:18900");
+      const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_start", {
+        venvDir,
+        workspaceId: effectiveWsId,
+      });
+      setServiceStatus(ss);
+      const ready = await waitForServiceReady("http://127.0.0.1:18900");
+      const real = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_status", {
+        workspaceId: effectiveWsId,
+      });
+      setServiceStatus(real);
+      if (ready && real.running) {
+        setNotice(t("connect.success"));
+        // forceAliveCheck=true to bypass stale serviceStatus closure
+        await refreshStatus("local", "http://127.0.0.1:18900", true);
+        // Check version after successful start
+        try {
+          const hRes = await fetch("http://127.0.0.1:18900/api/health", { signal: AbortSignal.timeout(2000) });
+          if (hRes.ok) {
+            const hData = await hRes.json();
+            checkVersionMismatch(hData.version || "");
+          }
+        } catch { /* ignore */ }
+      } else if (real.running) {
+        setError(t("topbar.startFail") + " (HTTP API not reachable)");
+        await refreshStatus("local", "http://127.0.0.1:18900", true);
+      } else {
+        setError(t("topbar.startFail"));
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /**
+   * 连接到已有本地服务（冲突对话框的"连接已有"选项）。
+   */
+  async function connectToExistingLocalService() {
+    const ver = conflictDialog?.version || "";
+    setDataMode("local");
+    setApiBaseUrl("http://127.0.0.1:18900");
+    setServiceStatus({ running: true, pid: null, pidFile: "" });
+    setConflictDialog(null);
+    setPendingStartWsId(null);
+    setBusy(t("connect.testing"));
+    try {
+      // IMPORTANT: pass forceAliveCheck=true because setServiceStatus is async
+      // and refreshStatus's closure still sees the old serviceStatus value
+      await refreshStatus("local", "http://127.0.0.1:18900", true);
+      setNotice(t("connect.success"));
+      // Check version mismatch using info from conflict detection (avoids extra request)
+      if (ver && ver !== "unknown") checkVersionMismatch(ver);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /**
+   * 停止已有服务再启动新的（冲突对话框的"停止并重启"选项）。
+   */
+  async function stopAndRestartService() {
+    const wsId = pendingStartWsId;
+    setConflictDialog(null);
+    setPendingStartWsId(null);
+    if (!wsId) return;
+    setBusy(t("status.stopping"));
+    try {
+      await doStopService(wsId);
+      await new Promise((r) => setTimeout(r, 500));
+    } catch { /* ignore stop errors */ }
+    await doStartLocalService(wsId);
+  }
+
+  // ── Check GitHub release once desktop version is known ──
+  useEffect(() => {
+    if (desktopVersion === "0.0.0") return; // not yet loaded
+    checkGitHubRelease();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [desktopVersion]);
 
   /** Stop the running service: try API shutdown first, then PID kill, then verify. */
   async function doStopService(wsId?: string | null) {
@@ -2303,15 +2639,7 @@ export function App() {
             <div className="statusCardActions">
               {!serviceStatus?.running && effectiveWsId && (
                 <button className="btnSmall btnSmallPrimary" onClick={async () => {
-                  setBusy(t("topbar.starting")); setError(null);
-                  try {
-                    const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_start", { venvDir, workspaceId: effectiveWsId });
-                    setServiceStatus(ss);
-                    await new Promise((r) => setTimeout(r, 600));
-                    const real = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_status", { workspaceId: effectiveWsId });
-                    setServiceStatus(real);
-                    if (real.running) await refreshStatus();
-                  } catch (e) { setError(String(e)); } finally { setBusy(null); }
+                  await startLocalServiceWithConflictCheck(effectiveWsId);
                 }} disabled={!!busy}>{t("topbar.start")}</button>
               )}
               {serviceStatus?.running && effectiveWsId && (<>
@@ -2325,13 +2653,8 @@ export function App() {
                   setBusy(t("status.restarting")); setError(null);
                   try {
                     await doStopService(effectiveWsId);
-                    // Start
-                    const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_start", { venvDir, workspaceId: effectiveWsId });
-                    setServiceStatus(ss);
-                    await new Promise((r) => setTimeout(r, 600));
-                    const real = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_status", { workspaceId: effectiveWsId });
-                    setServiceStatus(real);
-                    if (real.running) await refreshStatus();
+                    await new Promise((r) => setTimeout(r, 500));
+                    await doStartLocalService(effectiveWsId);
                   } catch (e) { setError(String(e)); } finally { setBusy(null); }
                 }} disabled={!!busy}>{t("status.restart")}</button>
               </>)}
@@ -2374,7 +2697,7 @@ export function App() {
                 // Always use HTTP API when service is running (bridge has no health-check command)
                 const healthUrl = serviceStatus?.running ? apiBaseUrl : null;
                 if (healthUrl) {
-                  const res = await fetch(`${healthUrl}/api/health/check`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+                  const res = await safeFetch(`${healthUrl}/api/health/check`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
                   const data = await res.json();
                   results = data.results || [];
                 } else {
@@ -2422,7 +2745,7 @@ export function App() {
                         let r: any[];
                         const healthUrl = serviceStatus?.running ? apiBaseUrl : null;
                         if (healthUrl) {
-                          const res = await fetch(`${healthUrl}/api/health/check`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint_name: e.name }) });
+                          const res = await safeFetch(`${healthUrl}/api/health/check`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint_name: e.name }) });
                           const data = await res.json();
                           r = data.results || [];
                         } else {
@@ -2450,7 +2773,7 @@ export function App() {
                 try {
                   const healthUrl = serviceStatus?.running ? apiBaseUrl : null;
                   if (healthUrl) {
-                    const res = await fetch(`${healthUrl}/api/im/channels`);
+                    const res = await safeFetch(`${healthUrl}/api/im/channels`);
                     const data = await res.json();
                     const channels = data.channels || [];
                     const h: typeof imHealth = {};
@@ -2876,11 +3199,9 @@ export function App() {
               <div className="statusCardLabel">{t("llm.compiler")}</div>
               <div className="cardHint" style={{ fontSize: 11 }}>{t("llm.compilerHint")}</div>
             </div>
-            {savedCompilerEndpoints.length < 2 && (
-              <button className="btnSmall btnSmallPrimary" onClick={() => { doLoadProviders(); setAddCompDialogOpen(true); }} disabled={!!busy}>
-                + {t("llm.addEndpoint")}
-              </button>
-            )}
+            <button className="btnSmall btnSmallPrimary" onClick={() => { doLoadProviders(); setAddCompDialogOpen(true); }} disabled={!!busy}>
+              + {t("llm.addEndpoint")}
+            </button>
           </div>
           {savedCompilerEndpoints.length === 0 ? (
             <div className="cardHint">{t("llm.noCompiler")}</div>
@@ -3258,6 +3579,9 @@ export function App() {
             <FieldText k="WEWORK_TOKEN" label="Callback Token" help={t("config.imWeworkTokenHelp")} />
             <FieldText k="WEWORK_ENCODING_AES_KEY" label="EncodingAESKey" type="password" help={t("config.imWeworkAesKeyHelp")} />
             <FieldText k="WEWORK_CALLBACK_PORT" label={t("config.imCallbackPort")} placeholder="9880" />
+            <div className="fieldHint" style={{ fontSize: 12, color: "var(--text3)", margin: "4px 0 0 0", lineHeight: 1.6 }}>
+              💡 {t("config.imWeworkCallbackUrlHint")}<code style={{ background: "var(--bg2)", padding: "1px 5px", borderRadius: 4, fontSize: 11 }}>http://your-domain:9880/callback</code>
+            </div>
           </>
         ),
       },
@@ -3925,6 +4249,9 @@ export function App() {
                     <FieldText k="WEWORK_TOKEN" label="回调 Token" placeholder="在企业微信后台「接收消息」设置中获取" />
                     <FieldText k="WEWORK_ENCODING_AES_KEY" label="EncodingAESKey" placeholder="在企业微信后台「接收消息」设置中获取" type="password" />
                     <FieldText k="WEWORK_CALLBACK_PORT" label="回调端口" placeholder="9880" />
+                    <div style={{ fontSize: 12, color: "#888", margin: "4px 0 0 0", lineHeight: 1.6 }}>
+                      💡 企业微信后台「接收消息服务器配置」的 URL 请填：<code style={{ background: "#f5f5f5", padding: "1px 5px", borderRadius: 4, fontSize: 11 }}>http://your-domain:9880/callback</code>
+                    </div>
                   </>
                 ),
               },
@@ -4403,6 +4730,22 @@ export function App() {
             </div>
           )}
         </div>
+
+        {/* Version info at sidebar bottom */}
+        {!sidebarCollapsed && (
+          <div style={{
+            padding: "10px 16px",
+            borderTop: "1px solid var(--line)",
+            fontSize: 11,
+            opacity: 0.4,
+            lineHeight: 1.6,
+            flexShrink: 0,
+          }}>
+            <div>Desktop v{desktopVersion}</div>
+            {backendVersion && <div>Backend v{backendVersion}</div>}
+            {!backendVersion && serviceStatus?.running && <div>Backend: -</div>}
+          </div>
+        )}
       </aside>
 
       <main className="main">
@@ -4453,19 +4796,7 @@ export function App() {
                   onClick={async () => {
                     const effectiveWsId = currentWorkspaceId || workspaces[0]?.id || null;
                     if (!effectiveWsId) { setError(t("common.error")); return; }
-                    setBusy(t("topbar.starting"));
-                    setError(null);
-                    try {
-                      setDataMode("local");
-                      setApiBaseUrl("http://127.0.0.1:18900");
-                      const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_start", { venvDir, workspaceId: effectiveWsId });
-                      setServiceStatus(ss);
-                      await new Promise((r) => setTimeout(r, 600));
-                      const real = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_status", { workspaceId: effectiveWsId });
-                      setServiceStatus(real);
-                      if (real.running) { await refreshStatus(); }
-                      else { setError(t("topbar.startFail")); }
-                    } catch (e) { setError(String(e)); } finally { setBusy(null); }
+                    await startLocalServiceWithConflictCheck(effectiveWsId);
                   }}
                   disabled={!!busy}
                   title={t("topbar.start")}
@@ -4499,29 +4830,7 @@ export function App() {
                 setError("未找到工作区（请先创建/选择一个工作区）");
                 return;
               }
-              setBusy("启动后台服务...");
-              setError(null);
-              try {
-                const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_start", {
-                  venvDir,
-                  workspaceId: effectiveWsId,
-                });
-                setServiceStatus(ss);
-                await new Promise((r) => setTimeout(r, 600));
-                const real = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_status", {
-                  workspaceId: effectiveWsId,
-                });
-                setServiceStatus(real);
-                if (!real.running) {
-                  setError("后台服务未能保持运行。请先完成安装向导。");
-                } else {
-                  await refreshStatus();
-                }
-              } catch (e) {
-                setError(String(e));
-              } finally {
-                setBusy(null);
-              }
+              await startLocalServiceWithConflictCheck(effectiveWsId);
             }}
           />
         </div>
@@ -4565,7 +4874,9 @@ export function App() {
                       setServiceStatus({ running: true, pid: null, pidFile: "" });
                       setConnectDialogOpen(false);
                       setNotice(t("connect.success"));
-                      await refreshStatus("remote", url);
+                      // Check version mismatch
+                      if (data.version) checkVersionMismatch(data.version);
+                      await refreshStatus("remote", url, true);
                     } else {
                       setError(t("connect.fail"));
                     }
@@ -4574,6 +4885,73 @@ export function App() {
                   } finally { setBusy(null); }
                 }}>{t("connect.confirm")}</button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Service conflict dialog ── */}
+        {conflictDialog && (
+          <div className="modalOverlay" onClick={() => { setConflictDialog(null); setPendingStartWsId(null); }}>
+            <div className="modalContent" style={{ maxWidth: 440, padding: 24 }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <span style={{ fontSize: 20 }}>⚠️</span>
+                <span style={{ fontWeight: 600, fontSize: 15 }}>{t("conflict.title")}</span>
+              </div>
+              <div style={{ fontSize: 14, lineHeight: 1.7, marginBottom: 8 }}>{t("conflict.message")}</div>
+              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 20 }}>
+                {t("conflict.detail", { pid: conflictDialog.pid, version: conflictDialog.version })}
+              </div>
+              <div className="dialogFooter" style={{ justifyContent: "flex-end", gap: 8 }}>
+                <button className="btnSmall" onClick={() => { setConflictDialog(null); setPendingStartWsId(null); }}>{t("conflict.cancel")}</button>
+                <button className="btnSmall" style={{ background: "#e53935", color: "#fff", border: "none" }}
+                  onClick={() => stopAndRestartService()} disabled={!!busy}>{t("conflict.stopAndRestart")}</button>
+                <button className="btnPrimary" style={{ padding: "6px 16px", borderRadius: 8 }}
+                  onClick={() => connectToExistingLocalService()}>{t("conflict.connectExisting")}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Version mismatch banner ── */}
+        {versionMismatch && (
+          <div style={{ position: "fixed", top: 48, left: "50%", transform: "translateX(-50%)", zIndex: 9999, background: "#fff3e0", border: "1px solid #ffb74d", borderRadius: 10, padding: "12px 20px", maxWidth: 500, boxShadow: "0 4px 20px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 16 }}>⚠️</span>
+              <span style={{ fontWeight: 600, fontSize: 13 }}>{t("version.mismatch")}</span>
+              <button style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#999" }} onClick={() => setVersionMismatch(null)}>&times;</button>
+            </div>
+            <div style={{ fontSize: 12, color: "#6d4c00", lineHeight: 1.6 }}>
+              {t("version.mismatchDetail", { backend: versionMismatch.backend, desktop: versionMismatch.desktop })}
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button className="btnSmall" style={{ fontSize: 11 }} onClick={() => {
+                navigator.clipboard.writeText(t("version.pipCommand")).then(() => setNotice(t("version.copied")));
+              }}>{t("version.updatePip")}</button>
+              <code style={{ fontSize: 11, background: "#f5f5f5", padding: "2px 8px", borderRadius: 4, color: "#333" }}>{t("version.pipCommand")}</code>
+            </div>
+          </div>
+        )}
+
+        {/* ── New release notification ── */}
+        {newRelease && (
+          <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 9998, background: "#e3f2fd", border: "1px solid #90caf9", borderRadius: 10, padding: "12px 20px", maxWidth: 380, boxShadow: "0 4px 20px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 16 }}>🎉</span>
+              <span style={{ fontWeight: 600, fontSize: 13 }}>{t("version.newRelease")}</span>
+              <button style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#999" }} onClick={() => {
+                setNewRelease(null);
+                localStorage.setItem("openakita_release_dismissed", newRelease.latest);
+              }}>&times;</button>
+            </div>
+            <div style={{ fontSize: 12, color: "#0d47a1", lineHeight: 1.6 }}>
+              {t("version.newReleaseDetail", { latest: newRelease.latest, current: newRelease.current })}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <a href={newRelease.url} target="_blank" rel="noreferrer" className="btnSmall btnSmallPrimary" style={{ fontSize: 11, textDecoration: "none" }}>{t("version.viewRelease")}</a>
+              <button className="btnSmall" style={{ fontSize: 11 }} onClick={() => {
+                setNewRelease(null);
+                localStorage.setItem("openakita_release_dismissed", newRelease.latest);
+              }}>{t("version.dismiss")}</button>
             </div>
           </div>
         )}
@@ -4611,26 +4989,10 @@ export function App() {
                   onClick={async () => {
                     const effectiveWsId = currentWorkspaceId || workspaces[0]?.id || null;
                     if (!effectiveWsId) { setError(t("common.error")); return; }
-                    setBusy(t("common.loading"));
                     setError(null);
                     setView("status");
-                    try {
-                      const ss = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_start", {
-                        venvDir,
-                        workspaceId: effectiveWsId,
-                      });
-                      setServiceStatus(ss);
-                      await new Promise((r) => setTimeout(r, 600));
-                      const real = await invoke<{ running: boolean; pid: number | null; pidFile: string }>("openakita_service_status", {
-                        workspaceId: effectiveWsId,
-                      });
-                      setServiceStatus(real);
-                      await refreshStatus();
-                      await refreshServiceLog(effectiveWsId);
-                    } catch (e) {
-                      setError(String(e));
-                      try { await refreshStatus(); await refreshServiceLog(effectiveWsId); } catch { /* ignore */ }
-                    } finally { setBusy(null); }
+                    await startLocalServiceWithConflictCheck(effectiveWsId);
+                    try { await refreshServiceLog(effectiveWsId); } catch { /* ignore */ }
                   }}
                   disabled={!!busy}
                 >{t("config.finish")}</button>

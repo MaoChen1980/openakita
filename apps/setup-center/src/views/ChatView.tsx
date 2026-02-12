@@ -3,6 +3,8 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -69,7 +71,8 @@ function ThinkingBlock({ content, defaultOpen }: { content: string; defaultOpen?
   );
 }
 
-function ToolCallBlock({ tc }: { tc: ChatToolCall }) {
+/** Single tool call detail (used inside expanded group) */
+function ToolCallDetail({ tc }: { tc: ChatToolCall }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const statusIcon =
@@ -79,17 +82,17 @@ function ToolCallBlock({ tc }: { tc: ChatToolCall }) {
     <IconCircle size={10} />;
   const statusColor = tc.status === "done" ? "var(--ok)" : tc.status === "error" ? "var(--danger)" : "var(--brand)";
   return (
-    <div style={{ margin: "6px 0", border: "1px solid var(--line)", borderRadius: 10, overflow: "hidden" }}>
+    <div style={{ border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
       <div
         onClick={() => setOpen((v) => !v)}
-        style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "rgba(14,165,233,0.04)", userSelect: "none" }}
+        style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: "rgba(14,165,233,0.03)", userSelect: "none" }}
       >
         <span style={{ color: statusColor, fontWeight: 800, display: "inline-flex", alignItems: "center" }}>{statusIcon}</span>
-        <span style={{ fontWeight: 700, fontSize: 13 }}>{t("chat.toolCallLabel")}{tc.tool}</span>
-        <span style={{ fontSize: 11, opacity: 0.5, marginLeft: "auto" }}>{open ? t("chat.collapse") : t("chat.expand")}</span>
+        <span style={{ fontWeight: 600, fontSize: 12 }}>{tc.tool}</span>
+        <span style={{ fontSize: 10, opacity: 0.4, marginLeft: "auto" }}>{open ? t("chat.collapse") : t("chat.expand")}</span>
       </div>
       {open && (
-        <div style={{ padding: "8px 12px", fontSize: 12, background: "rgba(255,255,255,0.5)" }}>
+        <div style={{ padding: "6px 10px", fontSize: 12, background: "rgba(255,255,255,0.5)" }}>
           <div style={{ fontWeight: 700, marginBottom: 4 }}>{t("chat.args")}</div>
           <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 11 }}>
             {JSON.stringify(tc.args, null, 2)}
@@ -102,6 +105,55 @@ function ToolCallBlock({ tc }: { tc: ChatToolCall }) {
               </pre>
             </>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Grouped tool calls: collapsed into one line by default, expandable */
+function ToolCallsGroup({ toolCalls }: { toolCalls: ChatToolCall[] }) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+
+  if (toolCalls.length === 0) return null;
+
+  const doneCount = toolCalls.filter((tc) => tc.status === "done").length;
+  const errorCount = toolCalls.filter((tc) => tc.status === "error").length;
+  const runningCount = toolCalls.filter((tc) => tc.status === "running").length;
+  const allDone = doneCount === toolCalls.length;
+  const hasError = errorCount > 0;
+  const summaryColor = hasError ? "var(--danger)" : runningCount > 0 ? "var(--brand)" : "var(--ok)";
+  const summaryIcon = hasError ? <IconX size={14} /> : runningCount > 0 ? <IconLoader size={14} /> : <IconCheck size={14} />;
+  const toolNames = toolCalls.map((tc) => tc.tool);
+  // Deduplicate and show counts
+  const nameCounts: Record<string, number> = {};
+  for (const n of toolNames) nameCounts[n] = (nameCounts[n] || 0) + 1;
+  const nameLabels = Object.entries(nameCounts).map(([n, c]) => c > 1 ? `${n} ×${c}` : n);
+  const summaryText = nameLabels.join(", ");
+
+  return (
+    <div style={{ margin: "6px 0", border: "1px solid var(--line)", borderRadius: 10, overflow: "hidden" }}>
+      <div
+        onClick={() => setExpanded((v) => !v)}
+        style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "rgba(14,165,233,0.04)", userSelect: "none" }}
+      >
+        <span style={{ color: summaryColor, fontWeight: 800, display: "inline-flex", alignItems: "center" }}>{summaryIcon}</span>
+        <span style={{ fontWeight: 700, fontSize: 13 }}>
+          {t("chat.toolCallLabel")}{toolCalls.length > 1 ? `${toolCalls.length} ` : ""}{toolCalls.length === 1 ? toolCalls[0].tool : ""}
+        </span>
+        {toolCalls.length > 1 && (
+          <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
+            {summaryText}
+          </span>
+        )}
+        <span style={{ fontSize: 11, opacity: 0.5, marginLeft: "auto", flexShrink: 0 }}>{expanded ? t("chat.collapse") : t("chat.expand")}</span>
+      </div>
+      {expanded && (
+        <div style={{ padding: "6px 8px", display: "flex", flexDirection: "column", gap: 4, background: "rgba(255,255,255,0.3)" }}>
+          {toolCalls.map((tc, i) => (
+            <ToolCallDetail key={i} tc={tc} />
+          ))}
         </div>
       )}
     </div>
@@ -193,18 +245,46 @@ function AskUserBlock({ ask, onAnswer }: { ask: ChatAskUser; onAnswer: (answer: 
   );
 }
 
-function AttachmentPreview({ att }: { att: ChatAttachment }) {
+function AttachmentPreview({ att, onRemove }: { att: ChatAttachment; onRemove?: () => void }) {
   if (att.type === "image" && att.previewUrl) {
     return (
-      <div style={{ display: "inline-block", margin: "4px 4px 4px 0", borderRadius: 8, overflow: "hidden", border: "1px solid var(--line)" }}>
-        <img src={att.previewUrl} alt={att.name} style={{ maxWidth: 200, maxHeight: 150, display: "block" }} />
+      <div style={{ position: "relative", display: "inline-block" }}>
+        <img src={att.previewUrl} alt={att.name} style={{ width: 80, height: 80, objectFit: "cover", display: "block", borderRadius: 10, border: "1px solid var(--line)" }} />
+        {onRemove && (
+          <button
+            onClick={onRemove}
+            style={{
+              position: "absolute", top: -6, right: -6,
+              width: 22, height: 22, borderRadius: 11,
+              border: "2px solid #fff", background: "var(--danger)", color: "#fff",
+              fontSize: 11, cursor: "pointer", display: "grid", placeItems: "center",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.18)", zIndex: 2, padding: 0, lineHeight: 1,
+            }}
+          >
+            <IconX size={11} />
+          </button>
+        )}
       </div>
     );
   }
   const icon = att.type === "voice" ? <IconMic size={14} /> : att.type === "image" ? <IconImage size={14} /> : <IconPaperclip size={14} />;
   const sizeStr = att.size ? `${(att.size / 1024).toFixed(1)} KB` : "";
   return (
-    <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 12, margin: "4px 4px 4px 0" }}>
+    <div style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 28px 6px 10px", borderRadius: 10, border: "1px solid var(--line)", fontSize: 12 }}>
+      {onRemove && (
+        <button
+          onClick={onRemove}
+          style={{
+            position: "absolute", top: -6, right: -6,
+            width: 22, height: 22, borderRadius: 11,
+            border: "2px solid #fff", background: "var(--danger)", color: "#fff",
+            fontSize: 11, cursor: "pointer", display: "grid", placeItems: "center",
+            boxShadow: "0 1px 4px rgba(0,0,0,0.18)", zIndex: 2, padding: 0, lineHeight: 1,
+          }}
+        >
+          <IconX size={11} />
+        </button>
+      )}
       <span style={{ display: "inline-flex", alignItems: "center" }}>{icon}</span>
       <span style={{ fontWeight: 600 }}>{att.name}</span>
       {sizeStr && <span style={{ opacity: 0.5 }}>{sizeStr}</span>}
@@ -347,10 +427,10 @@ function MessageBubble({
           </div>
         )}
 
-        {/* Tool calls */}
-        {msg.toolCalls && msg.toolCalls.map((tc, i) => (
-          <ToolCallBlock key={i} tc={tc} />
-        ))}
+        {/* Tool calls (grouped & collapsed by default) */}
+        {msg.toolCalls && msg.toolCalls.length > 0 && (
+          <ToolCallsGroup toolCalls={msg.toolCalls} />
+        )}
 
         {/* Plan */}
         {msg.plan && <PlanBlock plan={msg.plan} />}
@@ -477,6 +557,7 @@ export function ChatView({
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -499,6 +580,8 @@ export function ChatView({
     return () => {
       // 终止正在进行的 SSE 流式请求，避免内存泄漏和 React 状态更新警告
       abortRef.current?.abort();
+      readerRef.current?.cancel().catch(() => {});
+      readerRef.current = null;
       // 停止录音并释放麦克风
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
         try { mediaRecorderRef.current.stop(); } catch { /* ignore */ }
@@ -653,8 +736,17 @@ export function ChatView({
     const abort = new AbortController();
     abortRef.current = abort;
 
-    // 连接超时：2 分钟内如果没有收到任何数据则放弃
-    const connectTimeout = setTimeout(() => abort.abort(), 120_000);
+    // 空闲超时：如果 IDLE_TIMEOUT_MS 内没有收到任何数据则放弃
+    // （每次收到数据后重置计时器，不影响长对话）
+    const IDLE_TIMEOUT_MS = 120_000; // 2 minutes idle
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    const resetIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        abort.abort();
+        readerRef.current?.cancel().catch(() => {});
+      }, IDLE_TIMEOUT_MS);
+    };
 
     try {
       const body: Record<string, unknown> = {
@@ -674,6 +766,8 @@ export function ChatView({
         }));
       }
 
+      resetIdleTimer(); // Start idle timer before fetch
+
       const response = await fetch(`${apiBase}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -690,9 +784,13 @@ export function ChatView({
         return;
       }
 
+      // 收到响应头，重置空闲计时
+      resetIdleTimer();
+
       // 处理 SSE 流
       const reader = response.body?.getReader();
       if (!reader) throw new Error("No response body");
+      readerRef.current = reader;
 
       const decoder = new TextDecoder();
       let buffer = "";
@@ -704,13 +802,29 @@ export function ChatView({
       let currentAsk: ChatAskUser | null = null;
       let currentAgent: string | null = null;
       let currentArtifacts: ChatArtifact[] = [];
+      let gracefulDone = false; // SSE 正常发送了 "done" 事件
 
       while (true) {
-        const { done, value } = await reader.read();
+        // ── 1. 每次循环检查 abort 状态 ──
+        if (abort.signal.aborted) break;
+
+        let done: boolean;
+        let value: Uint8Array | undefined;
+        try {
+          ({ done, value } = await reader.read());
+        } catch (readErr) {
+          // reader.read() 抛异常（abort 或网络错误）→ 跳到外层 catch
+          throw readErr;
+        }
 
         if (value) {
           buffer += decoder.decode(value, { stream: true });
+          resetIdleTimer(); // 收到数据，重置空闲计时
         }
+
+        // ── 2. 再次检查 abort（read 可能返回 done:true 而非抛异常） ──
+        if (abort.signal.aborted) break;
+
         if (done) {
           // 流结束：处理 buffer 中可能的残余内容（最后一行无换行符的情况）
           if (buffer.trim()) {
@@ -721,8 +835,8 @@ export function ChatView({
               if (data === "[DONE]") continue;
               try {
                 const event: StreamEvent = JSON.parse(data);
-                // 处理此事件（简化版：仅处理 text_delta 和 done）
                 if (event.type === "text_delta") currentContent += event.content;
+                if (event.type === "done") gracefulDone = true;
               } catch { /* ignore malformed */ }
             }
           }
@@ -757,7 +871,6 @@ export function ChatView({
                 currentToolCalls = [...currentToolCalls, { tool: event.tool, args: event.args, status: "running", id: event.id }];
                 break;
               case "tool_call_end": {
-                // 优先用 id 精确匹配（支持同一工具的并行调用），fallback 到名称匹配
                 let matched = false;
                 currentToolCalls = currentToolCalls.map((tc) => {
                   if (matched) return tc;
@@ -798,7 +911,6 @@ export function ChatView({
                 break;
               case "agent_switch":
                 currentAgent = event.agentName;
-                // 添加一条系统提示
                 setMessages((prev) => {
                   const switchMsg: ChatMessage = {
                     id: genId(),
@@ -822,6 +934,7 @@ export function ChatView({
                 currentContent += `\n\n**错误**：${event.message}`;
                 break;
               case "done":
+                gracefulDone = true;
                 break;
             }
 
@@ -849,12 +962,31 @@ export function ChatView({
         }
       }
 
-      // 完成流式
-      setMessages((prev) => prev.map((m) =>
-        m.id === assistantMsg.id ? { ...m, streaming: false } : m
-      ));
+      // ── 循环结束后：判断是正常完成还是被用户中止 ──
+      if (abort.signal.aborted) {
+        // 用户点击了停止（或空闲超时触发 abort）
+        setMessages((prev) => prev.map((m) =>
+          m.id === assistantMsg.id
+            ? { ...m, content: m.content || "（已中止）", streaming: false }
+            : m
+        ));
+      } else {
+        // 正常完成流式
+        setMessages((prev) => prev.map((m) =>
+          m.id === assistantMsg.id ? { ...m, streaming: false } : m
+        ));
+      }
     } catch (e: unknown) {
-      if (e instanceof DOMException && e.name === "AbortError") {
+      // ── 兼容多种 abort 错误形式 ──
+      // Chromium/WebView2: DOMException { name: "AbortError" }
+      // 某些环境: Error { name: "AbortError" }
+      // 安全检查: abort.signal.aborted 为 true
+      const isAbort =
+        abort.signal.aborted ||
+        (e instanceof DOMException && e.name === "AbortError") ||
+        (e instanceof Error && e.name === "AbortError");
+
+      if (isAbort) {
         setMessages((prev) => prev.map((m) =>
           m.id === assistantMsg.id ? { ...m, content: m.content || "（已中止）", streaming: false } : m
         ));
@@ -865,7 +997,10 @@ export function ChatView({
         ));
       }
     } finally {
-      clearTimeout(connectTimeout);
+      if (idleTimer) clearTimeout(idleTimer);
+      // 确保 reader 被释放
+      try { readerRef.current?.cancel().catch(() => {}); } catch { /* ignore */ }
+      readerRef.current = null;
       setIsStreaming(false);
       abortRef.current = null;
     }
@@ -885,7 +1020,11 @@ export function ChatView({
 
   // ── 停止生成 ──
   const stopStreaming = useCallback(() => {
+    // 1. Abort fetch 请求（触发 AbortError）
     abortRef.current?.abort();
+    // 2. 显式取消 reader（某些浏览器/WebView 下 abort 不会立即终止 reader.read()）
+    try { readerRef.current?.cancel().catch(() => {}); } catch { /* ignore */ }
+    readerRef.current = null;
   }, []);
 
   // ── 文件/图片上传 ──
@@ -950,6 +1089,103 @@ export function ChatView({
         reader.readAsDataURL(file);
       }
     }
+  }, []);
+
+  // ── 拖拽图片/文件 (Tauri native webview-scoped drag-drop) ──
+  const [dragOver, setDragOver] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+
+    (async () => {
+      try {
+        const webview = getCurrentWebview();
+        // onDragDropEvent: official Tauri v2 webview-scoped API
+        unlisten = await webview.onDragDropEvent((event) => {
+          if (cancelled) return;
+          const payload = event.payload as any;
+          console.log("[DragDrop] event:", payload.type, payload);
+          if (payload.type === "over" || payload.type === "enter") {
+            setDragOver(true);
+          } else if (payload.type === "leave" || payload.type === "cancel") {
+            setDragOver(false);
+          } else if (payload.type === "drop") {
+            setDragOver(false);
+            const paths: string[] = payload.paths || [];
+            console.log("[DragDrop] dropped paths:", paths);
+            for (const filePath of paths) {
+              const name = filePath.split(/[\\/]/).pop() || "file";
+              const ext = (name.split(".").pop() || "").toLowerCase();
+              const isImage = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].includes(ext);
+              const mimeMap: Record<string, string> = {
+                png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+                gif: "image/gif", webp: "image/webp", bmp: "image/bmp", svg: "image/svg+xml",
+                pdf: "application/pdf", txt: "text/plain", md: "text/plain",
+                json: "application/json", csv: "text/csv",
+              };
+              const mimeType = mimeMap[ext] || "application/octet-stream";
+              invoke<string>("read_file_base64", { path: filePath })
+                .then((dataUrl) => {
+                  if (cancelled) return;
+                  console.log("[DragDrop] file read OK:", name, dataUrl.length, "bytes");
+                  setPendingAttachments((prev) => [...prev, {
+                    type: isImage ? "image" : "file",
+                    name,
+                    previewUrl: isImage ? dataUrl : undefined,
+                    url: dataUrl,
+                    mimeType,
+                  }]);
+                })
+                .catch((err) => console.error("[DragDrop] read_file_base64 failed:", name, err));
+            }
+          }
+        });
+        console.log("[DragDrop] listener registered via onDragDropEvent");
+      } catch (e) {
+        console.warn("[DragDrop] onDragDropEvent failed, trying fallback:", e);
+        // Fallback: try webview.listen for individual events
+        try {
+          const webview = getCurrentWebview();
+          const unlisteners: Array<() => void> = [];
+          const u1 = await webview.listen<any>("tauri://drag-enter", () => { if (!cancelled) setDragOver(true); });
+          const u2 = await webview.listen<any>("tauri://drag-over", () => { if (!cancelled) setDragOver(true); });
+          const u3 = await webview.listen<any>("tauri://drag-leave", () => { if (!cancelled) setDragOver(false); });
+          const u4 = await webview.listen<any>("tauri://drag-drop", (ev) => {
+            if (cancelled) return;
+            setDragOver(false);
+            const paths: string[] = ev.payload?.paths || [];
+            console.log("[DragDrop-fallback] dropped paths:", paths);
+            for (const filePath of paths) {
+              const name = filePath.split(/[\\/]/).pop() || "file";
+              const ext = (name.split(".").pop() || "").toLowerCase();
+              const isImage = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].includes(ext);
+              invoke<string>("read_file_base64", { path: filePath })
+                .then((dataUrl) => {
+                  if (cancelled) return;
+                  setPendingAttachments((prev) => [...prev, {
+                    type: isImage ? "image" : "file",
+                    name,
+                    previewUrl: isImage ? dataUrl : undefined,
+                    url: dataUrl,
+                    mimeType: isImage ? `image/${ext === "jpg" ? "jpeg" : ext}` : "application/octet-stream",
+                  }]);
+                })
+                .catch((err) => console.error("[DragDrop-fallback] read failed:", err));
+            }
+          });
+          unlisteners.push(u1, u2, u3, u4);
+          unlisten = () => unlisteners.forEach((u) => u());
+          console.log("[DragDrop] fallback listeners registered");
+        } catch (e2) {
+          console.error("[DragDrop] all methods failed:", e2);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   // ── 语音录制 ──
@@ -1157,38 +1393,22 @@ export function ChatView({
 
         {/* 附件预览栏 */}
         {pendingAttachments.length > 0 && (
-          <div style={{ padding: "8px 16px", borderTop: "1px solid var(--line)", display: "flex", flexWrap: "wrap", gap: 6, background: "rgba(255,255,255,0.5)" }}>
+          <div style={{ padding: "12px 16px 8px", borderTop: "1px solid var(--line)", display: "flex", flexWrap: "wrap", gap: 12, background: "rgba(255,255,255,0.5)" }}>
             {pendingAttachments.map((att, idx) => (
-              <div key={`${att.name}-${att.type}-${idx}`} style={{ position: "relative" }}>
-                <AttachmentPreview att={att} />
-                <button
-                  onClick={() => setPendingAttachments((prev) => prev.filter((_, i) => i !== idx))}
-                  style={{
-                    position: "absolute",
-                    top: -4,
-                    right: -4,
-                    width: 18,
-                    height: 18,
-                    borderRadius: 9,
-                    border: "none",
-                    background: "var(--danger)",
-                    color: "#fff",
-                    fontSize: 10,
-                    cursor: "pointer",
-                    display: "grid",
-                    placeItems: "center",
-                    lineHeight: 1,
-                  }}
-                >
-                  <IconX size={10} />
-                </button>
-              </div>
+              <AttachmentPreview
+                key={`${att.name}-${att.type}-${idx}`}
+                att={att}
+                onRemove={() => setPendingAttachments((prev) => prev.filter((_, i) => i !== idx))}
+              />
             ))}
           </div>
         )}
 
         {/* Cursor-style unified input box */}
-        <div className="chatInputArea">
+        <div
+          className="chatInputArea"
+          style={dragOver ? { outline: "2px dashed var(--brand)", outlineOffset: -2, background: "rgba(37,99,235,0.04)", borderRadius: 16 } : undefined}
+        >
           {/* Slash command panel */}
           {slashOpen && (
             <SlashCommandPanel

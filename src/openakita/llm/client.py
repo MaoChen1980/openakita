@@ -140,6 +140,30 @@ class LLMClient:
         # 恢复持久化的升级冷静期状态（防止重启绕过 1 小时冷静期）
         self._restore_cooldown_state()
 
+    def reload(self) -> bool:
+        """热重载：重新读取配置文件并重建所有 Provider。
+
+        Returns:
+            True 表示成功重载，False 表示配置文件不可用。
+        """
+        if not self._config_path or not self._config_path.exists():
+            logger.warning("reload() called but no config_path available")
+            return False
+        try:
+            new_endpoints, _, new_settings = load_endpoints_config(self._config_path)
+            self._endpoints = new_endpoints
+            self._settings = new_settings
+            self._providers.clear()
+            self._init_providers()
+            logger.info(
+                f"LLMClient reloaded from {self._config_path}: "
+                f"{len(self._endpoints)} endpoints, {len(self._providers)} providers"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"LLMClient reload failed: {e}", exc_info=True)
+            return False
+
     def _init_providers(self):
         """初始化所有 Provider"""
         for ep in self._endpoints:

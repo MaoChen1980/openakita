@@ -22,8 +22,15 @@ router = APIRouter()
 @router.get("/api/health")
 async def health(request: Request):
     """Basic health check - returns 200 if server is running."""
+    import os
+
+    from openakita import __version__ as backend_version
+
     return {
         "status": "ok",
+        "service": "openakita",
+        "version": backend_version,
+        "pid": os.getpid(),
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "agent_initialized": hasattr(request.app.state, "agent") and request.app.state.agent is not None,
     }

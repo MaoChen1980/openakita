@@ -19,6 +19,7 @@ reqwest = { version = "0.12.12", features = ["blocking", "json", "rustls-tls"] }
 flate2 = "1.0.35"
 tar = "0.4.41"
 zip = "2.2.2"
+base64 = "0.22.1"
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-autostart = "2.5.1"

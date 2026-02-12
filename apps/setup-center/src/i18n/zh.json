@@ -329,6 +329,7 @@
     "imWeworkCorpIdHelp": "在企业微信管理后台「我的企业 → 企业信息」页面底部获取",
     "imWeworkTokenHelp": "在智能机器人「接收消息服务器配置」中获取",
     "imWeworkAesKeyHelp": "在智能机器人「接收消息服务器配置」中获取",
+    "imWeworkCallbackUrlHint": "企业微信后台「接收消息服务器配置」的 URL 请填：",
     "imTypeLongPolling": "Bot (Long Polling)",
     "imTypeCustomApp": "自建应用 (WebSocket)",
     "imTypeSmartBot": "智能机器人 (HTTP 回调)",
@@ -419,10 +420,30 @@
     "hint": "输入正在运行的 OpenAkita 服务地址（默认端口 18900）",
     "address": "服务地址",
     "testing": "正在测试连接...",
-    "success": "已成功连接到远程服务",
+    "success": "已成功连接到服务",
     "fail": "无法连接到服务，请检查地址和服务是否运行",
     "confirm": "连接",
     "remoteMode": "远程",
     "remoteHint": "当前连接到远程服务 {{url}}"
+  },
+  "conflict": {
+    "title": "检测到已有服务",
+    "message": "本地端口 18900 已有 OpenAkita 服务正在运行",
+    "detail": "PID: {{pid}} · 版本: {{version}}",
+    "connectExisting": "连接已有服务",
+    "stopAndRestart": "停止并重启",
+    "cancel": "取消"
+  },
+  "version": {
+    "mismatch": "版本不一致",
+    "mismatchDetail": "后端服务版本 {{backend}} 与桌面终端版本 {{desktop}} 不一致，可能导致功能异常。",
+    "updatePip": "更新后端 (pip)",
+    "pipCommand": "pip install --upgrade openakita",
+    "copied": "已复制到剪贴板",
+    "newRelease": "发现新版本",
+    "newReleaseDetail": "OpenAkita {{latest}} 已发布（当前 {{current}}）",
+    "viewRelease": "查看发布页",
+    "dismiss": "稍后再说",
+    "checking": "检查更新..."
   }
 }

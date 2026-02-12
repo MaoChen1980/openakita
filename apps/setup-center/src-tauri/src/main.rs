@@ -1,5 +1,6 @@
 #![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
+use base64::Engine as _;
 use dirs_next::home_dir;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -591,7 +592,8 @@ fn main() {
             openakita_list_marketplace,
             openakita_get_skill_config,
             fetch_pypi_versions,
-            http_get_json
+            http_get_json,
+            read_file_base64
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -2030,4 +2032,36 @@ async fn http_get_json(url: String) -> Result<String, String> {
         Ok(text)
     })
     .await
+}
+
+/// Read a file from disk and return its contents as a base64 data-URL.
+/// Used by the frontend to handle Tauri file-drop events (which provide paths, not File objects).
+#[tauri::command]
+async fn read_file_base64(path: String) -> Result<String, String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err(format!("File not found: {}", path));
+    }
+    let data = std::fs::read(p).map_err(|e| format!("Failed to read {}: {}", path, e))?;
+    let mime = match p
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase()
+        .as_str()
+    {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        "pdf" => "application/pdf",
+        "txt" | "md" => "text/plain",
+        "json" => "application/json",
+        "csv" => "text/csv",
+        _ => "application/octet-stream",
+    };
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
+    Ok(format!("data:{};base64,{}", mime, b64))
 }

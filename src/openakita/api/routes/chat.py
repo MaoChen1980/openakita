@@ -74,15 +74,39 @@ async def _do_trait_mining(actual_agent, message: str):
 
 
 async def _stream_chat(
-    request: ChatRequest,
+    chat_request: ChatRequest,
     agent: object,
     session_manager: object | None = None,
+    http_request: Request | None = None,
 ) -> AsyncIterator[str]:
-    """Generate SSE events from agent processing with full Agent pipeline."""
+    """Generate SSE events from agent processing with full Agent pipeline.
+
+    Args:
+        chat_request: The parsed chat request body.
+        agent: The Agent or MasterAgent instance.
+        session_manager: Optional session manager for conversation persistence.
+        http_request: The original FastAPI Request, used to detect client disconnection.
+    """
 
     _reply_chars = 0
     _reply_preview = ""
     _done_sent = False
+    _client_disconnected = False
+
+    async def _check_disconnected() -> bool:
+        """Check if the client has disconnected (abort / close tab)."""
+        nonlocal _client_disconnected
+        if _client_disconnected:
+            return True
+        if http_request is not None:
+            try:
+                if await http_request.is_disconnected():
+                    _client_disconnected = True
+                    logger.info("[Chat API] 客户端已断开连接，停止流式输出")
+                    return True
+            except Exception:
+                pass
+        return False
 
     def _sse(event_type: str, data: dict | None = None) -> str:
         nonlocal _reply_chars, _reply_preview, _done_sent
@@ -118,7 +142,7 @@ async def _stream_chat(
             await actual_agent.initialize()
 
         # --- Session management ---
-        conversation_id = request.conversation_id or ""
+        conversation_id = chat_request.conversation_id or ""
         session = None
         session_messages_history = []
 
@@ -134,8 +158,8 @@ async def _stream_chat(
                     # Get history before adding current message
                     session_messages_history = list(session.context.messages) if hasattr(session, "context") else []
                     # Add current user message to session
-                    if request.message:
-                        session.add_message("user", request.message)
+                    if chat_request.message:
+                        session.add_message("user", chat_request.message)
                     session_manager.mark_dirty()
             except Exception as e:
                 logger.warning(f"[Chat API] Session management error: {e}")
@@ -156,12 +180,12 @@ async def _stream_chat(
             messages.append({"role": "assistant", "content": "好的，我已了解之前的对话上下文。请告诉我你现在的需求。"})
 
         # Current user message (with attachment support)
-        if request.message or request.attachments:
-            if request.attachments:
+        if chat_request.message or chat_request.attachments:
+            if chat_request.attachments:
                 content_blocks: list[dict] = []
-                if request.message:
-                    content_blocks.append({"type": "text", "text": request.message})
-                for att in request.attachments:
+                if chat_request.message:
+                    content_blocks.append({"type": "text", "text": chat_request.message})
+                for att in chat_request.attachments:
                     if att.type == "image" and att.url:
                         content_blocks.append({"type": "image_url", "image_url": {"url": att.url}})
                     elif att.url:
@@ -171,25 +195,25 @@ async def _stream_chat(
                         })
                 if content_blocks:
                     messages.append({"role": "user", "content": content_blocks})
-            elif request.message:
-                messages.append({"role": "user", "content": request.message})
+            elif chat_request.message:
+                messages.append({"role": "user", "content": chat_request.message})
 
         # --- Trait mining (async, like IM/CLI) ---
-        if request.message:
-            await _do_trait_mining(actual_agent, request.message)
+        if chat_request.message:
+            await _do_trait_mining(actual_agent, chat_request.message)
 
         # --- Record turn for memory consolidation ---
-        if request.message and hasattr(actual_agent, "memory_manager"):
-            actual_agent.memory_manager.record_turn("user", request.message)
+        if chat_request.message and hasattr(actual_agent, "memory_manager"):
+            actual_agent.memory_manager.record_turn("user", chat_request.message)
 
         # --- Build full system prompt (persona + memory + traits + runtime) ---
         system_prompt = await _build_full_system_prompt(
-            actual_agent, request.message or "", session_type="desktop"
+            actual_agent, chat_request.message or "", session_type="desktop"
         )
 
         # --- Endpoint override & plan mode ---
-        endpoint_override = request.endpoint
-        plan_mode = request.plan_mode
+        endpoint_override = chat_request.endpoint
+        plan_mode = chat_request.plan_mode
 
         # --- Context compression (like IM/CLI) ---
         try:
@@ -215,6 +239,9 @@ async def _stream_chat(
                     endpoint_override=endpoint_override,
                     conversation_id=conversation_id,
                 ):
+                    # Check if client disconnected (user clicked stop)
+                    if await _check_disconnected():
+                        break
                     yield _sse(event["type"], {k: v for k, v in event.items() if k != "type"})
                     # Inject artifact events for deliver_artifacts results
                     if event.get("type") == "tool_call_end" and event.get("tool") == "deliver_artifacts":
@@ -233,8 +260,11 @@ async def _stream_chat(
                         except (json.JSONDecodeError, TypeError, KeyError):
                             pass
             except Exception as e:
-                logger.error(f"Reasoning engine error: {e}", exc_info=True)
-                yield _sse("error", {"message": str(e)[:500]})
+                if _client_disconnected:
+                    logger.info("[Chat API] 客户端已断开，reasoning engine 停止")
+                else:
+                    logger.error(f"Reasoning engine error: {e}", exc_info=True)
+                    yield _sse("error", {"message": str(e)[:500]})
         else:
             # Fallback: direct LLM streaming
             llm_client = getattr(brain, "_llm_client", None)
@@ -259,15 +289,18 @@ async def _stream_chat(
 
             try:
                 from openakita.llm.types import Message
-                llm_messages = [Message(role="user", content=request.message)]
+                llm_messages = [Message(role="user", content=chat_request.message)]
                 # Include attachments in fallback path too
-                if request.attachments:
+                if chat_request.attachments:
                     att_text = "\n".join(
-                        f"[附件: {a.name or 'file'}] {a.url}" for a in request.attachments if a.url
+                        f"[附件: {a.name or 'file'}] {a.url}" for a in chat_request.attachments if a.url
                     )
                     if att_text:
-                        llm_messages = [Message(role="user", content=f"{request.message}\n{att_text}")]
+                        llm_messages = [Message(role="user", content=f"{chat_request.message}\n{att_text}")]
                 async for chunk in llm_client.chat_stream(messages=llm_messages):
+                    # Check if client disconnected
+                    if await _check_disconnected():
+                        break
                     if isinstance(chunk, dict):
                         ctype = chunk.get("type", "")
                         if ctype in ("content_block_delta", "text"):
@@ -279,8 +312,11 @@ async def _stream_chat(
                     elif isinstance(chunk, str):
                         yield _sse("text_delta", {"content": chunk})
             except Exception as e:
-                logger.error(f"LLM streaming error: {e}", exc_info=True)
-                yield _sse("error", {"message": str(e)[:500]})
+                if _client_disconnected:
+                    logger.info("[Chat API] 客户端已断开，LLM 流式输出停止")
+                else:
+                    logger.error(f"LLM streaming error: {e}", exc_info=True)
+                    yield _sse("error", {"message": str(e)[:500]})
 
         # --- Record assistant response for memory ---
         if _reply_preview and hasattr(actual_agent, "memory_manager"):
@@ -335,7 +371,7 @@ async def chat(request: Request, body: ChatRequest):
     )
 
     return StreamingResponse(
-        _stream_chat(body, agent, session_manager),
+        _stream_chat(body, agent, session_manager, http_request=request),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

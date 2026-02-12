@@ -17,6 +17,32 @@
   --fg: var(--text);
 }
 
+/* ── Scrollbar: hidden by default, visible on hover ── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: rgba(17, 24, 39, 0.18) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+*:hover::-webkit-scrollbar-thumb {
+  background: rgba(17, 24, 39, 0.18);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(17, 24, 39, 0.32);
+}
+
 html,
 body {
   height: 100%;
