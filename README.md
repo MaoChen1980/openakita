@@ -42,15 +42,11 @@
 
 ## What is OpenAkita?
 
-OpenAkita is a **self-evolving AI Agent framework**. It autonomously learns new skills, performs daily self-checks and repairs, accumulates experience from task execution, and never gives up when facing difficulties — persisting until the task is done.
+**An AI Agent that keeps getting smarter while you sleep.**
 
-Like the Akita dog it's named after: **loyal, reliable, never quits**.
+Most AI assistants forget you the moment the chat ends. OpenAkita teaches itself new skills, fixes its own bugs, and remembers everything you've told it — like the Akita dog it's named after: **loyal, reliable, never quits**.
 
-- **Self-Evolving** — Auto-generates skills, installs dependencies, learns from mistakes
-- **Never Gives Up** — Ralph Wiggum Mode: persistent execution loop until task completion
-- **Growing Memory** — Remembers your preferences and habits, auto-consolidates daily
-- **Standards-Based** — MCP and Agent Skills standard compliance for broad ecosystem compatibility
-- **Multi-Platform** — Desktop Terminal GUI, CLI, Telegram, Feishu, DingTalk, WeCom, QQ
+Set up in 3 minutes with just an API key. 8 personas, 6 IM platforms, and yes — it sends memes.
 
 ---
 
