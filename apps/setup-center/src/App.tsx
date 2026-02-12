@@ -14,7 +14,8 @@ import {
   IconChevronDown, IconChevronRight, IconChevronUp, IconGlobe, IconLink, IconPower,
   IconEdit, IconTrash, IconEye, IconEyeOff, IconInfo, IconClipboard,
   DotGreen, DotGray,
-  IconBook, LogoTelegram, LogoFeishu, LogoWework, LogoDingtalk, LogoQQ,
+  IconBook, IconZap, IconGear,
+  LogoTelegram, LogoFeishu, LogoWework, LogoDingtalk, LogoQQ,
 } from "./icons";
 import logoUrl from "./assets/logo.png";
 import "highlight.js/styles/github.css";
@@ -169,7 +170,10 @@ type StepId =
   | "im"
   | "tools"
   | "agent"
-  | "finish";
+  | "finish"
+  | "quick-form"
+  | "quick-setup"
+  | "quick-finish";
 
 type Step = {
   id: StepId;
@@ -444,20 +448,38 @@ export function App() {
     }
   }, []);
 
+  // ── Quick / Full config mode ──
+  const [configMode, setConfigMode] = useState<"quick" | "full" | null>(null);
+
   const steps: Step[] = useMemo(
-    () => [
-      { id: "welcome", title: t("config.step.welcome"), desc: t("config.step.welcomeDesc") },
-      { id: "workspace", title: t("config.step.workspace"), desc: t("config.step.workspaceDesc") },
-      { id: "python", title: "Python", desc: t("config.step.pythonDesc") },
-      { id: "install", title: t("config.step.install"), desc: t("config.step.installDesc") },
-      { id: "llm", title: t("config.step.endpoints"), desc: t("config.step.endpointsDesc") },
-      { id: "im", title: t("config.imTitle"), desc: t("config.step.imDesc") },
-      { id: "tools", title: t("config.step.tools"), desc: t("config.step.toolsDesc") },
-      { id: "agent", title: t("config.step.agent"), desc: t("config.step.agentDesc") },
-      { id: "finish", title: t("config.step.finish"), desc: t("config.step.finishDesc") },
-    ],
+    () => {
+      if (configMode === "quick") {
+        return [
+          { id: "welcome", title: t("welcome.quickTitle"), desc: t("welcome.modeTitle") },
+          { id: "quick-form", title: t("config.step.quickForm"), desc: t("config.step.quickFormDesc") },
+          { id: "quick-setup", title: t("config.step.quickSetup"), desc: t("config.step.quickSetupDesc") },
+          { id: "quick-finish", title: t("config.step.quickFinish"), desc: t("config.step.quickFinishDesc") },
+        ];
+      }
+      if (configMode === "full") {
+        return [
+          { id: "workspace", title: t("config.step.workspace"), desc: t("config.step.workspaceDesc") },
+          { id: "python", title: "Python", desc: t("config.step.pythonDesc") },
+          { id: "install", title: t("config.step.install"), desc: t("config.step.installDesc") },
+          { id: "llm", title: t("config.step.endpoints"), desc: t("config.step.endpointsDesc") },
+          { id: "im", title: t("config.imTitle"), desc: t("config.step.imDesc") },
+          { id: "tools", title: t("config.step.tools"), desc: t("config.step.toolsDesc") },
+          { id: "agent", title: t("config.step.agent"), desc: t("config.step.agentDesc") },
+          { id: "finish", title: t("config.step.finish"), desc: t("config.step.finishDesc") },
+        ];
+      }
+      // configMode === null: show welcome only
+      return [
+        { id: "welcome", title: t("config.step.welcome"), desc: t("config.step.welcomeDesc") },
+      ];
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [t],
+    [configMode, t],
   );
 
   const [view, setView] = useState<"wizard" | "status" | "chat" | "skills" | "im">("wizard");
@@ -817,14 +839,21 @@ export function App() {
     if (openakitaInstalled) d.add("install");
     // LLM 步骤：只要工作区已有端点，就视为完成（允许用户跳过“拉模型/选模型/新增端点”）
     if (savedEndpoints.length > 0) d.add("llm");
+    // Quick mode steps
+    if (configMode === "quick") {
+      if (savedEndpoints.length > 0) d.add("quick-form");
+      if (currentWorkspaceId && canUsePython && openakitaInstalled) d.add("quick-setup");
+    }
     // integrations/finish are completion-oriented; keep manual.
     return d;
-  }, [info, currentWorkspaceId, canUsePython, openakitaInstalled, savedEndpoints.length]);
+  }, [info, currentWorkspaceId, canUsePython, openakitaInstalled, savedEndpoints.length, configMode]);
 
   // 当 done 集合更新时，自动推进 maxReachedStepIdx
   // 核心步骤（welcome ~ llm）全完成后，解锁所有后续步骤（IM/工具/Agent/完成都是可选的）
   useEffect(() => {
-    const coreSteps: StepId[] = ["welcome", "workspace", "python", "install", "llm"];
+    const coreSteps: StepId[] = configMode === "quick"
+      ? ["welcome", "quick-form", "quick-setup"]
+      : ["welcome", "workspace", "python", "install", "llm"];
     const allCoreDone = coreSteps.every((id) => done.has(id));
     if (allCoreDone) {
       // 所有核心步骤完成 -> 解锁全部步骤
@@ -2166,6 +2195,17 @@ export function App() {
   function goPrev() {
     setNotice(null);
     setError(null);
+    // In quick mode, going back from quick-form should return to welcome (mode selection)
+    if (stepId === "quick-form") {
+      quickSetupStarted.current = false;
+      setQuickSetupPhase(0);
+      setQuickSetupError(null);
+      setConfigMode(null);
+      setStepId("welcome");
+      setMaxReachedStepIdx(0);
+      localStorage.setItem("openakita_maxStep", "0");
+      return;
+    }
     setStepId(steps[Math.max(currentStepIdx - 1, 0)].id);
   }
 
@@ -3000,7 +3040,8 @@ export function App() {
     }
   }
 
-  const doneCount = done.size;
+  // Only count done items that are actually in the current steps list
+  const doneCount = steps.filter((s) => done.has(s.id)).length;
   const totalSteps = steps.length;
 
   // Auto-collapse config section when all steps done
@@ -3263,7 +3304,13 @@ export function App() {
   }
 
   function renderWelcome() {
-    const guideSteps = [
+    const quickFeatures = [
+      t("welcome.quickFeature1"),
+      t("welcome.quickFeature2"),
+      t("welcome.quickFeature3"),
+      t("welcome.quickFeature4"),
+    ];
+    const fullSteps = [
       { icon: "1", title: t("config.step.workspace"), desc: t("welcome.step1") },
       { icon: "2", title: "Python", desc: t("welcome.step2") },
       { icon: "3", title: t("welcome.installTitle"), desc: t("welcome.step3") },
@@ -3285,24 +3332,393 @@ export function App() {
           </div>
         </div>
 
-        {/* Step guide */}
+        {/* Mode selection */}
         <div className="card" style={{ marginTop: 12 }}>
-          <div className="cardTitle">{t("welcome.title")}</div>
-          <div className="cardHint" style={{ marginBottom: 16 }}>{t("welcome.subtitle")}</div>
-          <div className="welcomeSteps">
-            {guideSteps.map((s, i) => (
-              <div key={i} className="welcomeStepRow">
-                <div className="welcomeStepNum">{s.icon}</div>
+          <div className="cardTitle">{t("welcome.modeTitle")}</div>
+          <div className="cardHint" style={{ marginBottom: 20 }}>{t("welcome.modeSubtitle")}</div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            {/* Quick Setup Card */}
+            <div
+              className="card"
+              style={{
+                marginTop: 0, cursor: "pointer", border: "2px solid var(--primary, #1976d2)",
+                background: "linear-gradient(135deg, #e3f2fd 0%, #f5f5f5 100%)",
+                transition: "box-shadow 0.2s, transform 0.15s",
+              }}
+              onClick={() => {
+                setConfigMode("quick");
+                setStepId("quick-form");
+                setMaxReachedStepIdx(1);
+                localStorage.setItem("openakita_maxStep", "1");
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 20px rgba(25,118,210,0.25)"; (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = ""; (e.currentTarget as HTMLElement).style.transform = ""; }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
+                  background: "var(--primary, #1976d2)", color: "#fff", flexShrink: 0,
+                }}><IconZap size={22} /></div>
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{s.title}</div>
-                  <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>{s.desc}</div>
+                  <div style={{ fontWeight: 700, fontSize: 16, color: "var(--primary, #1976d2)" }}>{t("welcome.quickTitle")}</div>
+                  <div style={{ fontSize: 11, opacity: 0.6 }}>{t("welcome.quickTime")}</div>
                 </div>
               </div>
-            ))}
+              <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 12 }}>{t("welcome.quickDesc")}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {quickFeatures.map((f, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, opacity: 0.7 }}>
+                    <IconCheck size={14} style={{ color: "var(--primary, #1976d2)", flexShrink: 0 }} />
+                    <span>{f}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Full Setup Card */}
+            <div
+              className="card"
+              style={{ marginTop: 0, cursor: "pointer", border: "2px solid transparent", transition: "box-shadow 0.2s, transform 0.15s, border-color 0.2s" }}
+              onClick={() => {
+                setConfigMode("full");
+                setStepId("workspace");
+                setMaxReachedStepIdx(0);
+                localStorage.setItem("openakita_maxStep", "0");
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 16px rgba(0,0,0,0.1)"; (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; (e.currentTarget as HTMLElement).style.borderColor = "#bdbdbd"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = ""; (e.currentTarget as HTMLElement).style.transform = ""; (e.currentTarget as HTMLElement).style.borderColor = "transparent"; }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
+                  background: "#78909c", color: "#fff", flexShrink: 0,
+                }}><IconGear size={22} /></div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 16 }}>{t("welcome.fullTitle")}</div>
+                  <div style={{ fontSize: 11, opacity: 0.6 }}>{t("welcome.fullTime")}</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 12 }}>{t("welcome.fullDesc")}</div>
+              <div className="welcomeSteps" style={{ gap: 6 }}>
+                {fullSteps.map((s, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, opacity: 0.7 }}>
+                    <div style={{
+                      width: 20, height: 20, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                      background: "#e0e0e0", fontSize: 10, fontWeight: 700, flexShrink: 0,
+                    }}>{s.icon}</div>
+                    <span>{s.title}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-          <div style={{ marginTop: 20, textAlign: "center" }}>
-            <button className="btnPrimary" onClick={goNext}>{t("welcome.begin")}</button>
+        </div>
+      </>
+    );
+  }
+
+  // ── Quick Auto Setup: runs workspace creation, Python install, venv, pip, and default .env in one go ──
+  const [quickSetupPhase, setQuickSetupPhase] = useState<number>(0);
+  const [quickSetupError, setQuickSetupError] = useState<string | null>(null);
+  const quickSetupStarted = useRef(false);
+  const [quickImExpanded, setQuickImExpanded] = useState(false);
+
+  const QUICK_ENV_DEFAULTS: Record<string, string> = {
+    AGENT_NAME: "OpenAkita",
+    MAX_ITERATIONS: "300",
+    THINKING_MODE: "auto",
+    AUTO_CONFIRM: "false",
+    DATABASE_PATH: "data/agent.db",
+    PERSONA_NAME: "default",
+    PROACTIVE_ENABLED: "true",
+    PROACTIVE_MAX_DAILY_MESSAGES: "3",
+    PROACTIVE_QUIET_HOURS_START: "23",
+    PROACTIVE_QUIET_HOURS_END: "7",
+    PROACTIVE_MIN_INTERVAL_MINUTES: "120",
+    PROACTIVE_IDLE_THRESHOLD_HOURS: "24",
+    STICKER_ENABLED: "true",
+    STICKER_DATA_DIR: "data/sticker",
+    MCP_ENABLED: "true",
+    MCP_BROWSER_ENABLED: "true",
+    DESKTOP_ENABLED: "true",
+    WHISPER_MODEL: "base",
+    WHISPER_LANGUAGE: "zh",
+    LOG_LEVEL: "INFO",
+    LOG_DIR: "logs",
+    LOG_FILE_PREFIX: "openakita",
+    LOG_MAX_SIZE_MB: "10",
+    LOG_BACKUP_COUNT: "30",
+    LOG_RETENTION_DAYS: "30",
+    LOG_TO_CONSOLE: "true",
+    LOG_TO_FILE: "true",
+    EMBEDDING_MODEL: "shibing624/text2vec-base-chinese",
+    EMBEDDING_DEVICE: "cpu",
+    MODEL_DOWNLOAD_SOURCE: "auto",
+    MEMORY_HISTORY_DAYS: "30",
+    MEMORY_MAX_HISTORY_FILES: "1000",
+    MEMORY_MAX_HISTORY_SIZE_MB: "500",
+    SCHEDULER_ENABLED: "true",
+    SCHEDULER_TIMEZONE: "Asia/Shanghai",
+    SCHEDULER_MAX_CONCURRENT: "5",
+    SESSION_TIMEOUT_MINUTES: "30",
+    SESSION_MAX_HISTORY: "50",
+    SESSION_STORAGE_PATH: "data/sessions",
+    ORCHESTRATION_ENABLED: "false",
+    ORCHESTRATION_MODE: "single",
+    TELEGRAM_ENABLED: "false",
+    FEISHU_ENABLED: "false",
+    WEWORK_ENABLED: "false",
+    DINGTALK_ENABLED: "false",
+    QQ_ENABLED: "false",
+  };
+
+  // ── Quick auto-setup effect: MUST be at component top level (not inside renderQuickAutoSetup) ──
+  useEffect(() => {
+    if (stepId !== "quick-setup" || configMode !== "quick") return;
+    if (quickSetupStarted.current) return;
+    if (!info) return; // wait for platform info
+    quickSetupStarted.current = true;
+
+    (async () => {
+      try {
+        // Phase 0: Create workspace
+        setQuickSetupPhase(0);
+        setQuickSetupError(null);
+        try {
+          const ws = await invoke<WorkspaceSummary>("create_workspace", {
+            id: "default",
+            name: "默认工作区",
+            setCurrent: true,
+          });
+          await refreshAll();
+          setCurrentWorkspaceId(ws.id);
+          envLoadedForWs.current = null;
+        } catch {
+          // workspace may already exist, try to set it as current
+          const wsList = await invoke<WorkspaceSummary[]>("list_workspaces");
+          const existing = wsList.find((w) => w.id === "default");
+          if (existing) {
+            await invoke("set_current_workspace", { id: "default" });
+            await refreshAll();
+            setCurrentWorkspaceId("default");
+            envLoadedForWs.current = null;
+          } else {
+            throw new Error("创建工作区失败");
+          }
+        }
+
+        // Phase 1: Install embedded Python
+        setQuickSetupPhase(1);
+        const r = await invoke<EmbeddedPythonInstallResult>("install_embedded_python", { pythonSeries: "3.11" });
+        const cand: PythonCandidate = {
+          command: r.pythonCommand,
+          versionText: `embedded (${r.tag}): ${r.assetName}`,
+          isUsable: true,
+        };
+        setPythonCandidates((prev) => [cand, ...prev.filter((p) => p.command.join(" ") !== cand.command.join(" "))]);
+        setSelectedPythonIdx(0);
+
+        // Phase 2: Create venv + pip install
+        setQuickSetupPhase(2);
+        const curVenvDir = joinPath(info.openakitaRootDir, "venv");
+        await invoke<string>("create_venv", { pythonCommand: r.pythonCommand, venvDir: curVenvDir });
+        setVenvReady(true);
+        setInstallLog("");
+        const spec = `openakita[all]`;
+        await invoke<string>("pip_install", {
+          venvDir: curVenvDir,
+          packageSpec: spec,
+          indexUrl: null,
+        });
+        setOpenakitaInstalled(true);
+
+        // Phase 3: Write default .env
+        setQuickSetupPhase(3);
+        const tauriEntries = Object.entries(QUICK_ENV_DEFAULTS).map(([key, value]) => ({ key, value }));
+        await invoke("workspace_update_env", { workspaceId: "default", entries: tauriEntries });
+        // Also update envDraft in memory
+        setEnvDraft((prev) => {
+          const next = { ...prev };
+          for (const [k, v] of Object.entries(QUICK_ENV_DEFAULTS)) {
+            next[k] = v;
+          }
+          return next;
+        });
+
+        // Phase 4: Save IM config (from envDraft filled on quick-form)
+        setQuickSetupPhase(4);
+        try {
+          const imKeys = [
+            "TELEGRAM_ENABLED", "TELEGRAM_BOT_TOKEN", "TELEGRAM_PROXY",
+            "TELEGRAM_REQUIRE_PAIRING", "TELEGRAM_PAIRING_CODE", "TELEGRAM_WEBHOOK_URL",
+            "FEISHU_ENABLED", "FEISHU_APP_ID", "FEISHU_APP_SECRET",
+            "WEWORK_ENABLED", "WEWORK_CORP_ID",
+            "WEWORK_TOKEN", "WEWORK_ENCODING_AES_KEY", "WEWORK_CALLBACK_PORT",
+            "DINGTALK_ENABLED", "DINGTALK_CLIENT_ID", "DINGTALK_CLIENT_SECRET",
+            "QQ_ENABLED", "QQ_ONEBOT_URL",
+          ];
+          const imEntries = imKeys
+            .filter((k) => envDraft[k] !== undefined && envDraft[k] !== "")
+            .map((k) => ({ key: k, value: envDraft[k] }));
+          if (imEntries.length > 0) {
+            await invoke("workspace_update_env", { workspaceId: "default", entries: imEntries });
+          }
+        } catch { /* ignore IM save errors */ }
+
+        // Done — advance to quick-finish
+        setQuickSetupPhase(5);
+
+        setTimeout(() => {
+          setStepId("quick-finish");
+          setMaxReachedStepIdx((prev) => {
+            const next = Math.max(prev, steps.length - 1);
+            localStorage.setItem("openakita_maxStep", String(next));
+            return next;
+          });
+        }, 800);
+      } catch (e) {
+        setQuickSetupError(String(e));
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepId, configMode, info]);
+
+  function renderQuickAutoSetup() {
+    const phases = [
+      t("welcome.quickStep1"),
+      t("welcome.quickStep2"),
+      t("welcome.quickStep3"),
+      t("welcome.quickStep4"),
+      t("welcome.quickStep5"),
+    ];
+
+    return (
+      <>
+        <div className="card">
+          <div className="cardTitle">{t("welcome.quickSetupTitle")}</div>
+          <div className="cardHint" style={{ marginBottom: 20 }}>{t("welcome.quickSetupSubtitle")}</div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {phases.map((label, idx) => {
+              const isActive = quickSetupPhase === idx && !quickSetupError;
+              const isDone = quickSetupPhase > idx;
+              const isFailed = quickSetupPhase === idx && !!quickSetupError;
+              return (
+                <div key={idx} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{
+                    width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                    flexShrink: 0, fontSize: 14, fontWeight: 700,
+                    background: isDone ? "var(--primary, #1976d2)" : isFailed ? "#e53935" : isActive ? "#e3f2fd" : "#f5f5f5",
+                    color: isDone ? "#fff" : isFailed ? "#fff" : isActive ? "var(--primary, #1976d2)" : "#999",
+                    transition: "all 0.3s",
+                  }}>
+                    {isDone ? <IconCheck size={16} /> : isFailed ? <IconX size={16} /> : idx + 1}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: isDone ? "var(--primary, #1976d2)" : isFailed ? "#e53935" : undefined }}>
+                      {label}
+                    </div>
+                    {isActive && !quickSetupError && (
+                      <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>
+                        <span className="loadingDots">...</span>
+                      </div>
+                    )}
+                  </div>
+                  {isActive && !quickSetupError && (
+                    <div className="spinner" style={{ width: 18, height: 18 }} />
+                  )}
+                </div>
+              );
+            })}
           </div>
+
+          {quickSetupPhase >= 5 && !quickSetupError && (
+            <div style={{ marginTop: 16, padding: "12px 16px", background: "#e8f5e9", borderRadius: 8, fontSize: 13, color: "#2e7d32" }}>
+              <IconCheckCircle size={16} style={{ verticalAlign: "middle", marginRight: 6 }} />
+              {t("welcome.quickStepDone")}
+            </div>
+          )}
+
+          {quickSetupError && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ padding: "12px 16px", background: "#ffebee", borderRadius: 8, fontSize: 13, color: "#c62828", marginBottom: 12 }}>
+                {t("welcome.quickStepFail")}
+                <div style={{ marginTop: 6, fontSize: 11, opacity: 0.8, whiteSpace: "pre-wrap" }}>{quickSetupError}</div>
+              </div>
+              <button className="btnPrimary" onClick={() => {
+                quickSetupStarted.current = false;
+                setQuickSetupPhase(0);
+                setQuickSetupError(null);
+                setConfigMode(null);
+                setStepId("welcome");
+                setMaxReachedStepIdx(0);
+                localStorage.setItem("openakita_maxStep", "0");
+              }}>
+                {t("welcome.quickSwitchFull")}
+              </button>
+            </div>
+          )}
+        </div>
+      </>
+    );
+  }
+
+  function renderQuickForm() {
+    const canStart = savedEndpoints.length > 0;
+    return (
+      <>
+        {/* ── Intro hint ── */}
+        <div className="card">
+          <div className="cardTitle">{t("welcome.quickFormTitle")}</div>
+          <div className="cardHint">{t("welcome.quickFormHint")}</div>
+        </div>
+
+        {/* ── LLM Endpoint section (reuse renderLLM content) ── */}
+        {renderLLM()}
+
+        {/* ── Optional IM section (collapsible) ── */}
+        <div className="card" style={{ marginTop: 16 }}>
+          <div
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
+            onClick={() => setQuickImExpanded((v) => !v)}
+            role="button" tabIndex={0}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div className="cardTitle" style={{ marginBottom: 0 }}>{t("config.imTitle")}</div>
+              <span className="pill" style={{ fontSize: 10, padding: "2px 8px", background: "#f1f5f9", color: "#64748b" }}>{t("welcome.quickFormOptional")}</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, opacity: 0.6 }}>
+              <span>{quickImExpanded ? t("welcome.quickFormCollapse") : t("welcome.quickFormExpand")}</span>
+              {quickImExpanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+            </div>
+          </div>
+          <div className="cardHint" style={{ marginTop: 4 }}>{t("welcome.quickFormImHint")}</div>
+        </div>
+        {quickImExpanded && renderIM()}
+
+        {/* ── Start button ── */}
+        <div style={{ marginTop: 24, textAlign: "center" }}>
+          <button
+            className="btnPrimary"
+            style={{ padding: "12px 48px", fontSize: 16, fontWeight: 700, borderRadius: 10 }}
+            disabled={!canStart || !!busy}
+            onClick={() => {
+              setStepId("quick-setup");
+              setMaxReachedStepIdx((prev) => {
+                const next = Math.max(prev, 2);
+                localStorage.setItem("openakita_maxStep", String(next));
+                return next;
+              });
+            }}
+          >
+            {t("welcome.quickFormStart")}
+          </button>
+          {!canStart && (
+            <div style={{ marginTop: 8, fontSize: 12, opacity: 0.6, color: "#e53935" }}>
+              {t("welcome.quickFormNeedEndpoint")}
+            </div>
+          )}
         </div>
       </>
     );
@@ -5053,6 +5469,63 @@ export function App() {
     );
   }
 
+  function renderQuickFinish() {
+    const ws = workspaces.find((w) => w.id === currentWorkspaceId) || null;
+    const epCount = savedEndpoints.length;
+    const imEnabled = ["TELEGRAM_ENABLED", "FEISHU_ENABLED", "WEWORK_ENABLED", "DINGTALK_ENABLED", "QQ_ENABLED"]
+      .filter((k) => (envDraft[k] || "").toLowerCase() === "true");
+    return (
+      <>
+        <div className="card">
+          <div className="cardTitle">{t("config.quickFinishTitle")}</div>
+          <div className="cardHint" style={{ marginBottom: 16 }}>{t("config.quickFinishHint")}</div>
+          <div className="divider" />
+          <div className="grid2" style={{ marginTop: 12 }}>
+            <div className="card" style={{ marginTop: 0 }}>
+              <div className="label">{t("config.step.workspace")}</div>
+              <div className="cardHint" style={{ marginTop: 4 }}>{ws?.name || "default"} ({ws?.path || "-"})</div>
+            </div>
+            <div className="card" style={{ marginTop: 0 }}>
+              <div className="label">{t("config.step.endpoints")}</div>
+              <div className="cardHint" style={{ marginTop: 4 }}>{epCount} {t("topbar.endpoints", { count: epCount })}</div>
+            </div>
+          </div>
+          {imEnabled.length > 0 && (
+            <div className="card" style={{ marginTop: 12 }}>
+              <div className="label">{t("config.imTitle")}</div>
+              <div className="cardHint" style={{ marginTop: 4 }}>
+                {imEnabled.map((k) => k.replace("_ENABLED", "")).join(", ")}
+              </div>
+            </div>
+          )}
+          <div style={{ marginTop: 20, display: "flex", justifyContent: "center", gap: 12 }}>
+            <button
+              className="btnPrimary"
+              style={{ padding: "10px 32px", fontSize: 15 }}
+              onClick={async () => {
+                const effectiveWsId = currentWorkspaceId || workspaces[0]?.id || null;
+                if (!effectiveWsId) { setError(t("common.error")); return; }
+                setError(null);
+                setView("status");
+                await startLocalServiceWithConflictCheck(effectiveWsId);
+                try { await refreshServiceLog(effectiveWsId); } catch { /* ignore */ }
+              }}
+              disabled={!!busy}
+            >
+              {t("config.quickFinishLaunch")}
+            </button>
+            <button
+              style={{ padding: "10px 24px", fontSize: 14 }}
+              onClick={() => { setView("status"); }}
+            >
+              {t("config.quickFinishToStatus")}
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   function renderFinish() {
     const ws = workspaces.find((w) => w.id === currentWorkspaceId) || null;
 
@@ -5242,6 +5715,12 @@ export function App() {
         return renderAgentSystem();
       case "finish":
         return renderFinish();
+      case "quick-form":
+        return renderQuickForm();
+      case "quick-setup":
+        return renderQuickAutoSetup();
+      case "quick-finish":
+        return renderQuickFinish();
       default:
         return renderWelcome();
     }
@@ -5292,19 +5771,43 @@ export function App() {
               <IconConfig size={16} />
               {!sidebarCollapsed && <span>{t("sidebar.config")}</span>}
             </div>
-            {!sidebarCollapsed && (
+            {!sidebarCollapsed && configMode !== null && (
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span className="configProgress">{t("sidebar.configProgress", { done: doneCount, total: totalSteps })}</span>
                 {configExpanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
               </div>
             )}
           </div>
-          {!sidebarCollapsed && configExpanded && (
+          {!sidebarCollapsed && configExpanded && configMode !== null && (
             <div className="stepList">
-              {steps.map((s, idx) => {
+              {/* Mode selection entry - always visible when a mode has been chosen */}
+              {configMode !== null && (
+                <div
+                  className={`stepItem ${view === "wizard" && stepId === "welcome" && configMode === null ? "stepItemActive" : ""}`}
+                  style={{ opacity: 0.7, borderBottom: "1px solid var(--line, #e0e0e0)", paddingBottom: 8, marginBottom: 4 }}
+                  onClick={() => {
+                    quickSetupStarted.current = false;
+                    setQuickSetupPhase(0);
+                    setQuickSetupError(null);
+                    setConfigMode(null);
+                    setStepId("welcome");
+                    setMaxReachedStepIdx(0);
+                    localStorage.setItem("openakita_maxStep", "0");
+                    setView("wizard");
+                  }}
+                  role="button" tabIndex={0}
+                >
+                  <div className="stepDot" style={{ width: 20, height: 20, fontSize: 10 }}>
+                    <IconChevronRight size={12} style={{ transform: "rotate(180deg)" }} />
+                  </div>
+                  <div className="stepMeta"><div className="stepTitle" style={{ fontSize: 11 }}>{t("welcome.backToModeSelect")}</div></div>
+                </div>
+              )}
+              {steps.filter((s) => s.id !== "welcome" || configMode === null).map((s, idx) => {
                 const isActive = view === "wizard" && s.id === stepId;
                 const isDone = done.has(s.id);
-                const canJump = idx <= maxReachedStepIdx || isDone;
+                // quick-setup is non-interactive, don't allow clicking it
+                const canJump = s.id === "quick-setup" ? false : (idx <= maxReachedStepIdx || isDone);
                 return (
                   <div
                     key={s.id}
@@ -5614,6 +6117,8 @@ export function App() {
         )}
 
         {view === "wizard" ? (() => {
+          // Hide footer on welcome (mode selection), quick-form (has own start button), quick-setup (auto-running) and quick-finish (has own launch button)
+          if (stepId === "welcome" || stepId === "quick-form" || stepId === "quick-setup" || stepId === "quick-finish") return null;
           const saveConfig = getFooterSaveConfig();
           return (
             <div className="footer">

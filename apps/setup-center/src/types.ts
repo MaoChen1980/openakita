@@ -72,7 +72,10 @@ export type StepId =
   | "im"
   | "tools"
   | "agent"
-  | "finish";
+  | "finish"
+  | "quick-form"
+  | "quick-setup"
+  | "quick-finish";
 
 export type Step = {
   id: StepId;

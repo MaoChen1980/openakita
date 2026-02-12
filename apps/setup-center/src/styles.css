@@ -755,6 +755,25 @@ button:disabled {
   to { transform: rotate(360deg); }
 }
 
+.spinner {
+  border: 2px solid #e0e0e0;
+  border-top: 2px solid var(--primary, #1976d2);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.loadingDots::after {
+  content: '';
+  animation: dots 1.4s steps(4, end) infinite;
+}
+
+@keyframes dots {
+  0% { content: ''; }
+  25% { content: '.'; }
+  50% { content: '..'; }
+  75% { content: '...'; }
+}
+
 /* Pulse animation for voice recording */
 @keyframes pulse {
   0%, 100% { opacity: 1; }
