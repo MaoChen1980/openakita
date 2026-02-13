@@ -967,6 +967,7 @@ fn main() {
             openakita_version,
             openakita_health_check_endpoint,
             openakita_health_check_im,
+            openakita_ensure_channel_deps,
             openakita_install_skill,
             openakita_uninstall_skill,
             openakita_list_marketplace,
@@ -2435,6 +2436,26 @@ async fn openakita_health_check_im(
             args.push("--channel");
             args.push(&ch_str);
         }
+        run_python_module_json(&venv_dir, "openakita.setup_center.bridge", &args, &[])
+    })
+    .await
+}
+
+/// Ensure IM channel dependencies are installed via Python bridge.
+/// Returns JSON with status/installed/message.
+#[tauri::command]
+async fn openakita_ensure_channel_deps(
+    venv_dir: String,
+    workspace_id: String,
+) -> Result<String, String> {
+    spawn_blocking_result(move || {
+        let wd = workspace_dir(&workspace_id);
+        let wd_str = wd.to_string_lossy().to_string();
+        let args = vec![
+            "ensure-channel-deps",
+            "--workspace-dir",
+            &wd_str,
+        ];
         run_python_module_json(&venv_dir, "openakita.setup_center.bridge", &args, &[])
     })
     .await

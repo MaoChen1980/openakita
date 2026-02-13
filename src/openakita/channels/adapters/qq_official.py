@@ -127,9 +127,14 @@ class QQBotAdapter(ChannelAdapter):
                 f"(AppID: {self.app_id}, sandbox: {self.sandbox})"
             )
 
+    # 不可重试的配置类错误关键词（遇到后大幅延长重试间隔）
+    _FATAL_KEYWORDS = ("不在白名单", "invalid appid", "invalid secret", "鉴权失败")
+
     async def _run_client(self) -> None:
         """在后台运行 botpy 客户端 (带自动重连) — WebSocket 模式"""
         max_delay = 120
+        fatal_max_delay = 600  # 配置错误时最大等 10 分钟
+        consecutive_fatal = 0
 
         while self._running:
             try:
@@ -156,10 +161,32 @@ class QQBotAdapter(ChannelAdapter):
             except Exception as e:
                 if not self._running:
                     return
-                logger.error(f"QQ Official Bot error: {e}")
+
+                err_msg = str(e)
+                is_fatal = any(kw in err_msg for kw in self._FATAL_KEYWORDS)
+
+                if is_fatal:
+                    consecutive_fatal += 1
+                    cap = fatal_max_delay
+                    # 首次报错详细日志，后续只在间隔翻倍时提醒
+                    if consecutive_fatal == 1:
+                        logger.error(
+                            f"QQ Official Bot 配置错误: {err_msg}\n"
+                            f"  → 请检查 QQ 开放平台配置（IP 白名单 / AppID / AppSecret）\n"
+                            f"  → 将持续后台重试，修复配置后自动恢复"
+                        )
+                    elif consecutive_fatal % 5 == 0:
+                        logger.warning(
+                            f"QQ Official Bot 仍无法连接 (已重试 {consecutive_fatal} 次): {err_msg}"
+                        )
+                else:
+                    consecutive_fatal = 0
+                    cap = max_delay
+                    logger.error(f"QQ Official Bot error: {err_msg}")
+
                 logger.info(f"QQ Official Bot: reconnecting in {self._retry_delay}s...")
                 await asyncio.sleep(self._retry_delay)
-                self._retry_delay = min(self._retry_delay * 2, max_delay)
+                self._retry_delay = min(self._retry_delay * 2, cap)
 
     # ==================== Webhook 模式 ====================
 
@@ -454,15 +481,22 @@ class QQBotAdapter(ChannelAdapter):
         """
         解析 botpy 消息附件，填充到 MessageContent。
 
+        botpy 的附件是 _Attachments 对象（属性访问），不是 dict。
         支持图片、语音、视频、文件等多种类型。
         """
         if not attachments:
             return
 
         for att in attachments:
-            ct = att.get("content_type", "")
-            url = att.get("url")
-            filename = att.get("filename", "file")
+            # 兼容 _Attachments 对象和 dict 两种格式
+            if isinstance(att, dict):
+                ct = att.get("content_type", "") or ""
+                url = att.get("url")
+                filename = att.get("filename", "file")
+            else:
+                ct = getattr(att, "content_type", "") or ""
+                url = getattr(att, "url", None)
+                filename = getattr(att, "filename", "file") or "file"
 
             if ct.startswith("image/"):
                 media = MediaFile.create(
@@ -982,9 +1016,10 @@ def _create_botpy_client(adapter: "QQBotAdapter", is_sandbox: bool = False, **kw
         """
 
         def __init__(self, _adapter, _is_sandbox=False, **kw):
-            super().__init__(**kw)
+            # is_sandbox 必须在 super().__init__() 中传入，
+            # 因为 botpy.Client.__init__ 会把它传给 BotHttp 用于构建 API URL
+            super().__init__(is_sandbox=_is_sandbox, **kw)
             self._adapter = _adapter
-            self.is_sandbox = _is_sandbox
 
         async def on_group_at_message_create(self, message):
             """群聊 @机器人消息"""

@@ -7,7 +7,10 @@ OpenAkita CLI 入口
 """
 
 import asyncio
+import importlib
 import logging
+import subprocess
+import sys
 
 import typer
 from rich.console import Console
@@ -102,6 +105,87 @@ def is_orchestration_enabled() -> bool:
     return settings.orchestration_enabled
 
 
+# ==================== IM 通道依赖自动安装 ====================
+
+# 通道名 → [(import_name, pip_package), ...]
+_CHANNEL_DEPS: dict[str, list[tuple[str, str]]] = {
+    "feishu": [("lark_oapi", "lark-oapi")],
+    "dingtalk": [("dingtalk_stream", "dingtalk-stream")],
+    "wework": [("aiohttp", "aiohttp"), ("Crypto", "pycryptodome")],
+    "onebot": [("websockets", "websockets")],
+    "qqbot": [("botpy", "qq-botpy")],
+}
+
+
+def _ensure_channel_deps() -> None:
+    """
+    检查已启用的 IM 通道所需依赖，缺失的自动 pip install。
+
+    在适配器实例化之前调用，确保依赖就绪。
+    Telegram 为核心依赖，始终包含在安装包中，不需检查。
+    """
+    enabled_channels: list[str] = []
+    if settings.feishu_enabled:
+        enabled_channels.append("feishu")
+    if settings.dingtalk_enabled:
+        enabled_channels.append("dingtalk")
+    if settings.wework_enabled:
+        enabled_channels.append("wework")
+    if settings.onebot_enabled:
+        enabled_channels.append("onebot")
+    if settings.qqbot_enabled:
+        enabled_channels.append("qqbot")
+
+    if not enabled_channels:
+        return
+
+    # 收集缺失的包
+    missing: list[str] = []
+    for channel in enabled_channels:
+        for import_name, pip_name in _CHANNEL_DEPS.get(channel, []):
+            try:
+                importlib.import_module(import_name)
+            except ImportError:
+                if pip_name not in missing:
+                    missing.append(pip_name)
+
+    if not missing:
+        return
+
+    pkg_list = ", ".join(missing)
+    logger.info(f"IM 通道依赖自动安装: {pkg_list} ...")
+    console.print(
+        f"[yellow]⏳[/yellow] 自动安装 IM 通道依赖: [bold]{pkg_list}[/bold] ..."
+    )
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", *missing],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if result.returncode == 0:
+            logger.info(f"依赖安装成功: {pkg_list}")
+            console.print(f"[green]✓[/green] 依赖安装成功: {pkg_list}")
+            # 安装后清除 importlib 缓存，让后续 import 能找到新包
+            importlib.invalidate_caches()
+        else:
+            err_tail = (result.stderr or result.stdout or "").strip()[-500:]
+            logger.error(f"依赖安装失败 (exit {result.returncode}): {err_tail}")
+            console.print(
+                f"[red]✗[/red] 依赖安装失败: {pkg_list}\n"
+                f"  请手动运行: [bold]pip install {' '.join(missing)}[/bold]"
+            )
+    except subprocess.TimeoutExpired:
+        logger.error("依赖安装超时（180s），请手动运行: pip install " + " ".join(missing))
+        console.print(
+            f"[red]✗[/red] 依赖安装超时，请手动运行: [bold]pip install {' '.join(missing)}[/bold]"
+        )
+    except Exception as e:
+        logger.error(f"依赖安装异常: {e}")
+        console.print(f"[red]✗[/red] 依赖安装异常: {e}")
+
+
 async def start_im_channels(agent_or_master):
     """
     启动配置的 IM 通道
@@ -124,6 +208,9 @@ async def start_im_channels(agent_or_master):
     if not any_enabled:
         logger.info("No IM channels enabled")
         return
+
+    # 自动安装缺失的 IM 通道依赖
+    _ensure_channel_deps()
 
     # 初始化 SessionManager
     from .sessions import SessionManager

@@ -1577,6 +1577,16 @@ export function App() {
       // Step 1: 保存配置
       await saveEnvKeys(keys);
 
+      // Step 1.5: 自动安装已启用 IM 通道缺失的依赖（非阻塞，失败不影响重启）
+      if (venvDir && currentWorkspaceId) {
+        try {
+          await invoke("openakita_ensure_channel_deps", {
+            venvDir,
+            workspaceId: currentWorkspaceId,
+          });
+        } catch { /* 非关键步骤，失败不影响流程 */ }
+      }
+
       // Step 2: 检测服务是否运行
       let alive = false;
       try {

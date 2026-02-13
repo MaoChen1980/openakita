@@ -368,6 +368,96 @@ async def health_check_im(workspace_dir: str, channel: str | None) -> None:
     _json_print(results)
 
 
+def ensure_channel_deps(workspace_dir: str) -> None:
+    """检查已启用 IM 通道的 Python 依赖，缺失的自动 pip install。"""
+    import importlib
+    import subprocess
+
+    wd = Path(workspace_dir).expanduser().resolve()
+
+    # 读取 .env
+    env: dict[str, str] = {}
+    env_path = wd / ".env"
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            eq = line.find("=")
+            if eq > 0:
+                env[line[:eq].strip()] = line[eq + 1 :].strip()
+
+    # 通道 → [(import_name, pip_package), ...]
+    channel_deps: dict[str, list[tuple[str, str]]] = {
+        "feishu": [("lark_oapi", "lark-oapi")],
+        "dingtalk": [("dingtalk_stream", "dingtalk-stream")],
+        "wework": [("aiohttp", "aiohttp"), ("Crypto", "pycryptodome")],
+        "onebot": [("websockets", "websockets")],
+        "qqbot": [("botpy", "qq-botpy")],
+    }
+
+    enabled_key_map = {
+        "feishu": "FEISHU_ENABLED",
+        "dingtalk": "DINGTALK_ENABLED",
+        "wework": "WEWORK_ENABLED",
+        "onebot": "ONEBOT_ENABLED",
+        "qqbot": "QQBOT_ENABLED",
+    }
+
+    missing: list[str] = []
+    for channel, enabled_key in enabled_key_map.items():
+        if env.get(enabled_key, "").strip().lower() not in ("true", "1", "yes"):
+            continue
+        for import_name, pip_name in channel_deps.get(channel, []):
+            try:
+                importlib.import_module(import_name)
+            except ImportError:
+                if pip_name not in missing:
+                    missing.append(pip_name)
+
+    if not missing:
+        _json_print({"status": "ok", "installed": [], "message": "所有依赖已就绪"})
+        return
+
+    # 执行安装
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", *missing],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if result.returncode == 0:
+            importlib.invalidate_caches()
+            _json_print({
+                "status": "ok",
+                "installed": missing,
+                "message": f"已安装: {', '.join(missing)}",
+            })
+        else:
+            err = (result.stderr or result.stdout or "").strip()[-500:]
+            _json_print({
+                "status": "error",
+                "installed": [],
+                "missing": missing,
+                "message": f"安装失败: {err}",
+            })
+    except subprocess.TimeoutExpired:
+        _json_print({
+            "status": "error",
+            "installed": [],
+            "missing": missing,
+            "message": "安装超时（180s）",
+        })
+    except Exception as e:
+        _json_print({
+            "status": "error",
+            "installed": [],
+            "missing": missing,
+            "message": str(e),
+        })
+
+
 def list_skills(workspace_dir: str) -> None:
     from openakita.skills.loader import SkillLoader
 
@@ -577,6 +667,9 @@ def main(argv: list[str] | None = None) -> None:
     pi.add_argument("--workspace-dir", required=True, help="工作区目录")
     pi.add_argument("--channel", default="", help="可选：仅检测指定通道 ID（为空=全部）")
 
+    p_ecd = sub.add_parser("ensure-channel-deps", help="检查并自动安装已启用 IM 通道的依赖（JSON）")
+    p_ecd.add_argument("--workspace-dir", required=True, help="工作区目录")
+
     p_inst = sub.add_parser("install-skill", help="安装技能（从 URL/路径）")
     p_inst.add_argument("--workspace-dir", required=True, help="工作区目录")
     p_inst.add_argument("--url", required=True, help="技能来源 URL 或路径")
@@ -629,6 +722,10 @@ def main(argv: list[str] | None = None) -> None:
                 channel=(args.channel.strip() or None),
             )
         )
+        return
+
+    if args.cmd == "ensure-channel-deps":
+        ensure_channel_deps(workspace_dir=args.workspace_dir)
         return
 
     if args.cmd == "install-skill":
