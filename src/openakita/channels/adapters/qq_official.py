@@ -114,12 +114,22 @@ class QQBotAdapter(ChannelAdapter):
         self._chat_type_map: dict[str, str] = {}
         # {chat_id: 最近一条收到的 msg_id}（被动回复需要）
         self._last_msg_id: dict[str, str] = {}
+        # {chat_id: msg_seq} — QQ API 要求同一 msg_id 的多条回复递增 msg_seq 避免去重
+        self._msg_seq: dict[str, int] = {}
 
     def _remember_chat(self, chat_id: str, chat_type: str, msg_id: str = "") -> None:
         """记录 chat_id 的路由信息（收到消息时调用）"""
         self._chat_type_map[chat_id] = chat_type
         if msg_id:
             self._last_msg_id[chat_id] = msg_id
+            # 新消息重置 seq 计数
+            self._msg_seq[chat_id] = 0
+
+    def _next_msg_seq(self, chat_id: str) -> int:
+        """获取并递增 msg_seq（QQ API 去重需要）"""
+        seq = self._msg_seq.get(chat_id, 0) + 1
+        self._msg_seq[chat_id] = seq
+        return seq
 
     def _resolve_chat_type(self, chat_id: str, metadata: dict | None = None) -> str:
         """
@@ -868,6 +878,7 @@ class QQBotAdapter(ChannelAdapter):
             body: dict[str, Any] = {"msg_type": 0, "content": text}
             if msg_id:
                 body["msg_id"] = msg_id
+            body["msg_seq"] = self._next_msg_seq(target_id)
 
             if chat_type == "group":
                 url = f"/v2/groups/{target_id}/messages"
@@ -958,7 +969,15 @@ class QQBotAdapter(ChannelAdapter):
     async def _send_to_target(
         self, api: Any, chat_type: str, target_id: str, **kwargs
     ) -> Any:
-        """根据 chat_type 发送消息到对应目标"""
+        """
+        根据 chat_type 发送消息到对应目标。
+
+        自动注入递增的 msg_seq 以避免 QQ API 的消息去重拦截 (40054005)。
+        """
+        # QQ API 要求: 同一 msg_id 的多条回复需要递增 msg_seq，否则被去重
+        if "msg_seq" not in kwargs:
+            kwargs["msg_seq"] = self._next_msg_seq(target_id)
+
         if chat_type == "group":
             return await api.post_group_message(
                 group_openid=target_id, **kwargs,
