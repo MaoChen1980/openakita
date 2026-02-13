@@ -155,20 +155,6 @@ class ResponseHandler:
             logger.info("[TaskVerify] complete_plan executed, completed")
             return True
 
-        # === 系统限制 / 不可克服障碍 → 已尽力告知用户，视为完成 ===
-        _resp_lower = (assistant_response or "").lower()
-        _limitation_keywords = (
-            "不支持", "暂不支持", "无法完成", "超出能力", "系统限制",
-            "平台限制", "接口限制", "api 暂未开放", "暂未开放",
-            "not supported", "cannot complete", "system limitation",
-        )
-        if any(kw in _resp_lower for kw in _limitation_keywords):
-            logger.info(
-                "[TaskVerify] Detected system limitation in response, "
-                "treating as COMPLETED (agent already informed user)"
-            )
-            return True
-
         # 宣称已交付但无证据
         if any(
             k in (assistant_response or "") for k in ("已发送", "已交付", "已发给你", "已发给您")
@@ -224,9 +210,10 @@ class ResponseHandler:
 - 如果响应只是说"现在开始..."且没有工具执行，任务还在进行中
 - 如果响应包含明确的操作确认，任务完成
 
-### 系统限制 / 不可克服障碍（直接判 COMPLETED）
-- 如果助手已尝试执行但遇到**平台/系统/API 限制**（如"不支持"、"暂未开放"等），并已向用户说明原因 → **COMPLETED**
-- 助手已尽力但因技术限制无法完成，且已告知用户 → **COMPLETED**（继续循环无意义）
+### 上游平台/系统限制（需谨慎区分）
+- 如果助手**已实际尝试**执行任务，但遇到**上游平台或 API 本身不支持**的硬性限制（例如：某 IM 平台的 API 根本不提供某功能、目标服务返回明确的"功能未开放"错误），且助手已向用户**解释了原因** → **COMPLETED**（这种情况下重试毫无意义）
+- 但如果只是**某一条执行路径失败**（如文件不存在、权限不足、某个命令报错），助手还有其他可尝试的替代方案 → **INCOMPLETE**（应继续尝试）
+- 关键判断：问题是**不可绕过的平台级限制**还是**可以换个方式解决的执行问题**？前者完成，后者继续
 
 ## 回答要求
 STATUS: COMPLETED 或 INCOMPLETE
