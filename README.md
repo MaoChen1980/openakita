@@ -267,13 +267,19 @@ Channels ─── CLI · Telegram · Feishu · WeCom · DingTalk · QQ Official
 <table>
   <tr>
     <td align="center">
+      <img src="docs/assets/person_wechat.jpg" width="200" alt="Personal WeChat QR Code" /><br/>
+      <b>WeChat (Personal)</b><br/>
+      <sub>Scan to add, note "OpenAkita" to join group</sub>
+    </td>
+    <td align="center">
       <img src="docs/assets/wechat_group.jpg" width="200" alt="WeChat Group QR Code" /><br/>
       <b>WeChat Group</b><br/>
-      <sub>Scan to join</sub>
+      <sub>Scan to join directly (⚠️ refreshed weekly)</sub>
     </td>
     <td>
-      <b>WeChat</b> — Chinese community<br/><br/>
-      <b>Discord</b> — <a href="https://discord.gg/Mkpd3rsm">Join Discord</a><br/><br/>
+      <b>WeChat</b> — Scan to add friend (never expires), note "OpenAkita" to get invited<br/><br/>
+      <b>WeChat Group</b> — Scan to join directly (QR refreshed weekly)<br/><br/>
+      <b>Discord</b> — <a href="https://discord.gg/vFwxNVNH">Join Discord</a><br/><br/>
       <b>X (Twitter)</b> — <a href="https://x.com/openakita">@openakita</a><br/><br/>
       <b>Email</b> — <a href="mailto:zacon365@gmail.com">zacon365@gmail.com</a>
     </td>

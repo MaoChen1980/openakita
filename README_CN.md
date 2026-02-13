@@ -278,13 +278,19 @@ OpenAkita **生于中国，服务全球**——国内用户开箱即用：
 <table>
   <tr>
     <td align="center">
+      <img src="docs/assets/person_wechat.jpg" width="200" alt="个人微信二维码" /><br/>
+      <b>个人微信</b><br/>
+      <sub>扫码加微信，备注「OpenAkita」拉你进群</sub>
+    </td>
+    <td align="center">
       <img src="docs/assets/wechat_group.jpg" width="200" alt="微信群二维码" /><br/>
       <b>微信交流群</b><br/>
-      <sub>扫码加入</sub>
+      <sub>扫码直接加入（⚠️ 7天更新一次）</sub>
     </td>
     <td>
-      <b>微信群</b> — 中文用户即时交流<br/><br/>
-      <b>Discord</b> — <a href="https://discord.gg/Mkpd3rsm">加入 Discord</a><br/><br/>
+      <b>微信</b> — 扫码加好友（永久有效），备注「OpenAkita」拉你入群<br/><br/>
+      <b>微信群</b> — 扫码直接加入（二维码每周更新）<br/><br/>
+      <b>Discord</b> — <a href="https://discord.gg/vFwxNVNH">加入 Discord</a><br/><br/>
       <b>X (Twitter)</b> — <a href="https://x.com/openakita">@openakita</a><br/><br/>
       <b>邮箱</b> — <a href="mailto:zacon365@gmail.com">zacon365@gmail.com</a>
     </td>
