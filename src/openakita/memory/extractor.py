@@ -94,11 +94,17 @@ class MemoryExtractor:
                 context=context_text,
             )
 
-            # 调用 LLM
-            response = await self.brain.think(
-                prompt,
-                system="你是记忆提取专家。只输出 NONE 或 JSON 数组，不要其他内容。",
-            )
+            # 调用 LLM（优先使用编译端点，不与主推理争抢资源）
+            if hasattr(self.brain, "think_lightweight"):
+                response = await self.brain.think_lightweight(
+                    prompt,
+                    system="你是记忆提取专家。只输出 NONE 或 JSON 数组，不要其他内容。",
+                )
+            else:
+                response = await self.brain.think(
+                    prompt,
+                    system="你是记忆提取专家。只输出 NONE 或 JSON 数组，不要其他内容。",
+                )
 
             # 解析响应
             if isinstance(response, str):

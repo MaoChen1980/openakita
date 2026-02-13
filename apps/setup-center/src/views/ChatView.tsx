@@ -969,7 +969,7 @@ export function ChatView({
 
     // 空闲超时：如果 IDLE_TIMEOUT_MS 内没有收到任何数据则放弃
     // （每次收到数据后重置计时器，不影响长对话）
-    const IDLE_TIMEOUT_MS = 120_000; // 2 minutes idle
+    const IDLE_TIMEOUT_MS = 300_000; // 5 minutes idle (backend sends heartbeats every 15s)
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
     const resetIdleTimer = () => {
       if (idleTimer) clearTimeout(idleTimer);
@@ -1086,6 +1086,10 @@ export function ChatView({
             const event: StreamEvent = JSON.parse(data);
 
             switch (event.type) {
+              case "heartbeat":
+                // 后端心跳：保持连接活跃，不更新消息内容
+                // idle timer 已在 reader.read() 层自动重置
+                continue; // skip message update below
               case "thinking_start":
                 isThinking = true;
                 break;

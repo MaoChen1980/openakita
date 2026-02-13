@@ -22,7 +22,9 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from ..config import settings
@@ -470,12 +472,16 @@ class ReasoningEngine:
         # ==================== 主循环 ====================
         logger.info(f"[ReAct] === Loop started (max_iterations={max_iterations}, model={current_model}) ===")
 
+        react_trace: list[dict] = []
+        _trace_started_at = datetime.now().isoformat()
+
         for iteration in range(max_iterations):
             state.iteration = iteration
 
             # 检查取消
             if state.cancelled:
                 logger.info(f"[ReAct] Task cancelled at iteration start: {state.cancel_reason}")
+                self._save_react_trace(react_trace, conversation_id, session_type, "cancelled", _trace_started_at)
                 tracer.end_trace(metadata={"result": "cancelled", "iterations": iteration})
                 return "✅ 任务已停止。"
 
@@ -545,6 +551,40 @@ class ReasoningEngine:
             if task_monitor:
                 task_monitor.end_iteration(decision.text_content or "")
 
+            # -- 收集 ReAct trace 数据 --
+            # token 信息从 raw_response.usage 提取（Decision 本身不携带 token）
+            _raw = decision.raw_response
+            _usage = getattr(_raw, "usage", None) if _raw else None
+            _in_tokens = getattr(_usage, "input_tokens", 0) if _usage else 0
+            _out_tokens = getattr(_usage, "output_tokens", 0) if _usage else 0
+            _iter_trace: dict = {
+                "iteration": iteration + 1,
+                "timestamp": datetime.now().isoformat(),
+                "decision_type": decision.type.value if hasattr(decision.type, "value") else str(decision.type),
+                "model": current_model,
+                "thinking": (decision.thinking_content or "")[:500] if decision.thinking_content else None,
+                "text": (decision.text_content or "")[:2000] if decision.text_content else None,
+                "tool_calls": [
+                    {
+                        "name": tc.get("name"),
+                        "id": tc.get("id"),
+                        "input_preview": str(tc.get("input", {}))[:500],
+                    }
+                    for tc in (decision.tool_calls or [])
+                ],
+                "tool_results": [],  # 将在工具执行后填充
+                "tokens": {
+                    "input": _in_tokens,
+                    "output": _out_tokens,
+                },
+            }
+            tool_names_for_log = [tc.get("name", "?") for tc in (decision.tool_calls or [])]
+            logger.info(
+                f"[ReAct] Iter {iteration+1} — decision={_iter_trace['decision_type']}, "
+                f"tools={tool_names_for_log}, "
+                f"tokens_in={_in_tokens}, tokens_out={_out_tokens}"
+            )
+
             # ==================== 决策分支 ====================
 
             if decision.type == DecisionType.FINAL_ANSWER:
@@ -572,10 +612,12 @@ class ReasoningEngine:
 
                 if isinstance(result, str):
                     # 最终答案
+                    react_trace.append(_iter_trace)
                     logger.info(
                         f"[ReAct] === COMPLETED after {iteration+1} iterations, "
                         f"tools: {list(set(executed_tool_names))} ==="
                     )
+                    self._save_react_trace(react_trace, conversation_id, session_type, "completed", _trace_started_at)
                     state.transition(TaskStatus.COMPLETED)
                     tracer.end_trace(metadata={
                         "result": "completed",
@@ -586,6 +628,7 @@ class ReasoningEngine:
                 else:
                     # 需要继续循环（验证不通过）
                     logger.info(f"[ReAct] Iter {iteration+1} — VERIFY: incomplete, continuing loop")
+                    react_trace.append(_iter_trace)
                     state.transition(TaskStatus.VERIFYING)
                     (
                         working_messages,
@@ -679,6 +722,7 @@ class ReasoningEngine:
                         logger.info(
                             f"[ReAct] Iter {iteration+1} — ask_user: user replied, resuming loop"
                         )
+                        react_trace.append(_iter_trace)
                         working_messages.append({
                             "role": "user",
                             "content": _build_ask_user_tool_results(f"用户回复：{user_reply}"),
@@ -696,6 +740,7 @@ class ReasoningEngine:
                             f"[ReAct] Iter {iteration+1} — ask_user: user timeout, "
                             f"injecting auto-decide prompt"
                         )
+                        react_trace.append(_iter_trace)
                         working_messages.append({
                             "role": "user",
                             "content": _build_ask_user_tool_results(
@@ -714,6 +759,8 @@ class ReasoningEngine:
                             "iterations": iteration + 1,
                             "tools_used": list(set(executed_tool_names)),
                         })
+                        react_trace.append(_iter_trace)
+                        self._save_react_trace(react_trace, conversation_id, session_type, "waiting_user", _trace_started_at)
                         logger.info(
                             f"[ReAct] === WAITING_USER (CLI) after {iteration+1} iterations ==="
                         )
@@ -730,6 +777,8 @@ class ReasoningEngine:
 
                 # 检查取消
                 if state.cancelled:
+                    react_trace.append(_iter_trace)
+                    self._save_react_trace(react_trace, conversation_id, session_type, "cancelled", _trace_started_at)
                     tracer.end_trace(metadata={"result": "cancelled", "iterations": iteration + 1})
                     return "✅ 任务已停止。"
 
@@ -766,6 +815,22 @@ class ReasoningEngine:
                 )
                 state.transition(TaskStatus.OBSERVING)
 
+                # 收集工具结果到 trace
+                _iter_trace["tool_results"] = [
+                    {
+                        "tool_use_id": tr.get("tool_use_id", ""),
+                        "result_preview": str(tr.get("content", ""))[:1000],
+                    }
+                    for tr in tool_results
+                    if isinstance(tr, dict)
+                ]
+                for tr in tool_results:
+                    if isinstance(tr, dict):
+                        t_id = tr.get("tool_use_id", "")
+                        r_len = len(str(tr.get("content", "")))
+                        logger.info(f"[ReAct] Iter {iteration+1} — tool_result id={t_id} len={r_len}")
+                react_trace.append(_iter_trace)
+
                 # 检查是否应该回滚
                 should_rb, rb_reason = self._should_rollback(tool_results)
                 if should_rb:
@@ -776,6 +841,7 @@ class ReasoningEngine:
                         continue
 
                 if state.cancelled:
+                    self._save_react_trace(react_trace, conversation_id, session_type, "cancelled", _trace_started_at)
                     tracer.end_trace(metadata={"result": "cancelled", "iterations": iteration + 1})
                     return "✅ 任务已停止。"
 
@@ -793,6 +859,7 @@ class ReasoningEngine:
                     cleaned_text = strip_thinking_tags(decision.text_content)
                     if cleaned_text and cleaned_text.strip():
                         logger.info(f"[LoopGuard] stop_reason=end_turn after {consecutive_tool_rounds} rounds")
+                        self._save_react_trace(react_trace, conversation_id, session_type, "completed_end_turn", _trace_started_at)
                         state.transition(TaskStatus.COMPLETED)
                         tracer.end_trace(metadata={
                             "result": "completed_end_turn",
@@ -819,12 +886,14 @@ class ReasoningEngine:
                 )
                 if loop_result == "terminate":
                     cleaned = strip_thinking_tags(decision.text_content)
+                    self._save_react_trace(react_trace, conversation_id, session_type, "loop_terminated", _trace_started_at)
                     state.transition(TaskStatus.FAILED)
                     tracer.end_trace(metadata={"result": "loop_terminated", "iterations": iteration + 1})
                     return cleaned or "⚠️ 检测到工具调用陷入死循环，任务已自动终止。请重新描述您的需求。"
                 if loop_result == "disable_force":
                     max_no_tool_retries = 0
 
+        self._save_react_trace(react_trace, conversation_id, session_type, "max_iterations", _trace_started_at)
         state.transition(TaskStatus.FAILED)
         tracer.end_trace(metadata={"result": "max_iterations", "iterations": max_iterations})
         return "已达到最大工具调用次数，请重新描述您的需求。"
@@ -860,6 +929,10 @@ class ReasoningEngine:
         - {"type": "done"}
         """
         tools = tools or []
+
+        # 在 try 外初始化，避免 except 块中 UnboundLocalError
+        react_trace: list[dict] = []
+        _trace_started_at = datetime.now().isoformat()
 
         try:
             # Build system prompt with optional plan context
@@ -909,18 +982,27 @@ class ReasoningEngine:
             working_messages = list(messages)
 
             for _iteration in range(max_iterations):
+                logger.info(f"[ReAct-Stream] Iter {_iteration+1}/{max_iterations} — REASON (model={current_model})")
                 # Reason phase
                 yield {"type": "thinking_start"}
 
                 try:
-                    decision = await self._reason(
+                    decision = None
+                    async for hb_event in self._reason_with_heartbeat(
                         working_messages,
                         system_prompt=effective_prompt,
                         tools=tools,
                         current_model=current_model,
                         conversation_id=conversation_id,
-                    )
+                    ):
+                        if hb_event["type"] == "heartbeat":
+                            yield {"type": "heartbeat"}
+                        elif hb_event["type"] == "decision":
+                            decision = hb_event["decision"]
+                    if decision is None:
+                        raise RuntimeError("_reason returned no decision")
                 except Exception as e:
+                    self._save_react_trace(react_trace, conversation_id, "desktop", f"reason_error: {str(e)[:100]}", _trace_started_at)
                     yield {"type": "thinking_end"}
                     yield {"type": "error", "message": f"推理失败: {str(e)[:300]}"}
                     yield {"type": "done"}
@@ -931,9 +1013,48 @@ class ReasoningEngine:
                     yield {"type": "thinking_delta", "content": decision.thinking_content}
                 yield {"type": "thinking_end"}
 
+                # -- 收集 ReAct trace 数据 --
+                # token 信息从 raw_response.usage 提取
+                _raw = decision.raw_response
+                _usage = getattr(_raw, "usage", None) if _raw else None
+                _in_tokens = getattr(_usage, "input_tokens", 0) if _usage else 0
+                _out_tokens = getattr(_usage, "output_tokens", 0) if _usage else 0
+                _iter_trace: dict = {
+                    "iteration": _iteration + 1,
+                    "timestamp": datetime.now().isoformat(),
+                    "decision_type": decision.type.value if hasattr(decision.type, "value") else str(decision.type),
+                    "model": current_model,
+                    "thinking": (decision.thinking_content or "")[:500] if decision.thinking_content else None,
+                    "text": (decision.text_content or "")[:2000] if decision.text_content else None,
+                    "tool_calls": [
+                        {
+                            "name": tc.get("name"),
+                            "id": tc.get("id"),
+                            "input_preview": str(tc.get("input", {}))[:500],
+                        }
+                        for tc in (decision.tool_calls or [])
+                    ],
+                    "tool_results": [],
+                    "tokens": {
+                        "input": _in_tokens,
+                        "output": _out_tokens,
+                    },
+                }
+                tool_names_log = [tc.get("name", "?") for tc in (decision.tool_calls or [])]
+                logger.info(
+                    f"[ReAct-Stream] Iter {_iteration+1} — decision={_iter_trace['decision_type']}, "
+                    f"tools={tool_names_log}, "
+                    f"tokens_in={_in_tokens}, tokens_out={_out_tokens}"
+                )
+
                 # Final answer: stream text
                 if decision.type == DecisionType.FINAL_ANSWER:
                     text = decision.text_content or ""
+                    react_trace.append(_iter_trace)
+                    self._save_react_trace(react_trace, conversation_id, "desktop", "completed", _trace_started_at)
+                    logger.info(
+                        f"[ReAct-Stream] === COMPLETED after {_iteration+1} iterations ==="
+                    )
                     # Stream in chunks for better UX
                     chunk_size = 20
                     for i in range(0, len(text), chunk_size):
@@ -1022,6 +1143,8 @@ class ReasoningEngine:
                                 event["questions"] = parsed_questions
                         yield event
                         # 中断流：前端收到 ask_user 后，用户回复将作为新一轮 chat 请求发送
+                        react_trace.append(_iter_trace)
+                        self._save_react_trace(react_trace, conversation_id, "desktop", "ask_user", _trace_started_at)
                         yield {"type": "done"}
                         return
 
@@ -1065,6 +1188,16 @@ class ReasoningEngine:
                             "content": result_text[:4000],
                         })
 
+                    # 收集工具结果到 trace
+                    _iter_trace["tool_results"] = [
+                        {
+                            "tool_use_id": tr.get("tool_use_id", ""),
+                            "result_preview": str(tr.get("content", ""))[:1000],
+                        }
+                        for tr in tool_results_for_msg
+                    ]
+                    react_trace.append(_iter_trace)
+
                     # Append all tool results as a single user turn
                     working_messages.append({
                         "role": "user",
@@ -1073,11 +1206,14 @@ class ReasoningEngine:
 
                     continue  # Next iteration
 
+            self._save_react_trace(react_trace, conversation_id, "desktop", "max_iterations", _trace_started_at)
+            logger.info(f"[ReAct-Stream] === MAX_ITERATIONS reached ({max_iterations}) ===")
             yield {"type": "text_delta", "content": "\n\n（已达到最大迭代次数）"}
             yield {"type": "done"}
 
         except Exception as e:
             logger.error(f"reason_stream error: {e}", exc_info=True)
+            self._save_react_trace(react_trace, conversation_id, "desktop", f"error: {str(e)[:100]}", _trace_started_at)
             yield {"type": "error", "message": str(e)[:500]}
             yield {"type": "done"}
 
@@ -1090,6 +1226,149 @@ class ReasoningEngine:
                         llm_client.restore_default(conversation_id=conversation_id)
                     except Exception:
                         pass  # 清理失败不影响主流程
+
+    # ==================== ReAct 推理链保存 ====================
+
+    def _save_react_trace(
+        self,
+        react_trace: list[dict],
+        conversation_id: str | None,
+        session_type: str,
+        result: str,
+        started_at: str,
+    ) -> None:
+        """
+        保存完整的 ReAct 推理链到文件。
+
+        路径: data/react_traces/{date}/trace_{conversation_id}_{timestamp}.json
+        """
+        if not react_trace:
+            return
+
+        try:
+            date_str = datetime.now().strftime("%Y%m%d")
+            trace_dir = Path("data/react_traces") / date_str
+            trace_dir.mkdir(parents=True, exist_ok=True)
+
+            timestamp = datetime.now().strftime("%H%M%S")
+            cid_part = (conversation_id or "unknown")[:16]
+            trace_file = trace_dir / f"trace_{cid_part}_{timestamp}.json"
+
+            # 汇总统计
+            total_in = sum(it.get("tokens", {}).get("input", 0) for it in react_trace)
+            total_out = sum(it.get("tokens", {}).get("output", 0) for it in react_trace)
+            all_tools = []
+            for it in react_trace:
+                for tc in it.get("tool_calls", []):
+                    name = tc.get("name")
+                    if name and name not in all_tools:
+                        all_tools.append(name)
+
+            trace_data = {
+                "conversation_id": conversation_id or "",
+                "session_type": session_type,
+                "model": react_trace[0].get("model", "") if react_trace else "",
+                "started_at": started_at,
+                "ended_at": datetime.now().isoformat(),
+                "total_iterations": len(react_trace),
+                "total_tokens": {"input": total_in, "output": total_out},
+                "tools_used": all_tools,
+                "result": result,
+                "iterations": react_trace,
+            }
+
+            with open(trace_file, "w", encoding="utf-8") as f:
+                json.dump(trace_data, f, ensure_ascii=False, indent=2, default=str)
+
+            logger.info(
+                f"[ReAct] Trace saved: {trace_file} "
+                f"(iterations={len(react_trace)}, tools={all_tools}, "
+                f"tokens_in={total_in}, tokens_out={total_out})"
+            )
+
+            # 清理超过 7 天的旧 trace 文件
+            self._cleanup_old_traces(Path("data/react_traces"), max_age_days=7)
+
+        except Exception as e:
+            logger.warning(f"[ReAct] Failed to save trace: {e}")
+
+    def _cleanup_old_traces(self, base_dir: Path, max_age_days: int = 7) -> None:
+        """清理超过指定天数的旧 trace 日期目录"""
+        try:
+            if not base_dir.exists():
+                return
+            cutoff = time.time() - max_age_days * 86400
+            for date_dir in base_dir.iterdir():
+                if date_dir.is_dir() and date_dir.stat().st_mtime < cutoff:
+                    import shutil
+                    shutil.rmtree(date_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+    # ==================== 心跳保活 ====================
+
+    _HEARTBEAT_INTERVAL = 15  # 秒：LLM 等待期间心跳间隔
+
+    async def _reason_with_heartbeat(
+        self,
+        messages: list[dict],
+        *,
+        system_prompt: str,
+        tools: list[dict],
+        current_model: str,
+        conversation_id: str | None = None,
+    ):
+        """
+        包装 _reason()，在等待 LLM 响应期间每隔 HEARTBEAT_INTERVAL 秒
+        产出 heartbeat 事件，防止前端 SSE idle timeout。
+
+        Yields:
+            {"type": "heartbeat"} 或 {"type": "decision", "decision": Decision}
+        """
+        queue: asyncio.Queue = asyncio.Queue()
+
+        async def _do_reason():
+            try:
+                decision = await self._reason(
+                    messages,
+                    system_prompt=system_prompt,
+                    tools=tools,
+                    current_model=current_model,
+                    conversation_id=conversation_id,
+                )
+                await queue.put(("result", decision))
+            except Exception as exc:
+                await queue.put(("error", exc))
+
+        async def _heartbeat_loop():
+            try:
+                while True:
+                    await asyncio.sleep(self._HEARTBEAT_INTERVAL)
+                    await queue.put(("heartbeat", None))
+            except asyncio.CancelledError:
+                pass
+
+        reason_task = asyncio.create_task(_do_reason())
+        hb_task = asyncio.create_task(_heartbeat_loop())
+
+        try:
+            while True:
+                typ, data = await queue.get()
+                if typ == "heartbeat":
+                    yield {"type": "heartbeat"}
+                elif typ == "error":
+                    raise data  # 传播 _reason 的异常
+                else:
+                    yield {"type": "decision", "decision": data}
+                    break
+        finally:
+            hb_task.cancel()
+            if not reason_task.done():
+                reason_task.cancel()
+                try:
+                    await reason_task
+                except (asyncio.CancelledError, Exception):
+                    pass
 
     # ==================== 推理阶段 ====================
 

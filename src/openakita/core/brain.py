@@ -178,6 +178,66 @@ class Brain:
         )
         return self._llm_response_to_response(response)
 
+    async def think_lightweight(
+        self,
+        prompt: str,
+        system: str | None = None,
+        max_tokens: int = 2048,
+    ) -> Response:
+        """
+        轻量级思考：优先使用 compiler 端点。
+
+        适用于记忆提取、分类判断等不需要工具/上下文的简单 LLM 调用。
+        与主推理链完全隔离（不共享消息历史），使用独立的 LLM 端点。
+
+        调用策略:
+        1. 优先用 _compiler_client（快速小模型）
+        2. compiler_client 不可用或失败时，回退到 _llm_client
+
+        Args:
+            prompt: 用户消息
+            system: 系统提示词
+            max_tokens: 最大输出 token
+
+        Returns:
+            Response 对象
+        """
+        messages = [Message(role="user", content=[TextBlock(text=prompt)])]
+        sys_prompt = system or ""
+
+        # 调试：保存请求
+        req_id = self._dump_llm_request(sys_prompt, messages, [], caller="think_lightweight")
+
+        client = self._compiler_client or self._llm_client
+        client_name = "compiler" if client is self._compiler_client else "main"
+
+        try:
+            response = await client.chat(
+                messages=messages,
+                system=sys_prompt,
+                enable_thinking=False,
+                max_tokens=max_tokens,
+            )
+            logger.info(f"[LLM] think_lightweight completed via {client_name} endpoint")
+        except Exception as e:
+            if client is not self._llm_client:
+                # compiler 失败，fallback 到主端点
+                logger.warning(f"[LLM] think_lightweight: compiler failed ({e}), falling back to main")
+                response = await self._llm_client.chat(
+                    messages=messages,
+                    system=sys_prompt,
+                    enable_thinking=False,
+                    max_tokens=max_tokens,
+                )
+                client_name = "main_fallback"
+            else:
+                raise
+
+        # 保存响应
+        self._dump_llm_response(response, caller=f"think_lightweight_{client_name}", request_id=req_id)
+
+        return self._llm_response_to_response(response)
+
     def _llm_response_to_response(self, llm_response: LLMResponse) -> Response:
         """将 LLMResponse 转换为向后兼容的 Response"""
         text_parts = []
@@ -265,7 +325,7 @@ class Brain:
         max_tokens = kwargs.get("max_tokens", self.max_tokens)
 
         # 调试输出：保存完整请求到文件
-        self._dump_llm_request(system, llm_messages, llm_tools, caller="messages_create")
+        req_id = self._dump_llm_request(system, llm_messages, llm_tools, caller="messages_create")
 
         conversation_id = kwargs.get("conversation_id")
 
@@ -293,6 +353,9 @@ class Brain:
                     conversation_id=conversation_id,
                 )
             )
+
+        # 保存响应到调试文件
+        self._dump_llm_response(response, caller="messages_create", request_id=req_id)
 
         # 转换响应: LLMClient -> Anthropic Message
         return self._convert_response_to_anthropic(response)
@@ -541,7 +604,7 @@ class Brain:
         )
 
         # 调试输出：保存完整请求到文件
-        self._dump_llm_request(sys_prompt, llm_messages, llm_tools, caller="_chat_with_llm_client")
+        req_id = self._dump_llm_request(sys_prompt, llm_messages, llm_tools, caller="_chat_with_llm_client")
 
         # 调用 LLMClient
         response = await self._llm_client.chat(
@@ -551,6 +614,9 @@ class Brain:
             max_tokens=max_tokens or self.max_tokens,
             enable_thinking=self.is_thinking_enabled(),
         )
+
+        # 保存响应到调试文件
+        self._dump_llm_response(response, caller="_chat_with_llm_client", request_id=req_id)
 
         # 转换响应
         content = response.text
@@ -582,7 +648,7 @@ class Brain:
 
     def _dump_llm_request(
         self, system: str, messages: list, tools: list, caller: str = "unknown"
-    ) -> None:
+    ) -> str:
         """
         保存 LLM 请求到调试文件
 
@@ -593,6 +659,9 @@ class Brain:
             messages: 消息列表（可能是 Message 对象或字典）
             tools: 工具列表
             caller: 调用方标识
+
+        Returns:
+            request_id: 请求 ID，用于关联对应的 response 文件
         """
         try:
             debug_dir = Path("data/llm_debug")
@@ -685,8 +754,130 @@ class Brain:
             # 清理超过 3 天的旧调试文件
             self._cleanup_old_debug_files(debug_dir, max_age_days=3)
 
+            return request_id
+
         except Exception as e:
             logger.warning(f"[LLM DEBUG] Failed to save debug file: {e}")
+            return uuid.uuid4().hex[:8]  # 即使保存失败也返回一个 ID 供 response 关联
+
+    def _dump_llm_response(
+        self, response, caller: str = "unknown", request_id: str = ""
+    ) -> None:
+        """
+        保存 LLM 响应到调试文件（与 _dump_llm_request 对称）
+
+        Args:
+            response: LLMResponse 对象
+            caller: 调用方标识
+            request_id: 对应的请求 ID（用于关联 request 文件）
+        """
+        try:
+            debug_dir = Path("data/llm_debug")
+            debug_dir.mkdir(parents=True, exist_ok=True)
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            debug_file = debug_dir / f"llm_response_{timestamp}_{request_id}.json"
+
+            # 序列化 content blocks
+            content_blocks = self._serialize_response_content(response)
+
+            debug_data = {
+                "timestamp": datetime.now().isoformat(),
+                "caller": caller,
+                "request_id": request_id,
+                "llm_response": {
+                    "model": getattr(response, "model", ""),
+                    "stop_reason": str(getattr(response, "stop_reason", "")),
+                    "usage": {
+                        "input_tokens": getattr(response.usage, "input_tokens", 0)
+                        if hasattr(response, "usage")
+                        else 0,
+                        "output_tokens": getattr(response.usage, "output_tokens", 0)
+                        if hasattr(response, "usage")
+                        else 0,
+                    },
+                    "content": content_blocks,
+                },
+            }
+
+            with open(debug_file, "w", encoding="utf-8") as f:
+                json.dump(debug_data, f, ensure_ascii=False, indent=2, default=str)
+
+            # 摘要日志
+            text_len = sum(
+                len(b.get("text", ""))
+                for b in content_blocks
+                if b.get("type") == "text"
+            )
+            tool_count = sum(
+                1 for b in content_blocks if b.get("type") == "tool_use"
+            )
+            in_tokens = debug_data["llm_response"]["usage"]["input_tokens"]
+            out_tokens = debug_data["llm_response"]["usage"]["output_tokens"]
+            logger.info(
+                f"[LLM DEBUG] Response saved: text_len={text_len}, tool_calls={tool_count}, "
+                f"tokens_in={in_tokens}, tokens_out={out_tokens} (request_id={request_id})"
+            )
+
+        except Exception as e:
+            logger.warning(f"[LLM DEBUG] Failed to save response debug file: {e}")
+
+    def _serialize_response_content(self, response) -> list[dict]:
+        """
+        序列化 LLM 响应的 content blocks，支持 text/thinking/tool_use。
+
+        Truncation 规则:
+        - text: 保留完整
+        - thinking: truncate 到 500 字符
+        - tool_use: name/id 完整保留，input truncate 到 2000 字符
+        """
+        blocks = []
+
+        # LLMResponse 对象
+        if hasattr(response, "text") and not hasattr(response, "content"):
+            # 简单 text 响应
+            blocks.append({"type": "text", "text": response.text or ""})
+            for tc in getattr(response, "tool_calls", []):
+                input_str = json.dumps(tc.input, ensure_ascii=False, default=str) if isinstance(tc.input, dict) else str(tc.input)
+                blocks.append({
+                    "type": "tool_use",
+                    "id": tc.id,
+                    "name": tc.name,
+                    "input": input_str[:2000],
+                })
+            return blocks
+
+        # Anthropic Message 格式
+        for block in getattr(response, "content", []):
+            block_type = getattr(block, "type", None) or (block.get("type") if isinstance(block, dict) else None)
+            if block_type == "text":
+                text = getattr(block, "text", "") if not isinstance(block, dict) else block.get("text", "")
+                blocks.append({"type": "text", "text": text})
+            elif block_type == "thinking":
+                thinking = getattr(block, "thinking", "") if not isinstance(block, dict) else block.get("thinking", "")
+                if isinstance(thinking, str) and len(thinking) > 500:
+                    thinking = thinking[:500] + "... (truncated)"
+                blocks.append({"type": "thinking", "thinking": str(thinking)[:550]})
+            elif block_type == "tool_use":
+                if isinstance(block, dict):
+                    name = block.get("name", "")
+                    bid = block.get("id", "")
+                    inp = block.get("input", {})
+                else:
+                    name = getattr(block, "name", "")
+                    bid = getattr(block, "id", "")
+                    inp = getattr(block, "input", {})
+                input_str = json.dumps(inp, ensure_ascii=False, default=str) if isinstance(inp, dict) else str(inp)
+                blocks.append({
+                    "type": "tool_use",
+                    "id": bid,
+                    "name": name,
+                    "input": input_str[:2000],
+                })
+            else:
+                blocks.append({"type": str(block_type), "raw": str(block)[:500]})
+
+        return blocks
 
     def _cleanup_old_debug_files(self, debug_dir: Path, max_age_days: int = 3) -> None:
         """

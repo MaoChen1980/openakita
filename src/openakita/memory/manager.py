@@ -203,16 +203,25 @@ class MemoryManager:
             self.consolidator.save_conversation_turn(self._current_session_id, turn)
 
         # 实时提取 (只从用户消息)
-        # 注意：extract_from_turn() 为向后兼容的同步空实现；实际提取应使用异步 extract_from_turn_with_ai()
+        # 使用 think_lightweight 优先走编译端点，不与主推理争抢 LLM 资源
         if role == "user":
             try:
                 import asyncio
 
                 async def _extract_and_add() -> None:
-                    memories = await self.extractor.extract_from_turn_with_ai(turn)
-                    for memory in memories:
-                        # add_memory 涉及文件 IO/向量库，放到线程避免阻塞 IM 主流程
-                        await asyncio.to_thread(self.add_memory, memory)
+                    try:
+                        logger.info("[Memory] Extraction started (compiler endpoint preferred)")
+                        memories = await self.extractor.extract_from_turn_with_ai(turn)
+                        for memory in memories:
+                            # add_memory 涉及文件 IO/向量库，放到线程避免阻塞 IM 主流程
+                            await asyncio.to_thread(self.add_memory, memory)
+                        if memories:
+                            logger.info(f"[Memory] Extraction completed: {len(memories)} memories saved")
+                        else:
+                            logger.debug("[Memory] Extraction completed: no memories to save")
+                    except Exception as e:
+                        # 完全隔离：记忆提取失败不影响主流程
+                        logger.warning(f"[Memory] Extraction failed (isolated): {e}")
 
                 loop = asyncio.get_running_loop()
                 loop.create_task(_extract_and_add())
@@ -220,7 +229,7 @@ class MemoryManager:
                 # 没有 running loop（同步/脚本模式），跳过实时提取，依赖每日归纳或任务完成提取
                 pass
             except Exception as e:
-                logger.warning(f"Realtime memory extraction scheduling failed: {e}")
+                logger.warning(f"[Memory] Extraction scheduling failed: {e}")
 
     def end_session(
         self, task_description: str = "", success: bool = True, errors: list = None
