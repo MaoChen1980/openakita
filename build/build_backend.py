@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-OpenAkita Python 后端打包脚本
+OpenAkita Python Backend Build Script
 
-用法:
-  python build/build_backend.py --mode core    # 核心包 (~100-150MB)
-  python build/build_backend.py --mode full    # 完整包 (~600-800MB)
+Usage:
+  python build/build_backend.py --mode core    # Core package (~100-150MB)
+  python build/build_backend.py --mode full    # Full package (~600-800MB)
 """
 
 import argparse
@@ -21,30 +21,30 @@ OUTPUT_DIR = DIST_DIR / "openakita-server"
 
 
 def run_cmd(cmd: list[str], env: dict | None = None, **kwargs) -> subprocess.CompletedProcess:
-    """执行命令并打印输出"""
+    """Run command and print output"""
     print(f"  $ {' '.join(cmd)}")
     merged_env = {**os.environ, **(env or {})}
     result = subprocess.run(cmd, env=merged_env, **kwargs)
     if result.returncode != 0:
-        print(f"  ❌ 命令失败 (exit {result.returncode})")
+        print(f"  [ERROR] Command failed (exit {result.returncode})")
         sys.exit(1)
     return result
 
 
 def check_pyinstaller():
-    """检查 PyInstaller 是否已安装"""
+    """Check if PyInstaller is installed"""
     try:
         import PyInstaller  # noqa: F401
-        print(f"  ✓ PyInstaller {PyInstaller.__version__} 已安装")
+        print(f"  [OK] PyInstaller {PyInstaller.__version__} installed")
     except ImportError:
-        print("  ⚠ PyInstaller 未安装，正在安装...")
+        print("  [WARN] PyInstaller not installed, installing...")
         run_cmd([sys.executable, "-m", "pip", "install", "pyinstaller"])
 
 
 def clean_dist():
-    """清理之前的构建输出"""
+    """Clean previous build output"""
     if OUTPUT_DIR.exists():
-        print(f"  🗑 清理旧的构建输出: {OUTPUT_DIR}")
+        print(f"  Cleaning old build output: {OUTPUT_DIR}")
         shutil.rmtree(OUTPUT_DIR)
 
     build_tmp = PROJECT_ROOT / "build" / "openakita-server"
@@ -53,18 +53,18 @@ def clean_dist():
 
 
 def build_backend(mode: str):
-    """执行 PyInstaller 打包"""
+    """Execute PyInstaller packaging"""
     print(f"\n{'='*60}")
-    print(f"  OpenAkita 后端打包 - 模式: {mode.upper()}")
+    print(f"  OpenAkita Backend Build - Mode: {mode.upper()}")
     print(f"{'='*60}\n")
 
-    print("[1/4] 检查依赖...")
+    print("[1/4] Checking dependencies...")
     check_pyinstaller()
 
-    print("\n[2/4] 清理旧构建...")
+    print("\n[2/4] Cleaning old build...")
     clean_dist()
 
-    print("\n[3/4] 执行 PyInstaller 打包...")
+    print("\n[3/4] Running PyInstaller...")
     env = {"OPENAKITA_BUILD_MODE": mode}
     run_cmd(
         [
@@ -77,17 +77,17 @@ def build_backend(mode: str):
         env=env,
     )
 
-    print("\n[4/4] 验证构建结果...")
+    print("\n[4/4] Verifying build output...")
     if sys.platform == "win32":
         exe_path = OUTPUT_DIR / "openakita-server.exe"
     else:
         exe_path = OUTPUT_DIR / "openakita-server"
 
     if not exe_path.exists():
-        print(f"  ❌ 可执行文件不存在: {exe_path}")
+        print(f"  [ERROR] Executable not found: {exe_path}")
         sys.exit(1)
 
-    # 测试可执行文件
+    # Test executable
     try:
         result = subprocess.run(
             [str(exe_path), "--help"],
@@ -96,31 +96,31 @@ def build_backend(mode: str):
             timeout=30,
         )
         if result.returncode == 0:
-            print(f"  ✓ 可执行文件验证通过: {exe_path}")
+            print(f"  [OK] Executable verified: {exe_path}")
         else:
-            print(f"  ⚠ 可执行文件运行返回非零退出码: {result.returncode}")
+            print(f"  [WARN] Executable returned non-zero exit code: {result.returncode}")
             print(f"    stderr: {result.stderr[:500]}")
     except subprocess.TimeoutExpired:
-        print("  ⚠ 可执行文件运行超时 (可能正常，继续)")
+        print("  [WARN] Executable timed out (may be normal, continuing)")
     except Exception as e:
-        print(f"  ⚠ 验证时发生异常: {e}")
+        print(f"  [WARN] Exception during verification: {e}")
 
-    # 统计大小
+    # Calculate size
     total_size = sum(f.stat().st_size for f in OUTPUT_DIR.rglob("*") if f.is_file())
     size_mb = total_size / (1024 * 1024)
-    print(f"\n  📦 构建完成!")
-    print(f"  输出目录: {OUTPUT_DIR}")
-    print(f"  总大小: {size_mb:.1f} MB")
-    print(f"  模式: {mode.upper()}")
+    print(f"\n  Build completed!")
+    print(f"  Output directory: {OUTPUT_DIR}")
+    print(f"  Total size: {size_mb:.1f} MB")
+    print(f"  Mode: {mode.upper()}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="OpenAkita 后端打包脚本")
+    parser = argparse.ArgumentParser(description="OpenAkita backend build script")
     parser.add_argument(
         "--mode",
         choices=["core", "full"],
         default="core",
-        help="打包模式: core=核心包(排除重型依赖), full=完整包(包含全部依赖)",
+        help="Build mode: core=minimal(exclude heavy deps), full=complete(all deps)",
     )
     args = parser.parse_args()
     build_backend(args.mode)
