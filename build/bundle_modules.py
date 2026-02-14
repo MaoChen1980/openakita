@@ -142,9 +142,9 @@ def bundle_module(module_id: str, mirror: str | None = None):
         print(f"  [ERROR] Unknown module: {module_id}")
         return False
 
-    print(f"\n{'─'*50}")
+    print(f"\n{'-'*50}")
     print(f"  [Bundle] Module: {module_id} - {module_def['description']}")
-    print(f"{'─'*50}")
+    print(f"{'-'*50}")
 
     download_wheels(module_id, module_def, mirror)
     download_model(module_id, module_def)
@@ -187,7 +187,7 @@ def main():
             size = sum(f.stat().st_size for f in module_dir.rglob("*") if f.is_file())
             total += size
             print(f"  {module_id}: {size / 1024 / 1024:.1f} MB")
-    print(f"  ────────────────────")
+    print(f"  --------------------")
     print(f"  Total: {total / 1024 / 1024:.1f} MB")
 
 
