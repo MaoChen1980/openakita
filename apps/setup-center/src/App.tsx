@@ -7378,7 +7378,7 @@ export function App() {
 
         {/* Collapsible Config section */}
         <div className="configSection">
-          <div className="configHeader" onClick={() => { if (sidebarCollapsed) { setView("wizard"); } else { setConfigExpanded((v) => !v); } }} role="button" tabIndex={0} title={t("sidebar.config")}>
+          <div className="configHeader" onClick={() => { if (sidebarCollapsed || configMode === null) { setView("wizard"); setStepId("welcome"); } else { setConfigExpanded((v) => !v); } }} role="button" tabIndex={0} title={t("sidebar.config")}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <IconConfig size={16} />
               {!sidebarCollapsed && <span>{t("sidebar.config")}</span>}

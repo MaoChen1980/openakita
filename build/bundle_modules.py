@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-OpenAkita 可选模块预打包脚本 (完整包用)
+OpenAkita optional modules pre-bundling script (for full package)
 
-将可选模块的 wheels 和模型文件预下载到 build/modules/ 目录，
-供完整包安装器直接打包使用。
+Downloads wheels and model files for optional modules to build/modules/ directory,
+for the full package installer to bundle directly.
 
-用法:
-  python build/bundle_modules.py                    # 下载所有模块
-  python build/bundle_modules.py --module vector-memory  # 仅下载向量记忆模块
-  python build/bundle_modules.py --mirror https://pypi.tuna.tsinghua.edu.cn/simple  # 使用镜像源
+Usage:
+  python build/bundle_modules.py                    # Download all modules
+  python build/bundle_modules.py --module vector-memory  # Download only vector memory module
+  python build/bundle_modules.py --mirror https://pypi.tuna.tsinghua.edu.cn/simple  # Use mirror
 """
 
 import argparse
@@ -20,10 +20,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MODULES_DIR = PROJECT_ROOT / "build" / "modules"
 
-# 模块定义: module_id -> {packages, model_commands}
+# Module definitions: module_id -> {packages, model_commands}
 MODULE_DEFS = {
     "vector-memory": {
-        "description": "向量记忆增强 (语义搜索)",
+        "description": "Vector memory enhancement (semantic search)",
         "packages": [
             "sentence-transformers>=2.2.0",
             "chromadb>=0.4.0",
@@ -33,25 +33,25 @@ import os
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 from sentence_transformers import SentenceTransformer
 model = SentenceTransformer("shibing624/text2vec-base-chinese")
-print(f"模型已下载到: {model._model_card_text if hasattr(model, '_model_card_text') else 'cache'}")
+print(f"Model downloaded to: {model._model_card_text if hasattr(model, '_model_card_text') else 'cache'}")
 """,
     },
     "browser": {
-        "description": "浏览器自动化 (playwright)",
+        "description": "Browser automation (playwright)",
         "packages": [
             "playwright>=1.40.0",
         ],
         "post_install": [sys.executable, "-m", "playwright", "install", "chromium"],
     },
     "whisper": {
-        "description": "语音识别 (OpenAI Whisper)",
+        "description": "Speech recognition (OpenAI Whisper)",
         "packages": [
             "openai-whisper>=20231117",
             "static-ffmpeg>=2.7",
         ],
     },
     "orchestration": {
-        "description": "多 Agent 协同 (ZeroMQ)",
+        "description": "Multi-Agent orchestration (ZeroMQ)",
         "packages": [
             "pyzmq>=25.0.0",
         ],
@@ -60,16 +60,16 @@ print(f"模型已下载到: {model._model_card_text if hasattr(model, '_model_ca
 
 
 def run_cmd(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
-    """执行命令"""
+    """Execute command"""
     print(f"  $ {' '.join(cmd)}")
     result = subprocess.run(cmd, **kwargs)
     if result.returncode != 0:
-        print(f"  ⚠ 命令返回非零退出码: {result.returncode}")
+        print(f"  [WARN] Command returned non-zero exit code: {result.returncode}")
     return result
 
 
 def download_wheels(module_id: str, module_def: dict, mirror: str | None = None):
-    """下载模块的 wheel 文件"""
+    """Download module wheel files"""
     wheels_dir = MODULES_DIR / module_id / "wheels"
     wheels_dir.mkdir(parents=True, exist_ok=True)
 
@@ -83,11 +83,11 @@ def download_wheels(module_id: str, module_def: dict, mirror: str | None = None)
     if mirror:
         cmd.extend(["-i", mirror])
 
-    print(f"\n  📥 下载 {module_id} 的 wheel 包...")
+    print(f"\n  [Download] Downloading {module_id} wheel packages...")
     result = run_cmd(cmd)
     if result.returncode != 0:
-        # 尝试不带 --only-binary 重新下载 (有些包没有预编译 wheel)
-        print("  ⚠ 仅二进制下载失败，尝试包含源码包...")
+        # Try again without --only-binary (some packages don't have prebuilt wheels)
+        print("  [WARN] Binary-only download failed, trying with source packages...")
         cmd2 = [
             sys.executable, "-m", "pip", "download",
             "--dest", str(wheels_dir),
@@ -97,14 +97,14 @@ def download_wheels(module_id: str, module_def: dict, mirror: str | None = None)
             cmd2.extend(["-i", mirror])
         run_cmd(cmd2)
 
-    # 统计
+    # Statistics
     wheel_files = list(wheels_dir.glob("*.whl")) + list(wheels_dir.glob("*.tar.gz"))
     total_size = sum(f.stat().st_size for f in wheel_files)
-    print(f"  ✓ {module_id}: {len(wheel_files)} 个包, {total_size / 1024 / 1024:.1f} MB")
+    print(f"  [OK] {module_id}: {len(wheel_files)} packages, {total_size / 1024 / 1024:.1f} MB")
 
 
 def download_model(module_id: str, module_def: dict):
-    """下载模块需要的模型文件"""
+    """Download model files needed by module"""
     model_script = module_def.get("model_script")
     if not model_script:
         return
@@ -112,8 +112,8 @@ def download_model(module_id: str, module_def: dict):
     models_dir = MODULES_DIR / module_id / "models"
     models_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n  🤖 下载 {module_id} 的模型文件...")
-    # 设置模型缓存目录
+    print(f"\n  [Model] Downloading {module_id} model files...")
+    # Set model cache directory
     env = {
         **os.environ,
         "TRANSFORMERS_CACHE": str(models_dir),
@@ -130,20 +130,20 @@ def download_model(module_id: str, module_def: dict):
         total_size = sum(
             f.stat().st_size for f in models_dir.rglob("*") if f.is_file()
         )
-        print(f"  ✓ 模型下载完成: {total_size / 1024 / 1024:.1f} MB")
+        print(f"  [OK] Model download completed: {total_size / 1024 / 1024:.1f} MB")
     else:
-        print(f"  ⚠ 模型下载失败: {result.stderr[:500]}")
+        print(f"  [WARN] Model download failed: {result.stderr[:500]}")
 
 
 def bundle_module(module_id: str, mirror: str | None = None):
-    """打包单个模块"""
+    """Bundle single module"""
     module_def = MODULE_DEFS.get(module_id)
     if not module_def:
-        print(f"  ❌ 未知模块: {module_id}")
+        print(f"  [ERROR] Unknown module: {module_id}")
         return False
 
     print(f"\n{'─'*50}")
-    print(f"  📦 打包模块: {module_id} - {module_def['description']}")
+    print(f"  [Bundle] Module: {module_id} - {module_def['description']}")
     print(f"{'─'*50}")
 
     download_wheels(module_id, module_def, mirror)
@@ -152,33 +152,33 @@ def bundle_module(module_id: str, mirror: str | None = None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="OpenAkita 可选模块预打包脚本")
+    parser = argparse.ArgumentParser(description="OpenAkita optional modules pre-bundling script")
     parser.add_argument(
         "--module",
         choices=list(MODULE_DEFS.keys()),
-        help="仅打包指定模块 (不指定则打包全部)",
+        help="Bundle only specified module (bundles all if not specified)",
     )
     parser.add_argument(
         "--mirror",
-        help="PyPI 镜像源 URL (如 https://pypi.tuna.tsinghua.edu.cn/simple)",
+        help="PyPI mirror URL (e.g. https://pypi.tuna.tsinghua.edu.cn/simple)",
     )
     args = parser.parse_args()
 
     print(f"\n{'='*60}")
-    print("  OpenAkita 可选模块预打包")
+    print("  OpenAkita Optional Modules Pre-bundling")
     print(f"{'='*60}")
-    print(f"  输出目录: {MODULES_DIR}")
+    print(f"  Output directory: {MODULES_DIR}")
     if args.mirror:
-        print(f"  镜像源: {args.mirror}")
+        print(f"  Mirror: {args.mirror}")
 
     modules_to_bundle = [args.module] if args.module else list(MODULE_DEFS.keys())
 
     for module_id in modules_to_bundle:
         bundle_module(module_id, args.mirror)
 
-    # 汇总
+    # Summary
     print(f"\n{'='*60}")
-    print("  打包汇总")
+    print("  Bundle Summary")
     print(f"{'='*60}")
     total = 0
     for module_id in modules_to_bundle:
@@ -188,7 +188,7 @@ def main():
             total += size
             print(f"  {module_id}: {size / 1024 / 1024:.1f} MB")
     print(f"  ────────────────────")
-    print(f"  总计: {total / 1024 / 1024:.1f} MB")
+    print(f"  Total: {total / 1024 / 1024:.1f} MB")
 
 
 if __name__ == "__main__":

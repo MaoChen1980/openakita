@@ -1,31 +1,31 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-OpenAkita PyInstaller spec 文件
+OpenAkita PyInstaller spec file
 
-用法:
-  核心包: pyinstaller build/openakita.spec  (默认排除重型依赖)
-  完整包: OPENAKITA_BUILD_MODE=full pyinstaller build/openakita.spec
+Usage:
+  Core package: pyinstaller build/openakita.spec  (excludes heavy dependencies by default)
+  Full package: OPENAKITA_BUILD_MODE=full pyinstaller build/openakita.spec
 
-环境变量:
-  OPENAKITA_BUILD_MODE: "core" (默认) 或 "full"
+Environment variables:
+  OPENAKITA_BUILD_MODE: "core" (default) or "full"
 """
 
 import os
 import sys
 from pathlib import Path
 
-# 项目根目录
+# Project root directory
 PROJECT_ROOT = Path(SPECPATH).parent
 SRC_DIR = PROJECT_ROOT / "src"
 
-# 构建模式
+# Build mode
 BUILD_MODE = os.environ.get("OPENAKITA_BUILD_MODE", "core")
 
 # ============== Hidden Imports ==============
-# PyInstaller 静态分析可能遗漏的动态导入
+# Dynamic imports that PyInstaller static analysis may miss
 
 hidden_imports_core = [
-    # -- openakita 内部模块 --
+    # -- openakita internal modules --
     "openakita",
     "openakita.main",
     "openakita.config",
@@ -65,7 +65,7 @@ hidden_imports_core = [
     "openakita.logging",
     "openakita.tools",
     "openakita.tools.shell",
-    # -- 第三方核心依赖 --
+    # -- Third-party core dependencies --
     "uvicorn",
     "uvicorn.lifespan",
     "uvicorn.lifespan.on",
@@ -96,7 +96,7 @@ hidden_imports_core = [
 ]
 
 hidden_imports_full = [
-    # -- 重型可选依赖 (仅完整包包含) --
+    # -- Heavy optional dependencies (full package only) --
     "sentence_transformers",
     "chromadb",
     "torch",
@@ -110,7 +110,7 @@ if BUILD_MODE == "full":
     hidden_imports += hidden_imports_full
 
 # ============== Excludes ==============
-# 核心包排除的重型依赖
+# Heavy dependencies excluded from core package
 
 excludes_core = [
     "sentence_transformers",
@@ -125,7 +125,7 @@ excludes_core = [
     "browser_use",
     "langchain",
     "langchain_openai",
-    # 其他不需要的大型包
+    # Other large packages not needed
     "matplotlib",
     "scipy",
     "numpy.testing",
@@ -140,52 +140,51 @@ excludes_core = [
 excludes = excludes_core if BUILD_MODE == "core" else []
 
 # ============== Data Files ==============
-# 需要打包的非 Python 文件
+# Non-Python files to be bundled
 
 datas = []
 
-# rich._unicode_data: 文件名含连字符(unicode17-0-0.py)，PyInstaller 无法通过
-# hidden_imports 处理，必须作为 data 文件复制
+# rich._unicode_data: filename contains hyphen (unicode17-0-0.py), PyInstaller cannot
+# handle via hidden_imports, must be copied as data file
 import rich._unicode_data as _rud
 _rud_dir = str(Path(_rud.__file__).parent)
 datas.append((_rud_dir, "rich/_unicode_data"))
 
-# 服务商列表（唯一数据源，前后端共享）
-# 必须打包到 openakita/llm/registries/ 目录下，Python 通过 Path(__file__).parent 读取
+# Provider list (single source of truth, shared by frontend and backend)
+# Must be bundled to openakita/llm/registries/ directory, Python reads via Path(__file__).parent
 providers_json = SRC_DIR / "openakita" / "llm" / "registries" / "providers.json"
 if providers_json.exists():
     datas.append((str(providers_json), "openakita/llm/registries"))
 
-# pyproject.toml（版本号来源，打包后 __init__.py 通过相对路径读取）
-# PyInstaller 打包后 openakita 模块在 _internal/ 下，pyproject.toml 放在其上三层
-# 即 _internal/openakita/__init__.py 的 parent.parent.parent 指向 _internal/../../
-# 实际在打包模式下靠这个路径找不到，所以改用直接写入版本文件的方式
+# pyproject.toml (version source, after bundling __init__.py reads via relative path)
+# After PyInstaller bundling, openakita module is in _internal/, pyproject.toml would be 3 levels up
+# In bundled mode this path won't work, so we write a version file directly
 _pyproject_path = PROJECT_ROOT / "pyproject.toml"
 if _pyproject_path.exists():
     import tomllib
     with open(_pyproject_path, "rb") as _f:
         _pyproject_version = tomllib.load(_f)["project"]["version"]
-    # 写一个简单的版本文件到打包目录
+    # Write a simple version file to bundle directory
     _version_file = SRC_DIR / "openakita" / "_bundled_version.txt"
     _version_file.write_text(_pyproject_version, encoding="utf-8")
     datas.append((str(_version_file), "openakita"))
 
-# 内置 Python 解释器 + pip（打包模式下安装可选模块无需主机预装 Python）
-# 将系统 python.exe 和 pip 模块打入 _internal/，Rust 端通过 find_pip_python 发现
+# Built-in Python interpreter + pip (bundled mode can install optional modules without host Python)
+# Bundle system python.exe and pip module to _internal/, Rust side discovers via find_pip_python
 import shutil
 _sys_python_exe = Path(sys.executable)
 if _sys_python_exe.exists():
     datas.append((str(_sys_python_exe), "."))  # python.exe -> _internal/
 
-# pip 及其依赖（pip install 需要的最小集合）
+# pip and its dependencies (minimal set needed for pip install)
 import pip
 _pip_dir = str(Path(pip.__file__).parent)
 datas.append((_pip_dir, "pip"))
 
-# pip 的 vendor 依赖（pip._vendor 包含 requests, urllib3 等）
-# 已包含在 pip 目录下，无需额外处理
+# pip vendor dependencies (pip._vendor contains requests, urllib3 etc.)
+# Already included in pip directory, no extra handling needed
 
-# 内置系统技能
+# Built-in system skills
 skills_dir = PROJECT_ROOT / "skills" / "system"
 if skills_dir.exists():
     datas.append((str(skills_dir), "openakita/builtin_skills/system"))
