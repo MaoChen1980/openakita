@@ -86,6 +86,7 @@ def build_backend(mode: str):
             "--distpath", str(DIST_DIR),
             "--workpath", str(PROJECT_ROOT / "build" / "pyinstaller_work"),
             "--noconfirm",
+            "--clean",  # Force clean build to avoid symlink conflicts on macOS
         ],
         env=env,
     )
