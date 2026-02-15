@@ -264,6 +264,18 @@ class OpenAIProvider(LLMProvider):
         if request.enable_thinking and self.config.provider == "dashscope":
             body["enable_thinking"] = True
 
+        # OpenAI reasoning_effort (o1/o3 系列模型，仅非 DashScope 且声明了 thinking 能力)
+        if (
+            request.enable_thinking
+            and request.thinking_depth
+            and self.config.provider != "dashscope"
+            and self.config.has_capability("thinking")
+        ):
+            depth_map = {"low": "low", "medium": "medium", "high": "high"}
+            effort = depth_map.get(request.thinking_depth)
+            if effort:
+                body["reasoning_effort"] = effort
+
         return body
 
     def _parse_response(self, data: dict) -> LLMResponse:

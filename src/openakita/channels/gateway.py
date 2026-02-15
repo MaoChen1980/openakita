@@ -452,6 +452,125 @@ class ModelCommandHandler:
             return "✅ 操作已取消"
 
 
+# ==================== 思考模式命令处理 ====================
+
+
+class ThinkingCommandHandler:
+    """
+    思考模式命令处理器
+
+    系统级命令拦截，不经过大模型处理。
+
+    支持的命令:
+    - /thinking [on|off|auto]: 切换思考模式
+    - /thinking_depth [low|medium|high]: 设置思考深度
+    """
+
+    THINKING_COMMANDS = {"/thinking", "/thinking_depth"}
+
+    VALID_MODES = {"on", "off", "auto"}
+    VALID_DEPTHS = {"low", "medium", "high"}
+
+    DEPTH_LABELS = {
+        "low": "低（快速响应）",
+        "medium": "中（平衡）",
+        "high": "高（深度推理）",
+    }
+
+    def __init__(self, session_manager: "SessionManager"):
+        self._session_manager = session_manager
+
+    def is_thinking_command(self, text: str) -> bool:
+        """检查是否是思考模式相关命令"""
+        if not text:
+            return False
+        text_lower = text.lower().strip()
+        for cmd in self.THINKING_COMMANDS:
+            if text_lower == cmd or text_lower.startswith(cmd + " "):
+                return True
+        return False
+
+    async def handle_command(self, session_key: str, text: str, session: "Session") -> str | None:
+        """
+        处理思考模式命令
+
+        Args:
+            session_key: 会话标识
+            text: 用户输入
+            session: 当前会话对象
+
+        Returns:
+            响应文本
+        """
+        text = text.strip()
+        text_lower = text.lower()
+
+        # /thinking - 查看或设置思考模式
+        if text_lower == "/thinking":
+            return self._format_thinking_status(session)
+
+        if text_lower.startswith("/thinking ") and not text_lower.startswith("/thinking_depth"):
+            mode = text_lower.split(None, 1)[1].strip()
+            if mode not in self.VALID_MODES:
+                return f"❌ 无效的思考模式: `{mode}`\n可选: `on`（开启）| `off`（关闭）| `auto`（自动）"
+            session.set_metadata("thinking_mode", mode if mode != "auto" else None)
+            mode_label = {"on": "开启", "off": "关闭", "auto": "自动（系统决定）"}
+            return f"✅ 思考模式已设置为: **{mode_label[mode]}**"
+
+        # /thinking_depth - 查看或设置思考深度
+        if text_lower == "/thinking_depth":
+            return self._format_depth_status(session)
+
+        if text_lower.startswith("/thinking_depth "):
+            depth = text_lower.split(None, 1)[1].strip()
+            if depth not in self.VALID_DEPTHS:
+                return f"❌ 无效的思考深度: `{depth}`\n可选: `low`（低）| `medium`（中）| `high`（高）"
+            session.set_metadata("thinking_depth", depth)
+            return f"✅ 思考深度已设置为: **{self.DEPTH_LABELS[depth]}**"
+
+        return None
+
+    def _format_thinking_status(self, session: "Session") -> str:
+        """格式化思考模式状态"""
+        current_mode = session.get_metadata("thinking_mode")
+        current_depth = session.get_metadata("thinking_depth")
+
+        mode_label = "自动（系统决定）"
+        if current_mode == "on":
+            mode_label = "开启"
+        elif current_mode == "off":
+            mode_label = "关闭"
+
+        depth_label = self.DEPTH_LABELS.get(current_depth or "medium", "中（平衡）")
+
+        lines = [
+            "🧠 **思考模式设置**\n",
+            f"当前模式: **{mode_label}**",
+            f"思考深度: **{depth_label}**\n",
+            "**可用命令:**",
+            "`/thinking on` — 强制开启深度思考",
+            "`/thinking off` — 关闭深度思考",
+            "`/thinking auto` — 自动决定（默认）",
+            "`/thinking_depth low|medium|high` — 设置思考深度",
+        ]
+        return "\n".join(lines)
+
+    def _format_depth_status(self, session: "Session") -> str:
+        """格式化思考深度状态"""
+        current_depth = session.get_metadata("thinking_depth")
+        depth_label = self.DEPTH_LABELS.get(current_depth or "medium", "中（平衡）")
+
+        lines = [
+            "📊 **思考深度设置**\n",
+            f"当前深度: **{depth_label}**\n",
+        ]
+        for key, label in self.DEPTH_LABELS.items():
+            marker = " ⬅️" if key == (current_depth or "medium") else ""
+            lines.append(f"• `{key}` — {label}{marker}")
+        lines.append(f"\n用法: `/thinking_depth low|medium|high`")
+        return "\n".join(lines)
+
+
 class MessageGateway:
     """
     统一消息网关
@@ -526,6 +645,9 @@ class MessageGateway:
 
         # 模型命令处理器（系统级命令拦截）
         self._model_cmd_handler: ModelCommandHandler = ModelCommandHandler()
+
+        # 思考模式命令处理器
+        self._thinking_cmd_handler: ThinkingCommandHandler = ThinkingCommandHandler(session_manager)
 
         # ==================== 进度事件流（Plan/Deliver 等）====================
         # 目标：把“执行过程进度展示”下沉到网关侧，避免模型/工具刷屏。
@@ -881,6 +1003,21 @@ class MessageGateway:
             # 检查是否是模型相关命令
             if self._model_cmd_handler.is_model_command(user_text):
                 response_text = await self._model_cmd_handler.handle_command(session_key, user_text)
+                if response_text:
+                    await self._send_response(message, response_text)
+                    return
+
+            # 检查是否是思考模式相关命令
+            if self._thinking_cmd_handler.is_thinking_command(user_text):
+                # 需要获取 session 来读写 thinking 设置
+                _thinking_session = self.session_manager.get_session(
+                    channel=message.channel,
+                    chat_id=message.chat_id,
+                    user_id=message.user_id,
+                )
+                response_text = await self._thinking_cmd_handler.handle_command(
+                    session_key, user_text, _thinking_session,
+                )
                 if response_text:
                     await self._send_response(message, response_text)
                     return

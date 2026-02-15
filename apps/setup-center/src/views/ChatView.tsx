@@ -1178,6 +1178,22 @@ export function ChatView({
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
 
+  // 深度思考模式 & 深度（从 localStorage 恢复用户习惯）
+  const [thinkingMode, setThinkingMode] = useState<"auto" | "on" | "off">(() => {
+    try { const v = localStorage.getItem("chat_thinkingMode"); return (v === "on" || v === "off") ? v : "auto"; }
+    catch { return "auto"; }
+  });
+  const [thinkingDepth, setThinkingDepth] = useState<"low" | "medium" | "high">(() => {
+    try { const v = localStorage.getItem("chat_thinkingDepth"); return (v === "low" || v === "medium" || v === "high") ? v : "medium"; }
+    catch { return "medium"; }
+  });
+  const [thinkingMenuOpen, setThinkingMenuOpen] = useState(false);
+  const thinkingMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // 持久化思考偏好
+  useEffect(() => { try { localStorage.setItem("chat_thinkingMode", thinkingMode); } catch {} }, [thinkingMode]);
+  useEffect(() => { try { localStorage.setItem("chat_thinkingDepth", thinkingDepth); } catch {} }, [thinkingDepth]);
+
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -1244,6 +1260,18 @@ export function ChatView({
     return () => document.removeEventListener("mousedown", handler);
   }, [modelMenuOpen]);
 
+  // ── 点击外部关闭思考菜单 ──
+  useEffect(() => {
+    if (!thinkingMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (thinkingMenuRef.current && !thinkingMenuRef.current.contains(e.target as Node)) {
+        setThinkingMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [thinkingMenuOpen]);
+
   // ── 斜杠命令定义 ──
   const slashCommands: SlashCommand[] = useMemo(() => [
     { id: "model", label: "切换模型", description: "选择使用的 LLM 端点", action: (args) => {
@@ -1287,15 +1315,37 @@ export function ChatView({
     { id: "agents", label: "查看 Agent 列表", description: "显示可用的 Agent 列表", action: () => {
       setMessages((prev) => [...prev, { id: genId(), role: "system", content: "Agent 列表取决于 handoff 配置。当前可通过 /agent <名称> 手动请求切换。", timestamp: Date.now() }]);
     }},
+    { id: "thinking", label: "深度思考", description: "设置思考模式 (on/off/auto)", action: (args) => {
+      const mode = args?.toLowerCase().trim();
+      if (mode === "on" || mode === "off" || mode === "auto") {
+        setThinkingMode(mode);
+        const label = { on: "开启", off: "关闭", auto: "自动" }[mode];
+        setMessages((prev) => [...prev, { id: genId(), role: "system", content: `思考模式已设置为: ${label}`, timestamp: Date.now() }]);
+      } else {
+        const currentLabel = { on: "开启", off: "关闭", auto: "自动" }[thinkingMode];
+        setMessages((prev) => [...prev, { id: genId(), role: "system", content: `当前思考模式: ${currentLabel}\n用法: /thinking on|off|auto`, timestamp: Date.now() }]);
+      }
+    }},
+    { id: "thinking_depth", label: "思考深度", description: "设置思考深度 (low/medium/high)", action: (args) => {
+      const depth = args?.toLowerCase().trim();
+      if (depth === "low" || depth === "medium" || depth === "high") {
+        setThinkingDepth(depth);
+        const label = { low: "低", medium: "中", high: "高" }[depth];
+        setMessages((prev) => [...prev, { id: genId(), role: "system", content: `思考深度已设置为: ${label}`, timestamp: Date.now() }]);
+      } else {
+        const currentLabel = { low: "低", medium: "中", high: "高" }[thinkingDepth];
+        setMessages((prev) => [...prev, { id: genId(), role: "system", content: `当前思考深度: ${currentLabel}\n用法: /thinking_depth low|medium|high`, timestamp: Date.now() }]);
+      }
+    }},
     { id: "help", label: "帮助", description: "显示可用命令列表", action: () => {
       setMessages((prev) => [...prev, {
         id: genId(),
         role: "system",
-        content: "**可用命令：**\n- `/model [端点名]` — 切换 LLM 端点\n- `/plan` — 开启/关闭计划模式\n- `/clear` — 清空对话\n- `/skill [技能名]` — 使用技能\n- `/persona [角色ID]` — 查看/切换角色\n- `/agent [Agent名]` — 切换 Agent\n- `/agents` — 查看 Agent 列表\n- `/help` — 显示此帮助",
+        content: "**可用命令：**\n- `/model [端点名]` — 切换 LLM 端点\n- `/plan` — 开启/关闭计划模式\n- `/thinking [on|off|auto]` — 深度思考模式\n- `/thinking_depth [low|medium|high]` — 思考深度\n- `/clear` — 清空对话\n- `/skill [技能名]` — 使用技能\n- `/persona [角色ID]` — 查看/切换角色\n- `/agent [Agent名]` — 切换 Agent\n- `/agents` — 查看 Agent 列表\n- `/help` — 显示此帮助",
         timestamp: Date.now(),
       }]);
     }},
-  ], [endpoints]);
+  ], [endpoints, thinkingMode, thinkingDepth]);
 
   // ── 新建对话 ──
   const newConversation = useCallback(() => {
@@ -1391,6 +1441,8 @@ export function ChatView({
         conversation_id: convId,
         plan_mode: planMode,
         endpoint: selectedEndpoint === "auto" ? null : selectedEndpoint,
+        thinking_mode: thinkingMode !== "auto" ? thinkingMode : null,
+        thinking_depth: thinkingMode !== "off" ? thinkingDepth : null,
       };
 
       // 附件信息
@@ -1760,7 +1812,7 @@ export function ChatView({
       setIsStreaming(false);
       abortRef.current = null;
     }
-  }, [inputText, pendingAttachments, isStreaming, activeConvId, planMode, selectedEndpoint, apiBase, slashCommands]);
+  }, [inputText, pendingAttachments, isStreaming, activeConvId, planMode, selectedEndpoint, apiBase, slashCommands, thinkingMode, thinkingDepth]);
 
   // ── 处理用户回答 (ask_user) ──
   const handleAskAnswer = useCallback((msgId: string, answer: string) => {
@@ -2275,6 +2327,56 @@ export function ChatView({
                   <IconPlan size={16} />
                   <span style={{ fontSize: 11, marginLeft: 2 }}>Plan</span>
                 </button>
+
+                {/* 深度思考按钮 + 下拉菜单 */}
+                <div ref={thinkingMenuRef} style={{ position: "relative", display: "inline-flex" }}>
+                  <button
+                    onClick={() => {
+                      if (thinkingMode === "auto") {
+                        setThinkingMode("on");
+                      } else if (thinkingMode === "on") {
+                        setThinkingMode("off");
+                      } else {
+                        setThinkingMode("auto");
+                      }
+                    }}
+                    onContextMenu={(e) => { e.preventDefault(); setThinkingMenuOpen((v) => !v); }}
+                    className={`chatInputIconBtn ${thinkingMode === "on" ? "chatInputIconBtnActive" : thinkingMode === "off" ? "chatInputIconBtnOff" : ""}`}
+                    title={`深度思考: ${thinkingMode === "on" ? "开启" : thinkingMode === "off" ? "关闭" : "自动"} (右键设置深度)`}
+                  >
+                    <IconZap size={16} />
+                    <span style={{ fontSize: 11, marginLeft: 2 }}>
+                      {thinkingMode === "on" ? "Think" : thinkingMode === "off" ? "NoThink" : "Auto"}
+                    </span>
+                  </button>
+                  {thinkingMenuOpen && (
+                    <div className="chatThinkingMenu">
+                      <div className="chatThinkingMenuSection">思考模式</div>
+                      {(["auto", "on", "off"] as const).map((mode) => (
+                        <div
+                          key={mode}
+                          className={`chatThinkingMenuItem ${thinkingMode === mode ? "chatThinkingMenuItemActive" : ""}`}
+                          onClick={() => { setThinkingMode(mode); setThinkingMenuOpen(false); }}
+                        >
+                          <span>{{ auto: "🤖 自动", on: "🧠 开启", off: "⚡ 关闭" }[mode]}</span>
+                          <span style={{ fontSize: 10, opacity: 0.5 }}>{{ auto: "系统决定", on: "强制深度思考", off: "快速回复" }[mode]}</span>
+                        </div>
+                      ))}
+                      <div className="chatThinkingMenuDivider" />
+                      <div className="chatThinkingMenuSection">思考深度</div>
+                      {(["low", "medium", "high"] as const).map((depth) => (
+                        <div
+                          key={depth}
+                          className={`chatThinkingMenuItem ${thinkingDepth === depth ? "chatThinkingMenuItemActive" : ""}`}
+                          onClick={() => { setThinkingDepth(depth); setThinkingMenuOpen(false); }}
+                        >
+                          <span>{{ low: "💨 低", medium: "⚖️ 中", high: "🔬 高" }[depth]}</span>
+                          <span style={{ fontSize: 10, opacity: 0.5 }}>{{ low: "快速响应", medium: "平衡模式", high: "深度推理" }[depth]}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="chatInputToolbarRight">

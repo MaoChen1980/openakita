@@ -246,6 +246,7 @@ class LLMRequest:
     max_tokens: int = 4096
     temperature: float = 1.0
     enable_thinking: bool = False
+    thinking_depth: str | None = None  # 思考深度: 'low'/'medium'/'high'
     stop_sequences: list[str] | None = None
     extra_params: dict | None = None  # 额外参数（如 enable_thinking 等）
 

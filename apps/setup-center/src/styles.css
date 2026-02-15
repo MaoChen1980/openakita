@@ -2358,6 +2358,70 @@ button:disabled {
   margin-bottom: 8px;
 }
 
+/* 思考模式关闭状态 */
+.chatInputIconBtnOff {
+  color: rgba(156, 163, 175, 0.7) !important;
+  background: rgba(156, 163, 175, 0.06) !important;
+}
+
+/* 深度思考下拉菜单 */
+.chatThinkingMenu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  min-width: 200px;
+  background: var(--bg, #fff);
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 6px;
+  z-index: 200;
+  animation: thinkingMenuFadeIn 0.15s ease;
+}
+
+@keyframes thinkingMenuFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.chatThinkingMenuSection {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary, #6b7280);
+  padding: 6px 10px 4px;
+  opacity: 0.6;
+}
+
+.chatThinkingMenuItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.12s;
+}
+
+.chatThinkingMenuItem:hover {
+  background: rgba(14, 165, 233, 0.06);
+}
+
+.chatThinkingMenuItemActive {
+  background: rgba(124, 58, 237, 0.08) !important;
+  color: rgba(124, 58, 237, 0.9);
+  font-weight: 600;
+}
+
+.chatThinkingMenuDivider {
+  height: 1px;
+  background: var(--line, #e5e7eb);
+  margin: 4px 8px;
+}
+
 /* 思维链 & 模式切换 按钮 */
 .chainToggleBtn,
 .modeToggleBtn {

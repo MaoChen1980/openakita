@@ -204,6 +204,26 @@ class AnthropicProvider(LLMProvider):
         if request.extra_params:
             body.update(request.extra_params)
 
+        # Anthropic 扩展思考 (Extended Thinking)
+        # 仅在端点声明了 thinking 能力时才添加，避免对不支持的模型发送无效参数
+        if request.enable_thinking and self.config.has_capability("thinking"):
+            depth_budget_map = {
+                "low": 2048,
+                "medium": 8192,
+                "high": 32768,
+            }
+            budget = depth_budget_map.get(request.thinking_depth or "medium", 8192)
+            body["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": budget,
+            }
+            # Anthropic 扩展思考要求 temperature=1，移除自定义温度
+            body.pop("temperature", None)
+            # Anthropic 要求 max_tokens >= budget_tokens，确保不会冲突
+            current_max = body.get("max_tokens", 4096)
+            if current_max < budget + 1024:
+                body["max_tokens"] = budget + 4096
+
         return body
 
     def _parse_response(self, data: dict) -> LLMResponse:

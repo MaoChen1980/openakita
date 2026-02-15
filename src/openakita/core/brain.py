@@ -299,7 +299,7 @@ class Brain:
     # 核心方法：messages_create
     # ========================================================================
 
-    def messages_create(self, use_thinking: bool = None, **kwargs) -> AnthropicMessage:
+    def messages_create(self, use_thinking: bool = None, thinking_depth: str | None = None, **kwargs) -> AnthropicMessage:
         """
         调用 LLM API（通过 LLMClient）
 
@@ -310,6 +310,7 @@ class Brain:
 
         Args:
             use_thinking: 是否使用 thinking 模式
+            thinking_depth: 思考深度 ('low'/'medium'/'high'/None)
             **kwargs: Anthropic 格式参数 (messages, system, tools, max_tokens)
 
         Returns:
@@ -338,6 +339,7 @@ class Brain:
                     tools=llm_tools,
                     max_tokens=max_tokens,
                     enable_thinking=use_thinking,
+                    thinking_depth=thinking_depth,
                     conversation_id=conversation_id,
                 )
             )
@@ -350,6 +352,7 @@ class Brain:
                     tools=llm_tools,
                     max_tokens=max_tokens,
                     enable_thinking=use_thinking,
+                    thinking_depth=thinking_depth,
                     conversation_id=conversation_id,
                 )
             )

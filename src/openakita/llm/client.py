@@ -215,6 +215,7 @@ class LLMClient:
         max_tokens: int = 4096,
         temperature: float = 1.0,
         enable_thinking: bool = False,
+        thinking_depth: str | None = None,
         conversation_id: str | None = None,
         **kwargs,
     ) -> LLMResponse:
@@ -234,6 +235,7 @@ class LLMClient:
             max_tokens: 最大输出 token
             temperature: 温度
             enable_thinking: 是否启用思考模式
+            thinking_depth: 思考深度 ('low'/'medium'/'high')
             **kwargs: 额外参数
 
         Returns:
@@ -250,6 +252,7 @@ class LLMClient:
             max_tokens=max_tokens,
             temperature=temperature,
             enable_thinking=enable_thinking,
+            thinking_depth=thinking_depth,
             extra_params=kwargs.get("extra_params"),
         )
 
