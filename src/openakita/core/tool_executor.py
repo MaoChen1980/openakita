@@ -226,7 +226,10 @@ class ToolExecutor:
 
                 # 终端输出工具返回结果（便于调试与观察）
                 _preview = result_str if len(result_str) <= 800 else result_str[:800] + "\n... (已截断)"
-                logger.info(f"[Tool] {tool_name} → {_preview}")
+                try:
+                    logger.info(f"[Tool] {tool_name} → {_preview}")
+                except (UnicodeEncodeError, OSError):
+                    logger.info(f"[Tool] {tool_name} → (result logged, {len(result_str)} chars)")
 
                 # 捕获交付回执
                 if capture_delivery_receipts and tool_name == "deliver_artifacts" and result_str:

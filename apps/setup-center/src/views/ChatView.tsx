@@ -1152,10 +1152,31 @@ export function ChatView({
   apiBaseUrl?: string;
 }) {
   const { t } = useTranslation();
-  // ── State ──
-  const [conversations, setConversations] = useState<ChatConversation[]>([]);
-  const [activeConvId, setActiveConvId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+
+  // ── 持久化 Key 常量 ──
+  const STORAGE_KEY_CONVS = "chat_conversations";
+  const STORAGE_KEY_ACTIVE = "chat_activeConvId";
+  const STORAGE_KEY_MSGS_PREFIX = "chat_msgs_";
+
+  // ── State（从 localStorage 恢复） ──
+  const [conversations, setConversations] = useState<ChatConversation[]>(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_CONVS);
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  });
+  const [activeConvId, setActiveConvId] = useState<string | null>(() => {
+    try { return localStorage.getItem(STORAGE_KEY_ACTIVE) || null; }
+    catch { return null; }
+  });
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    try {
+      const convId = localStorage.getItem(STORAGE_KEY_ACTIVE);
+      if (!convId) return [];
+      const raw = localStorage.getItem(STORAGE_KEY_MSGS_PREFIX + convId);
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  });
   const [inputText, setInputText] = useState("");
   const [selectedEndpoint, setSelectedEndpoint] = useState("auto");
   const [planMode, setPlanMode] = useState(false);
@@ -1199,6 +1220,58 @@ export function ChatView({
   // 持久化思考偏好
   useEffect(() => { try { localStorage.setItem("chat_thinkingMode", thinkingMode); } catch {} }, [thinkingMode]);
   useEffect(() => { try { localStorage.setItem("chat_thinkingDepth", thinkingDepth); } catch {} }, [thinkingDepth]);
+
+  // ── 持久化会话列表 & 当前对话 ID ──
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_CONVS, JSON.stringify(conversations));
+    } catch { /* quota exceeded or private mode */ }
+  }, [conversations]);
+
+  useEffect(() => {
+    try {
+      if (activeConvId) localStorage.setItem(STORAGE_KEY_ACTIVE, activeConvId);
+      else localStorage.removeItem(STORAGE_KEY_ACTIVE);
+    } catch {}
+  }, [activeConvId]);
+
+  // ── 持久化消息（流式结束后 debounce 写入，避免高频写入） ──
+  const saveMessagesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!activeConvId) return;
+    // 流式传输中时延迟保存，减少写入频率
+    if (saveMessagesTimerRef.current) clearTimeout(saveMessagesTimerRef.current);
+    const delay = isStreaming ? 2000 : 300;
+    saveMessagesTimerRef.current = setTimeout(() => {
+      try {
+        // 保存时过滤掉 streaming 状态的瞬态字段，减小体积
+        const toSave = messages.map(({ streaming, ...rest }) => rest);
+        localStorage.setItem(STORAGE_KEY_MSGS_PREFIX + activeConvId, JSON.stringify(toSave));
+      } catch {
+        // localStorage quota exceeded: 清理最旧的对话消息
+        try {
+          const convs: ChatConversation[] = JSON.parse(localStorage.getItem(STORAGE_KEY_CONVS) || "[]");
+          if (convs.length > 1) {
+            const oldest = convs[convs.length - 1];
+            localStorage.removeItem(STORAGE_KEY_MSGS_PREFIX + oldest.id);
+          }
+        } catch { /* give up */ }
+      }
+    }, delay);
+    return () => { if (saveMessagesTimerRef.current) clearTimeout(saveMessagesTimerRef.current); };
+  }, [messages, activeConvId, isStreaming]);
+
+  // ── 切换对话时加载对应消息 ──
+  const prevConvIdRef = useRef<string | null>(activeConvId);
+  useEffect(() => {
+    if (activeConvId && activeConvId !== prevConvIdRef.current) {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY_MSGS_PREFIX + activeConvId);
+        setMessages(raw ? JSON.parse(raw) : []);
+      } catch { setMessages([]); }
+    }
+    prevConvIdRef.current = activeConvId;
+  }, [activeConvId]);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1356,6 +1429,13 @@ export function ChatView({
   // ── 新建对话 ──
   const newConversation = useCallback(() => {
     const id = genId();
+    // 先保存当前对话消息（如果有）
+    if (activeConvId && messages.length > 0) {
+      try {
+        const toSave = messages.map(({ streaming, ...rest }) => rest);
+        localStorage.setItem(STORAGE_KEY_MSGS_PREFIX + activeConvId, JSON.stringify(toSave));
+      } catch {}
+    }
     setActiveConvId(id);
     setMessages([]);
     setPendingAttachments([]);
@@ -1366,7 +1446,7 @@ export function ChatView({
       timestamp: Date.now(),
       messageCount: 0,
     }, ...prev]);
-  }, []);
+  }, [activeConvId, messages]);
 
   // ── 发送消息（overrideText 用于 ask_user 回复等场景，绕过 inputText） ──
   const sendMessage = useCallback(async (overrideText?: string) => {
@@ -1829,6 +1909,15 @@ export function ChatView({
       readerRef.current = null;
       setIsStreaming(false);
       abortRef.current = null;
+
+      // 流式结束后更新对话摘要（lastMessage / messageCount）
+      if (convId) {
+        setConversations((prev) => prev.map((c) =>
+          c.id === convId
+            ? { ...c, lastMessage: text.slice(0, 60), timestamp: Date.now(), messageCount: (c.messageCount || 0) + 2 }
+            : c
+        ));
+      }
     }
   }, [inputText, pendingAttachments, isStreaming, activeConvId, planMode, selectedEndpoint, apiBase, slashCommands, thinkingMode, thinkingDepth]);
 

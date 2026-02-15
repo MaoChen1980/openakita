@@ -2888,7 +2888,10 @@ search_github → install_skill → 使用
 
         # 3. Memory: 记录 assistant 响应
         self.memory_manager.record_turn("assistant", response_text)
-        logger.info(f"[Session:{session_id}] Agent: {response_text}")
+        try:
+            logger.info(f"[Session:{session_id}] Agent: {response_text}")
+        except (UnicodeEncodeError, OSError):
+            logger.info(f"[Session:{session_id}] Agent: (response logged, {len(response_text)} chars)")
 
         # 4. Cleanup（总是执行，放在 finally 中由调用方保证）
         # 注意：此方法不做 cleanup，cleanup 统一在 _cleanup_session_state() 中

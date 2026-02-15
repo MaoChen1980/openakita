@@ -39,6 +39,10 @@ class ColoredConsoleHandler(logging.StreamHandler):
     - WARNING: 黄色
     - ERROR: 红色
     - CRITICAL: 红色加粗
+
+    Windows 特殊处理:
+    - 强制使用 UTF-8 编码输出，避免 GBK 编码导致 emoji 等 Unicode 字符
+      触发 UnicodeEncodeError，从而中断 SSE 流式输出引发前端白屏。
     """
 
     # ANSI 颜色码
@@ -52,7 +56,16 @@ class ColoredConsoleHandler(logging.StreamHandler):
     RESET = "\033[0m"
 
     def __init__(self, stream: TextIO = None):
-        super().__init__(stream or sys.stdout)
+        output_stream = stream or sys.stdout
+        # Windows 下强制将 stdout/stderr 重新包装为 UTF-8 编码，
+        # 防止 GBK 默认编码无法输出 emoji 等 Unicode 字符。
+        if sys.platform == "win32" and hasattr(output_stream, "buffer"):
+            import io
+
+            output_stream = io.TextIOWrapper(
+                output_stream.buffer, encoding="utf-8", errors="replace", line_buffering=True
+            )
+        super().__init__(output_stream)
         # 检测是否支持颜色（Windows 需要特殊处理）
         self._supports_color = self._check_color_support()
 
@@ -75,6 +88,20 @@ class ColoredConsoleHandler(logging.StreamHandler):
 
         # Unix/Linux/Mac 默认支持
         return hasattr(self.stream, "isatty") and self.stream.isatty()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """输出日志记录，确保 Unicode 字符不会导致异常"""
+        try:
+            super().emit(record)
+        except UnicodeEncodeError:
+            # 最后兜底：如果仍然出现编码错误，用 replace 策略重试
+            try:
+                msg = self.format(record)
+                safe_msg = msg.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
+                self.stream.write(safe_msg + self.terminator)
+                self.stream.flush()
+            except Exception:
+                pass
 
     def format(self, record: logging.LogRecord) -> str:
         """格式化日志记录，添加颜色"""

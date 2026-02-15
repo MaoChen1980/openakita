@@ -78,10 +78,13 @@ async def _stream_chat(
                 return ""
             _done_sent = True
             preview = _reply_preview[:100].replace("\n", " ")
-            logger.info(
-                f"[Chat API] 回复完成: {_reply_chars}字 | "
-                f"\"{preview}{'...' if _reply_chars > 100 else ''}\""
-            )
+            try:
+                logger.info(
+                    f"[Chat API] 回复完成: {_reply_chars}字 | "
+                    f"\"{preview}{'...' if _reply_chars > 100 else ''}\""
+                )
+            except (UnicodeEncodeError, OSError):
+                pass
         payload = {"type": event_type, **(data or {})}
         if event_type == "text_delta" and data and "content" in data:
             chunk = data["content"]

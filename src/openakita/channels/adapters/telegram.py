@@ -405,15 +405,15 @@ class TelegramAdapter(ChannelAdapter):
 
         self._running = True
 
-        # 打印配对信息
+        # 打印配对信息（使用 logger 代替 print 避免 GBK 编码问题）
         if self.require_pairing:
             paired_count = len(self.pairing_manager.paired_users)
-            print("\n" + "=" * 50)
-            print("🔐 Telegram 配对验证已启用")
-            print(f"   已配对用户: {paired_count}")
-            print(f"   配对码: {self.pairing_manager.pairing_code}")
-            print(f"   配对码文件: {self.pairing_manager.code_file}")
-            print("=" * 50 + "\n")
+            logger.info("=" * 50)
+            logger.info("[Telegram] Pairing verification enabled")
+            logger.info(f"  Paired users: {paired_count}")
+            logger.info(f"  Pairing code: {self.pairing_manager.pairing_code}")
+            logger.info(f"  Pairing code file: {self.pairing_manager.code_file}")
+            logger.info("=" * 50)
 
     async def stop(self) -> None:
         """停止 Telegram Bot"""

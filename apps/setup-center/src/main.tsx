@@ -5,6 +5,81 @@ import "./i18n";
 import "./styles.css";
 import { App } from "./App";
 
+// ── Global Error Boundary ──
+// Catches unhandled React rendering errors to prevent white-screen crashes.
+// Displays a friendly recovery UI instead of a blank page.
+class GlobalErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("[ErrorBoundary] Uncaught error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+          height: "100vh", width: "100vw", background: "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)",
+          fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+          color: "#334155", padding: 32, boxSizing: "border-box",
+        }}>
+          <div style={{
+            background: "#fff", borderRadius: 16, boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
+            padding: "40px 48px", maxWidth: 480, width: "100%", textAlign: "center",
+          }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>:(</div>
+            <h2 style={{ margin: "0 0 12px", fontSize: 20, fontWeight: 600, color: "#1e293b" }}>
+              Something went wrong
+            </h2>
+            <p style={{ margin: "0 0 20px", fontSize: 14, color: "#64748b", lineHeight: 1.6 }}>
+              The application encountered an unexpected error. Your data is safe. Click the button below to reload.
+            </p>
+            {this.state.error && (
+              <details style={{
+                marginBottom: 20, textAlign: "left", background: "#f1f5f9",
+                borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#475569",
+                maxHeight: 120, overflow: "auto",
+              }}>
+                <summary style={{ cursor: "pointer", fontWeight: 500 }}>Error Details</summary>
+                <pre style={{ margin: "8px 0 0", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                  {this.state.error.message}
+                  {"\n"}
+                  {this.state.error.stack?.slice(0, 500)}
+                </pre>
+              </details>
+            )}
+            <button
+              onClick={() => location.reload()}
+              style={{
+                background: "linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%)",
+                color: "#fff", border: "none", borderRadius: 10, padding: "10px 32px",
+                fontSize: 15, fontWeight: 600, cursor: "pointer",
+                boxShadow: "0 2px 8px rgba(14,165,233,0.3)", transition: "transform 0.1s",
+              }}
+              onMouseDown={(e) => { (e.target as HTMLButtonElement).style.transform = "scale(0.97)"; }}
+              onMouseUp={(e) => { (e.target as HTMLButtonElement).style.transform = ""; }}
+            >
+              Reload Application
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function hideBoot(remove = true) {
   const el = document.getElementById("boot");
   if (!el) return;
@@ -138,7 +213,9 @@ document.addEventListener("click", (e) => {
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <GlobalErrorBoundary>
+      <App />
+    </GlobalErrorBoundary>
   </React.StrictMode>,
 );
 
