@@ -528,6 +528,13 @@ Function PageLeaveEnvCheck
  ; ── 执行环境清理 ──
  ; 注意：使用 cmd /c rd /s /q 替代 NSIS RmDir /r
  ; 因为 RmDir /r 对深层路径、只读文件、大文件会静默失败
+
+ ; 总是清理 run 目录中的 stale PID 文件（运行时临时文件，不是用户数据）
+ ExpandEnvStrings $R0 "%USERPROFILE%\.openakita\run"
+ ${If} ${FileExists} "$R0\*.*"
+  ExecWait 'cmd /c rd /s /q "$R0"'
+ ${EndIf}
+
  ${If} $EnvCleanVenv != ""
   ${NSD_GetState} $EnvCleanVenv $0
   ${If} $0 = ${BST_CHECKED}

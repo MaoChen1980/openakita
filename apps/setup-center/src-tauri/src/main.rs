@@ -970,9 +970,10 @@ fn is_pid_file_valid(data: &PidFileData) -> bool {
     if !is_pid_running(data.pid) {
         return false;
     }
-    // 旧格式没有 started_at，跳过时间校验
+    // 旧格式没有 started_at：不能仅靠 PID 存活来判断——
+    // Windows 上 PID 会被复用，必须验证进程身份。
     if data.started_at == 0 {
-        return true;
+        return is_openakita_process(data.pid);
     }
     if let Some(actual_create) = get_process_create_time(data.pid) {
         let diff = if data.started_at > actual_create {
@@ -980,10 +981,14 @@ fn is_pid_file_valid(data: &PidFileData) -> bool {
         } else {
             actual_create - data.started_at
         };
-        diff <= 5 // 5 秒内认为匹配
+        if diff > 5 {
+            // 时间不匹配——PID 被复用了，再验证一下进程身份
+            return is_openakita_process(data.pid);
+        }
+        true // 时间匹配
     } else {
-        // 无法获取进程创建时间，退回到基本的 is_pid_running
-        true
+        // 无法获取进程创建时间，退回到进程身份验证
+        is_openakita_process(data.pid)
     }
 }
 
@@ -1107,6 +1112,89 @@ fn kill_pid(pid: u32) -> Result<(), String> {
             return Err(format!("kill failed: {status}"));
         }
         Ok(())
+    }
+}
+
+/// 检查指定 PID 是否属于 OpenAkita 后端进程（python/openakita-server）。
+/// 用于判断 PID 文件是否有效——避免 Windows PID 复用导致的误判。
+fn is_openakita_process(pid: u32) -> bool {
+    if pid == 0 || !is_pid_running(pid) {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        // Step 1: 用 Toolhelp32 快速检查进程名
+        let snap = unsafe { win::CreateToolhelp32Snapshot(win::TH32CS_SNAPPROCESS, 0) };
+        if snap == win::INVALID_HANDLE_VALUE || snap.is_null() {
+            return false;
+        }
+        let mut pe: win::PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+        pe.dw_size = std::mem::size_of::<win::PROCESSENTRY32W>() as u32;
+
+        let mut exe_name = String::new();
+        if unsafe { win::Process32FirstW(snap, &mut pe) } != 0 {
+            loop {
+                if pe.th32_process_id == pid {
+                    exe_name = String::from_utf16_lossy(
+                        &pe.sz_exe_file[..pe
+                            .sz_exe_file
+                            .iter()
+                            .position(|&c| c == 0)
+                            .unwrap_or(260)],
+                    )
+                    .to_ascii_lowercase();
+                    break;
+                }
+                if unsafe { win::Process32NextW(snap, &mut pe) } == 0 {
+                    break;
+                }
+            }
+        }
+        unsafe {
+            win::CloseHandle(snap);
+        }
+
+        // 进程名包含 python 或 openakita-server → 可能是后端
+        if exe_name.contains("openakita-server") {
+            return true;
+        }
+        if !exe_name.contains("python") {
+            return false; // 既不是 python 也不是 openakita-server，肯定不是后端
+        }
+
+        // Step 2: python 进程需进一步检查命令行是否包含 openakita
+        let mut c = Command::new("powershell");
+        c.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &format!(
+                "(Get-CimInstance Win32_Process -Filter 'ProcessId={}').CommandLine",
+                pid
+            ),
+        ]);
+        apply_no_window(&mut c);
+        if let Ok(out) = c.output() {
+            let s = String::from_utf8_lossy(&out.stdout).to_lowercase();
+            return s.contains("openakita");
+        }
+        false
+    }
+    #[cfg(not(windows))]
+    {
+        // Unix: 检查 /proc/{pid}/cmdline 或用 ps
+        if let Ok(cmdline) = fs::read_to_string(format!("/proc/{}/cmdline", pid)) {
+            return cmdline.to_lowercase().contains("openakita");
+        }
+        // fallback: ps
+        let output = Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "args="])
+            .output();
+        if let Ok(out) = output {
+            let s = String::from_utf8_lossy(&out.stdout).to_lowercase();
+            return s.contains("openakita");
+        }
+        false
     }
 }
 
@@ -1760,9 +1848,11 @@ fn openakita_service_status(workspace_id: String) -> Result<ServiceStatus, Strin
 }
 
 /// 新增命令：检查进程是否仍在运行（供前端心跳二次确认用）
+/// 除了检查 PID 存活，还验证进程是否确实是 OpenAkita 后端。
+/// 如果 PID 存活但不是 OpenAkita 进程（PID 被复用），自动清理 stale PID 文件并返回 false。
 #[tauri::command]
 fn openakita_check_pid_alive(workspace_id: String) -> Result<bool, String> {
-    // 优先 MANAGED_CHILD
+    // 优先 MANAGED_CHILD（由 Tauri 直接管理的子进程，不需要额外校验身份）
     {
         let mut guard = MANAGED_CHILD.lock().unwrap();
         if let Some(ref mut mp) = *guard {
@@ -1771,9 +1861,20 @@ fn openakita_check_pid_alive(workspace_id: String) -> Result<bool, String> {
             }
         }
     }
-    // 回退到 PID 文件
+    // 回退到 PID 文件：检查 PID 存活 + 验证进程身份
     if let Some(data) = read_pid_file(&workspace_id) {
-        return Ok(is_pid_running(data.pid));
+        if !is_pid_running(data.pid) {
+            // 进程已死，清理 stale PID 文件
+            let _ = fs::remove_file(service_pid_file(&workspace_id));
+            return Ok(false);
+        }
+        // PID 存活，但需验证是否真的是 OpenAkita 进程
+        if !is_openakita_process(data.pid) {
+            // PID 被其他进程复用了，清理 stale PID 文件
+            let _ = fs::remove_file(service_pid_file(&workspace_id));
+            return Ok(false);
+        }
+        return Ok(true);
     }
     Ok(false)
 }
