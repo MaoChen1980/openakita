@@ -1474,10 +1474,20 @@ class ReasoningEngine:
 
                         # Plan 事件
                         if tool_name == "create_plan" and isinstance(tool_args, dict):
+                            raw_steps = tool_args.get("steps", [])
+                            plan_steps = []
+                            for s in raw_steps:
+                                if isinstance(s, dict):
+                                    plan_steps.append({
+                                        "description": str(s.get("description", s.get("id", ""))),
+                                        "status": "pending",
+                                    })
+                                else:
+                                    plan_steps.append({"description": str(s), "status": "pending"})
                             yield {"type": "plan_created", "plan": {
                                 "id": str(uuid.uuid4()),
                                 "taskSummary": tool_args.get("task_summary", ""),
-                                "steps": [{"description": s, "status": "pending"} for s in tool_args.get("steps", [])],
+                                "steps": plan_steps,
                                 "status": "in_progress",
                             }}
                         elif tool_name == "update_plan_step" and isinstance(tool_args, dict):

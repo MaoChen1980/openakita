@@ -165,7 +165,7 @@ function ToolCallDetail({ tc }: { tc: ChatToolCall }) {
             <>
               <div style={{ fontWeight: 700, marginTop: 8, marginBottom: 4 }}>{t("chat.result")}</div>
               <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 11, maxHeight: 200, overflow: "auto" }}>
-                {tc.result}
+                {typeof tc.result === "string" ? tc.result : JSON.stringify(tc.result, null, 2)}
               </pre>
             </>
           )}
@@ -230,14 +230,15 @@ function ToolCallsGroup({ toolCalls }: { toolCalls: ChatToolCall[] }) {
 function ToolResultBlock({ result }: { result: string }) {
   const [expanded, setExpanded] = useState(false);
   if (!result) return null;
-  const isShort = result.length < 120;
-  if (isShort) return <span className="chainToolResultInline">{result}</span>;
+  const safeResult = typeof result === "string" ? result : JSON.stringify(result, null, 2);
+  const isShort = safeResult.length < 120;
+  if (isShort) return <span className="chainToolResultInline">{safeResult}</span>;
   return (
     <span className="chainToolResultCollapsible">
       <span className="chainToolResultToggle" onClick={() => setExpanded(v => !v)}>
         {expanded ? "收起" : "查看详情"} <IconChevronRight size={9} />
       </span>
-      {expanded && <pre className="chainToolResult">{result}</pre>}
+      {expanded && <pre className="chainToolResult">{safeResult}</pre>}
     </span>
   );
 }
@@ -417,7 +418,7 @@ function PlanBlock({ plan }: { plan: ChatPlan }) {
   return (
     <div style={{ margin: "8px 0", border: "1px solid rgba(14,165,233,0.2)", borderRadius: 12, padding: "12px 14px", background: "rgba(14,165,233,0.03)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <span style={{ fontWeight: 800, fontSize: 14 }}>{t("chat.planLabel")}{plan.taskSummary}</span>
+        <span style={{ fontWeight: 800, fontSize: 14 }}>{t("chat.planLabel")}{typeof plan.taskSummary === "string" ? plan.taskSummary : JSON.stringify(plan.taskSummary)}</span>
         <span style={{ fontSize: 12, opacity: 0.6 }}>{completed}/{total} ({pct}%)</span>
       </div>
       <div style={{ height: 4, borderRadius: 2, background: "rgba(14,165,233,0.12)", overflow: "hidden", marginBottom: 10 }}>
@@ -438,12 +439,17 @@ function PlanStepItem({ step, idx }: { step: ChatPlanStep; idx: number }) {
     <IconCircle size={10} />;
   const color =
     step.status === "completed" ? "rgba(16,185,129,1)" : step.status === "in_progress" ? "var(--brand)" : step.status === "skipped" ? "var(--muted)" : "var(--muted)";
+  // Safely render description and result — backend may send objects instead of strings
+  const descText = typeof step.description === "string" ? step.description : JSON.stringify(step.description);
+  const resultText = step.result
+    ? (typeof step.result === "string" ? step.result : JSON.stringify(step.result))
+    : null;
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "4px 0", fontSize: 13 }}>
       <span style={{ color, fontWeight: 800, minWidth: 16, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{icon}</span>
       <div style={{ flex: 1 }}>
-        <span style={{ opacity: step.status === "skipped" ? 0.5 : 1 }}>{idx + 1}. {step.description}</span>
-        {step.result && <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>{step.result}</div>}
+        <span style={{ opacity: step.status === "skipped" ? 0.5 : 1 }}>{idx + 1}. {descText}</span>
+        {resultText && <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>{resultText}</div>}
       </div>
     </div>
   );
