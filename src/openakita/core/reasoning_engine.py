@@ -1191,6 +1191,12 @@ class ReasoningEngine:
                     "has_thinking": _has_thinking,
                 }
 
+                # === chain_text: LLM 推理意图（text_content 中可能含推理说明） ===
+                _decision_text = (decision.text_content or "").strip()
+                if _decision_text and decision.type == DecisionType.TOOL_CALLS:
+                    # LLM 在调用工具前输出的思路文字
+                    yield {"type": "chain_text", "content": _decision_text[:800]}
+
                 if task_monitor:
                     task_monitor.end_iteration(decision.text_content or "")
 
@@ -1271,6 +1277,7 @@ class ReasoningEngine:
                         logger.info(
                             f"[ReAct-Stream] Iter {_iteration+1} — VERIFY: incomplete, continuing loop"
                         )
+                        yield {"type": "chain_text", "content": "任务尚未完成，继续处理..."}
                         react_trace.append(_iter_trace)
                         try:
                             state.transition(TaskStatus.VERIFYING)
@@ -1372,10 +1379,15 @@ class ReasoningEngine:
 
                     # ---- 正常工具执行 ----
                     tool_results_for_msg: list[dict] = []
-                    for tc in decision.tool_calls:
+                    _num_tools = len(decision.tool_calls)
+                    for _tc_idx, tc in enumerate(decision.tool_calls):
                         tool_name = tc.get("name", "unknown")
                         tool_args = tc.get("input", tc.get("arguments", {}))
                         tool_id = tc.get("id", str(uuid.uuid4()))
+
+                        # === chain_text: 描述即将调用的工具 ===
+                        _tool_desc = self._describe_tool_call(tool_name, tool_args)
+                        yield {"type": "chain_text", "content": _tool_desc}
 
                         yield {"type": "tool_call_start", "tool": tool_name, "args": tool_args, "id": tool_id}
 
@@ -1390,6 +1402,11 @@ class ReasoningEngine:
                             result_text = f"Tool error: {exc}"
 
                         yield {"type": "tool_call_end", "tool": tool_name, "result": result_text[:2000], "id": tool_id}
+
+                        # === chain_text: 简述工具返回结果 ===
+                        _result_summary = self._summarize_tool_result(tool_name, result_text)
+                        if _result_summary:
+                            yield {"type": "chain_text", "content": _result_summary}
 
                         # deliver_artifacts 回执收集（与 run() 一致）
                         if tool_name == "deliver_artifacts" and result_text:
@@ -1555,6 +1572,99 @@ class ReasoningEngine:
                         llm_client.restore_default(conversation_id=conversation_id)
                     except Exception:
                         pass
+
+    # ==================== 思维链叙事辅助 ====================
+
+    @staticmethod
+    def _describe_tool_call(tool_name: str, tool_args: dict) -> str:
+        """为工具调用生成人类可读的叙事描述。"""
+        args = tool_args if isinstance(tool_args, dict) else {}
+        match tool_name:
+            case "read_file":
+                path = args.get("path") or args.get("file") or ""
+                fname = path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1] if path else "文件"
+                return f"正在读取 {fname}..."
+            case "write_file":
+                path = args.get("path") or ""
+                fname = path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1] if path else "文件"
+                return f"正在写入 {fname}..."
+            case "edit_file":
+                path = args.get("path") or ""
+                fname = path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1] if path else "文件"
+                return f"正在编辑 {fname}..."
+            case "grep" | "search" | "ripgrep" | "search_files":
+                pattern = str(args.get("pattern") or args.get("query") or "")[:50]
+                return f'搜索 "{pattern}"...'
+            case "web_search":
+                query = str(args.get("query") or "")[:50]
+                return f'在网上搜索 "{query}"...'
+            case "execute_code" | "run_code" | "run_command":
+                cmd = str(args.get("command") or args.get("code") or "")[:60]
+                return f"执行命令: {cmd}..." if cmd else "执行代码..."
+            case "browser_navigate":
+                url = str(args.get("url") or "")[:60]
+                return f"访问 {url}..."
+            case "browser_screenshot":
+                return "截取页面截图..."
+            case "create_plan":
+                summary = str(args.get("task_summary") or "")[:40]
+                return f"制定计划: {summary}..."
+            case "update_plan_step":
+                idx = args.get("step_index", "")
+                status = args.get("status", "")
+                return f"更新计划步骤 {idx} → {status}"
+            case "switch_persona":
+                preset = args.get("preset_name", "")
+                return f"切换角色: {preset}..."
+            case "get_persona_profile":
+                return "获取当前人格配置..."
+            case "ask_user":
+                q = str(args.get("question") or "")[:40]
+                return f'向用户提问: "{q}"...'
+            case "list_files" | "list_dir":
+                path = str(args.get("path") or args.get("directory") or ".")
+                return f"列出目录 {path}..."
+            case "deliver_artifacts":
+                return "交付文件..."
+            case _:
+                params = ", ".join(f"{k}" for k in list(args.keys())[:3])
+                return f"调用 {tool_name}({params})..."
+
+    @staticmethod
+    def _summarize_tool_result(tool_name: str, result_text: str) -> str:
+        """为工具结果生成简短叙事摘要。"""
+        if not result_text:
+            return ""
+        r = result_text.strip()
+        is_error = any(m in r[:200] for m in ["❌", "⚠️ 工具执行错误", "错误类型:", "Tool error:"])
+        if is_error:
+            # 提取第一行错误信息
+            first_line = r.split("\n")[0][:120]
+            return f"出错: {first_line}"
+        r_len = len(r)
+        match tool_name:
+            case "read_file":
+                lines = r.count("\n") + 1
+                return f"已读取 ({lines} 行, {r_len} 字符)"
+            case "grep" | "search" | "ripgrep" | "search_files":
+                matches = r.count("\n") + 1 if r else 0
+                return f"找到 {matches} 条结果" if matches > 0 else "无匹配结果"
+            case "web_search":
+                return f"搜索完成 ({r_len} 字符)"
+            case "execute_code" | "run_code" | "run_command":
+                lines = r.count("\n") + 1
+                preview = r[:80].replace("\n", " ")
+                return f"执行完成: {preview}{'...' if r_len > 80 else ''}"
+            case "write_file" | "edit_file":
+                return "写入成功" if "成功" in r or "ok" in r.lower() or r_len < 100 else f"完成 ({r_len} 字符)"
+            case "browser_screenshot":
+                return "截图已获取"
+            case "switch_persona":
+                return f"切换完成"
+            case _:
+                if r_len < 100:
+                    return r[:100]
+                return f"完成 ({r_len} 字符)"
 
     # ==================== ReAct 推理链保存 ====================
 

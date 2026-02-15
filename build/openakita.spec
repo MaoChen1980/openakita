@@ -133,22 +133,30 @@ excludes_core = [
     "browser_use",
     "langchain",
     "langchain_openai",
-    # Other large packages not needed
+    # Heavy packages not needed for core (often pulled in from global site-packages)
+    "cv2",                  # OpenCV (~122MB) — not a core dependency
+    "opencv_python",
+    "numpy",                # NumPy (~27MB) — only needed by ML extras (all excluded above)
+    "numpy.testing",
     "matplotlib",
     "scipy",
-    "numpy.testing",
     "pandas",
     "PIL",
-    "tkinter",
-    "unittest",
-    "test",
-    "tests",
+    "psycopg2",             # PostgreSQL driver — not a core dependency
+    "psycopg2_binary",
     # GUI toolkits (not needed for headless server)
+    "tkinter",
     "PyQt5",
     "PyQt6",
     "PySide2",
     "PySide6",
     "wx",
+    # Test frameworks
+    "unittest",
+    "test",
+    "tests",
+    "pytest",
+    "_pytest",
 ]
 
 excludes = excludes_core if BUILD_MODE == "core" else []

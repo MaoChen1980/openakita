@@ -160,31 +160,32 @@ export type ChatMessage = {
 
 // ─── 思维链 (Thinking Chain) 类型 ───
 
-/** 一个 ReAct 迭代组 = 一次 thinking + 关联的 tool calls */
+/** 叙事流条目类型 */
+export type ChainEntry =
+  | { kind: "thinking"; content: string }       // LLM extended thinking 内容
+  | { kind: "text"; content: string }            // LLM 推理意图 / chain_text
+  | { kind: "tool_start"; toolId: string; tool: string; args: Record<string, unknown>; description: string }
+  | { kind: "tool_end"; toolId: string; tool: string; result: string; status: "done" | "error" }
+  | { kind: "compressed"; beforeTokens: number; afterTokens: number };
+
+/** 一个 ReAct 迭代组 = 按时间顺序的叙事流 */
 export type ChainGroup = {
   iteration: number;
-  thinking?: {
-    content: string;       // 完整 thinking 文字
-    durationMs: number;    // 思考耗时 ms
-    preview: string;       // 首句/首 80 字符, 用于组标题
-  };
-  durationMs?: number;     // 本轮耗时 ms（无 thinking 内容时也有）
+  entries: ChainEntry[];             // 按时间顺序的叙事片段
+  durationMs?: number;               // 本轮耗时 ms
+  hasThinking: boolean;              // 模型是否返回了 extended thinking
+  collapsed: boolean;                // 当前折叠状态
+  // 向后兼容（用于 IM 视图等）
   toolCalls: ChainToolCall[];
-  summary?: string;        // 自动生成: "Explored 3 files 2 searches"
-  collapsed: boolean;      // 当前折叠状态
-  contextCompressed?: {    // 本轮迭代前是否发生了上下文压缩
-    beforeTokens: number;
-    afterTokens: number;
-  };
 };
 
 export type ChainToolCall = {
   toolId: string;
-  tool: string;                     // 原始工具名
+  tool: string;
   args: Record<string, unknown>;
   result?: string;
   status: "running" | "done" | "error";
-  description: string;              // 人类可读描述 (由 formatter 生成)
+  description: string;
 };
 
 /** IM 消息中的思维链摘要项 */

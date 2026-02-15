@@ -22,6 +22,7 @@ import type {
   EndpointSummary,
   ChainGroup,
   ChainToolCall,
+  ChainEntry,
   ChatDisplayMode,
 } from "../types";
 import { genId, formatTime, formatDate } from "../utils";
@@ -43,6 +44,7 @@ type StreamEvent =
   | { type: "thinking_start" }
   | { type: "thinking_delta"; content: string }
   | { type: "thinking_end"; duration_ms?: number; has_thinking?: boolean }
+  | { type: "chain_text"; content: string }
   | { type: "text_delta"; content: string }
   | { type: "tool_call_start"; tool: string; args: Record<string, unknown>; id?: string }
   | { type: "tool_call_end"; tool: string; result: string; id?: string }
@@ -222,34 +224,66 @@ function ToolCallsGroup({ toolCalls }: { toolCalls: ChatToolCall[] }) {
   );
 }
 
-// ─── ThinkingChain 组件 (Cursor 风格思维链时间线) ───
+// ─── ThinkingChain 组件 (Cursor 风格叙事流思维链) ───
 
-/** 单个迭代组中的工具调用行 */
-function ChainToolItem({ tc }: { tc: ChainToolCall }) {
+/** 工具结果折叠显示 */
+function ToolResultBlock({ result }: { result: string }) {
   const [expanded, setExpanded] = useState(false);
-  const statusIcon =
-    tc.status === "done" ? <IconCheck size={12} /> :
-    tc.status === "error" ? <IconX size={12} /> :
-    <IconLoader size={12} />;
-  const statusColor = tc.status === "done" ? "var(--ok)" : tc.status === "error" ? "var(--danger)" : "var(--brand)";
+  if (!result) return null;
+  const isShort = result.length < 120;
+  if (isShort) return <span className="chainToolResultInline">{result}</span>;
   return (
-    <div className="chainToolItem">
-      <div
-        className="chainToolHeader"
-        onClick={() => setExpanded(v => !v)}
-      >
-        <span style={{ color: statusColor, display: "inline-flex", alignItems: "center" }}>{statusIcon}</span>
-        <span className="chainToolDesc">{tc.description}</span>
-        {tc.result && <span className="chainToolExpandHint"><IconChevronRight size={10} /></span>}
-      </div>
-      {expanded && tc.result && (
-        <pre className="chainToolResult">{tc.result}</pre>
-      )}
-    </div>
+    <span className="chainToolResultCollapsible">
+      <span className="chainToolResultToggle" onClick={() => setExpanded(v => !v)}>
+        {expanded ? "收起" : "查看详情"} <IconChevronRight size={9} />
+      </span>
+      {expanded && <pre className="chainToolResult">{result}</pre>}
+    </span>
   );
 }
 
-/** 单个迭代组 */
+/** 叙事流单条目渲染 */
+function ChainEntryLine({ entry }: { entry: ChainEntry }) {
+  switch (entry.kind) {
+    case "thinking":
+      return (
+        <div className="chainNarrThinking">
+          <span className="chainNarrThinkingLabel">thinking</span>
+          <span className="chainNarrThinkingText">{entry.content}</span>
+        </div>
+      );
+    case "text":
+      return <div className="chainNarrText">{entry.content}</div>;
+    case "tool_start":
+      return (
+        <div className="chainNarrToolStart">
+          <IconLoader size={11} className="chainSpinner" />
+          <span className="chainNarrToolName">{entry.description || entry.tool}</span>
+        </div>
+      );
+    case "tool_end": {
+      const isError = entry.status === "error";
+      const icon = isError ? <IconX size={11} /> : <IconCheck size={11} />;
+      const cls = isError ? "chainNarrToolEnd chainNarrToolError" : "chainNarrToolEnd";
+      return (
+        <div className={cls}>
+          {icon}
+          <ToolResultBlock result={entry.result} />
+        </div>
+      );
+    }
+    case "compressed":
+      return (
+        <div className="chainNarrCompressed">
+          上下文压缩: {Math.round(entry.beforeTokens / 1000)}k → {Math.round(entry.afterTokens / 1000)}k tokens
+        </div>
+      );
+    default:
+      return null;
+  }
+}
+
+/** 单个迭代组: 叙事流模式 */
 function ChainGroupItem({ group, onToggle, isLast, streaming }: {
   group: ChainGroup;
   onToggle: () => void;
@@ -258,81 +292,47 @@ function ChainGroupItem({ group, onToggle, isLast, streaming }: {
 }) {
   const { t } = useTranslation();
   const isActive = isLast && streaming;
-  const hasThinking = !!group.thinking?.content;
-  const hasTools = group.toolCalls.length > 0;
-  const durMs = group.thinking?.durationMs || group.durationMs;
-  const durationSec = durMs ? (durMs / 1000).toFixed(1) : "...";
+  const durMs = group.durationMs;
+  const durationSec = durMs ? (durMs / 1000).toFixed(1) : null;
+  const hasContent = group.entries.length > 0;
 
-  // 没有 thinking 也没有 tool calls —— 纯等待/直接回答场景
-  // 显示紧凑的一行："已处理 (X.Xs)" 或 "处理中..."
-  if (!hasThinking && !hasTools && !isActive) {
+  // 没有任何 entries 且不活跃 —— 简洁行
+  if (!hasContent && !isActive) {
     return (
       <div className="chainGroup chainGroupCompact">
-        {group.contextCompressed && (
-          <div className="chainCompressedIndicator">
-            {t("chat.contextCompressed", {
-              before: Math.round(group.contextCompressed.beforeTokens / 1000),
-              after: Math.round(group.contextCompressed.afterTokens / 1000),
-            })}
-          </div>
-        )}
         <div className="chainProcessedLine">
-          <IconLoader size={11} />
-          <span>{t("chat.processed", { seconds: durationSec })}</span>
+          <IconCheck size={11} />
+          <span>{t("chat.processed", { seconds: durationSec || "0" })}</span>
         </div>
       </div>
     );
   }
 
   const showContent = !group.collapsed || isActive;
+  const headerLabel = isActive
+    ? t("chat.processing")
+    : group.hasThinking
+      ? t("chat.thoughtFor", { seconds: durationSec || "0" })
+      : t("chat.processed", { seconds: durationSec || "0" });
 
   return (
     <div className={`chainGroup ${group.collapsed && !isActive ? "chainGroupCollapsed" : ""}`}>
-      {/* Context compressed indicator */}
-      {group.contextCompressed && (
-        <div className="chainCompressedIndicator">
-          {t("chat.contextCompressed", {
-            before: Math.round(group.contextCompressed.beforeTokens / 1000),
-            after: Math.round(group.contextCompressed.afterTokens / 1000),
-          })}
-        </div>
-      )}
-      {/* Header: 有 thinking 时显示 "思考了 Xs"，否则 "处理中..." 或 "已处理" */}
       <div className="chainThinkingHeader" onClick={onToggle}>
         <span className="chainChevron" style={{ transform: showContent ? "rotate(90deg)" : "rotate(0deg)" }}>
           <IconChevronRight size={11} />
         </span>
-        <span className="chainThinkingLabel">
-          {isActive
-            ? (hasThinking ? t("chat.thinking") : t("chat.processing"))
-            : hasThinking
-              ? t("chat.thoughtFor", { seconds: durationSec })
-              : t("chat.processed", { seconds: durationSec })}
-        </span>
+        <span className="chainThinkingLabel">{headerLabel}</span>
+        {isActive && <IconLoader size={11} className="chainSpinner" />}
       </div>
-
       {showContent && (
-        <>
-          {/* Thinking content (inline visible, Cursor style) */}
-          {hasThinking && (
-            <div className="chainThinkingContent">
-              {group.thinking!.content}
-            </div>
+        <div className="chainNarrFlow">
+          {group.entries.map((entry, i) => (
+            <ChainEntryLine key={i} entry={entry} />
+          ))}
+          {isActive && group.entries.length > 0 && (
+            <div className="chainNarrCursor" />
           )}
-
-          {/* Tool calls */}
-          {hasTools && (
-            <div className="chainToolList">
-              {group.toolCalls.map((tc, i) => (
-                <ChainToolItem key={tc.toolId || i} tc={tc} />
-              ))}
-              {/* Summary line */}
-              {group.summary && (
-                <div className="chainSummary">{group.summary}</div>
-              )}
-            </div>
-          )}
-        </>
+        </div>
       )}
     </div>
   );
@@ -346,6 +346,7 @@ function ThinkingChain({ chain, streaming, showChain }: {
 }) {
   const { t } = useTranslation();
   const [localChain, setLocalChain] = useState(chain);
+  const chainEndRef = useRef<HTMLDivElement>(null);
 
   // 同步外部 chain 数据，但保留用户手动修改的 collapsed 状态
   useEffect(() => {
@@ -358,12 +359,19 @@ function ThinkingChain({ chain, streaming, showChain }: {
     });
   }, [chain]);
 
+  // 流式输出时自动滚到底部
+  useEffect(() => {
+    if (streaming && chainEndRef.current) {
+      chainEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+  }, [chain, streaming]);
+
   if (!showChain || !localChain || localChain.length === 0) return null;
 
   // 全部折叠时显示摘要行
   const allCollapsed = localChain.every(g => g.collapsed) && !streaming;
   if (allCollapsed) {
-    const totalSteps = localChain.reduce((n, g) => n + g.toolCalls.length + (g.thinking ? 1 : 0), 0);
+    const totalSteps = localChain.reduce((n, g) => n + g.entries.length, 0);
     return (
       <div
         className="chainCollapsedSummary"
@@ -390,6 +398,7 @@ function ThinkingChain({ chain, streaming, showChain }: {
           }}
         />
       ))}
+      <div ref={chainEndRef} />
     </div>
   );
 }
@@ -1495,34 +1504,32 @@ export function ChatView({
                 // idle timer 已在 reader.read() 层自动重置
                 continue; // skip message update below
               case "context_compressed":
-                // 上下文压缩事件: 暂存，下一个 iteration_start 时附加到新分组
-                pendingCompressedInfo = {
-                  beforeTokens: event.before_tokens,
-                  afterTokens: event.after_tokens,
-                };
+                pendingCompressedInfo = { beforeTokens: event.before_tokens, afterTokens: event.after_tokens };
                 break;
-              case "iteration_start":
-                // 思维链: 新迭代 → 新分组
-                currentChainGroup = {
+              case "iteration_start": {
+                // 新迭代 → 新 chain group
+                const newGroup: ChainGroup = {
                   iteration: event.iteration,
+                  entries: [],
                   toolCalls: [],
+                  hasThinking: false,
                   collapsed: false,
-                  ...(pendingCompressedInfo ? { contextCompressed: pendingCompressedInfo } : {}),
                 };
-                pendingCompressedInfo = null;
+                // 附加上下文压缩条目
+                if (pendingCompressedInfo) {
+                  newGroup.entries.push({ kind: "compressed", beforeTokens: pendingCompressedInfo.beforeTokens, afterTokens: pendingCompressedInfo.afterTokens });
+                  pendingCompressedInfo = null;
+                }
+                currentChainGroup = newGroup;
                 chainGroups = [...chainGroups, currentChainGroup];
                 break;
+              }
               case "thinking_start":
                 isThinking = true;
                 thinkingStartTime = Date.now();
                 currentThinkingContent = "";
-                // 容错: 如果后端未发送 iteration_start，自动创建分组
                 if (!currentChainGroup) {
-                  currentChainGroup = {
-                    iteration: chainGroups.length + 1,
-                    toolCalls: [],
-                    collapsed: false,
-                  };
+                  currentChainGroup = { iteration: chainGroups.length + 1, entries: [], toolCalls: [], hasThinking: false, collapsed: false };
                   chainGroups = [...chainGroups, currentChainGroup];
                 }
                 break;
@@ -1532,84 +1539,76 @@ export function ChatView({
                 break;
               case "thinking_end": {
                 isThinking = false;
-                // 思维链: 记录 thinking 到当前组
                 const _thinkDuration = event.duration_ms || (Date.now() - thinkingStartTime);
-                const _preview = currentThinkingContent.split(/[。\n]/)[0].slice(0, 80);
                 const _hasThinking = event.has_thinking ?? (currentThinkingContent.length > 0);
                 if (currentChainGroup) {
-                  const grp: ChainGroup = currentChainGroup;
-                  currentChainGroup = {
-                    ...grp,
-                    thinking: _hasThinking ? {
-                      content: currentThinkingContent,
+                  // 添加 thinking 条目到 entries
+                  if (_hasThinking && currentThinkingContent) {
+                    currentChainGroup = {
+                      ...currentChainGroup,
+                      entries: [...currentChainGroup.entries, { kind: "thinking", content: currentThinkingContent }],
+                      hasThinking: true,
                       durationMs: _thinkDuration,
-                      preview: _preview,
-                    } : undefined,
-                    durationMs: _thinkDuration,
-                  };
-                  chainGroups = chainGroups.map((g, i) =>
-                    i === chainGroups.length - 1 ? currentChainGroup! : g
-                  );
+                    };
+                  } else {
+                    currentChainGroup = { ...currentChainGroup, durationMs: _thinkDuration };
+                  }
+                  chainGroups = chainGroups.map((g, i) => i === chainGroups.length - 1 ? currentChainGroup! : g);
                 }
                 break;
               }
+              case "chain_text":
+                // 后端叙事文本 → 追加到当前 group entries
+                if (currentChainGroup && event.content) {
+                  currentChainGroup = {
+                    ...currentChainGroup,
+                    entries: [...currentChainGroup.entries, { kind: "text", content: event.content }],
+                  };
+                  chainGroups = chainGroups.map((g, i) => i === chainGroups.length - 1 ? currentChainGroup! : g);
+                }
+                break;
               case "text_delta":
                 currentContent += event.content;
                 break;
-              case "tool_call_start":
+              case "tool_call_start": {
                 currentToolCalls = [...currentToolCalls, { tool: event.tool, args: event.args, status: "running", id: event.id }];
-                // 思维链: 追加工具调用到当前组
+                const _tcId = event.id || genId();
+                const _desc = formatToolDescription(event.tool, event.args);
+                const newTc: ChainToolCall = { toolId: _tcId, tool: event.tool, args: event.args, status: "running", description: _desc };
                 if (currentChainGroup) {
-                  const grp: ChainGroup = currentChainGroup;
-                  const newTc: ChainToolCall = {
-                    toolId: event.id || genId(),
-                    tool: event.tool,
-                    args: event.args,
-                    status: "running",
-                    description: formatToolDescription(event.tool, event.args),
-                  };
                   currentChainGroup = {
-                    ...grp,
-                    toolCalls: [...grp.toolCalls, newTc],
-                    summary: generateGroupSummary([...grp.toolCalls, newTc]),
+                    ...currentChainGroup,
+                    toolCalls: [...currentChainGroup.toolCalls, newTc],
+                    entries: [...currentChainGroup.entries, { kind: "tool_start", toolId: _tcId, tool: event.tool, args: event.args, description: _desc }],
                   };
-                  chainGroups = chainGroups.map((g, i) =>
-                    i === chainGroups.length - 1 ? currentChainGroup! : g
-                  );
+                  chainGroups = chainGroups.map((g, i) => i === chainGroups.length - 1 ? currentChainGroup! : g);
                 }
                 break;
+              }
               case "tool_call_end": {
                 let matched = false;
                 currentToolCalls = currentToolCalls.map((tc) => {
                   if (matched) return tc;
                   const idMatch = event.id && tc.id && tc.id === event.id;
                   const nameMatch = !event.id && tc.tool === event.tool && tc.status === "running";
-                  if (idMatch || nameMatch) {
-                    matched = true;
-                    return { ...tc, result: event.result, status: "done" as const };
-                  }
+                  if (idMatch || nameMatch) { matched = true; return { ...tc, result: event.result, status: "done" as const }; }
                   return tc;
                 });
-                // 思维链: 更新工具状态（与旧版匹配逻辑一致：id 匹配优先，无 id 时按 name+status 匹配）
                 if (currentChainGroup) {
-                  const grp: ChainGroup = currentChainGroup;
                   let chainMatched = false;
+                  const isError = (event.result || "").includes("❌") || (event.result || "").includes("Tool error");
                   currentChainGroup = {
-                    ...grp,
-                    toolCalls: grp.toolCalls.map(tc => {
+                    ...currentChainGroup,
+                    toolCalls: currentChainGroup.toolCalls.map(tc => {
                       if (chainMatched) return tc;
                       const idMatch = event.id && tc.toolId === event.id;
                       const nameMatch = !event.id && tc.tool === event.tool && tc.status === "running";
-                      if (idMatch || nameMatch) {
-                        chainMatched = true;
-                        return { ...tc, status: "done" as const, result: event.result };
-                      }
+                      if (idMatch || nameMatch) { chainMatched = true; return { ...tc, status: (isError ? "error" : "done") as ChainToolCall["status"], result: event.result }; }
                       return tc;
                     }),
+                    entries: [...currentChainGroup.entries, { kind: "tool_end", toolId: event.id || "", tool: event.tool, result: event.result, status: isError ? "error" : "done" }],
                   };
-                  chainGroups = chainGroups.map((g, i) =>
-                    i === chainGroups.length - 1 ? currentChainGroup! : g
-                  );
+                  chainGroups = chainGroups.map((g, i) => i === chainGroups.length - 1 ? currentChainGroup! : g);
                 }
                 break;
               }

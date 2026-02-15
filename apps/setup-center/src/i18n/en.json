@@ -250,6 +250,8 @@
     "imPairing": "Require pairing code",
     "imPairingCode": "Pairing code (optional)",
     "imPairingCodeHint": "Leave empty to auto-generate",
+    "imCurrentPairingCode": "Current pairing code in use",
+    "imPairingCodeNotGenerated": "Not yet generated (auto-generated on service start)",
     "imFeishu": "Feishu (Lark)",
     "imWework": "WeCom",
     "imDingtalk": "DingTalk",

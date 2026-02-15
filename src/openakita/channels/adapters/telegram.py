@@ -105,7 +105,16 @@ class TelegramPairingManager:
         self.paired_users: dict = self._load_paired_users()
 
         # 设置配对码
-        self.pairing_code = pairing_code or self._load_or_generate_code()
+        if pairing_code:
+            self.pairing_code = pairing_code
+            # 同步写入文件，保证文件内容与实际使用的配对码一致
+            try:
+                self.code_file.write_text(pairing_code, encoding="utf-8")
+                logger.info(f"Pairing code from config saved to {self.code_file}")
+            except Exception as e:
+                logger.error(f"Failed to save pairing code to file: {e}")
+        else:
+            self.pairing_code = self._load_or_generate_code()
 
         # 等待配对的用户 {chat_id: timestamp}
         self._pending_pairing: dict[str, float] = {}

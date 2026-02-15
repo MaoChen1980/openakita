@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -2161,14 +2161,14 @@ export function App() {
     }
   }
 
-  async function doSaveCompilerEndpoint() {
+  async function doSaveCompilerEndpoint(): Promise<boolean> {
     if (!currentWorkspaceId && dataMode !== "remote") {
       setError("请先创建/选择一个当前工作区");
-      return;
+      return false;
     }
     if (!compilerModel.trim()) {
       setError("请填写编译模型名称");
-      return;
+      return false;
     }
     const compilerSelectedProvider = providers.find((p) => p.slug === compilerProviderSlug) || null;
     const isCompilerLocal = isLocalProvider(compilerSelectedProvider);
@@ -2176,11 +2176,11 @@ export function App() {
     const effectiveCompApiKeyValue = compilerApiKeyValue.trim() || (isCompilerLocal ? localProviderPlaceholderKey(compilerSelectedProvider) : "");
     if (!isCompilerLocal && !effectiveCompApiKeyEnv) {
       setError("请填写编译端点的 API Key 环境变量名");
-      return;
+      return false;
     }
     if (!isCompilerLocal && !effectiveCompApiKeyValue) {
       setError("请填写编译端点的 API Key 值");
-      return;
+      return false;
     }
     setBusy("写入编译端点...");
     setError(null);
@@ -2253,8 +2253,10 @@ export function App() {
       setCompilerBaseUrl("");
       setNotice(`编译端点 ${name} 已保存`);
       await loadSavedEndpoints();
+      return true;
     } catch (e) {
       setError(String(e));
+      return false;
     } finally {
       setBusy(null);
     }
@@ -2505,14 +2507,14 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepId, currentWorkspaceId, dataMode]);
 
-  async function doSaveEndpoint() {
+  async function doSaveEndpoint(): Promise<boolean> {
     if (!currentWorkspaceId) {
       setError("请先创建/选择一个当前工作区");
-      return;
+      return false;
     }
     if (!selectedModelId) {
       setError("请先选择模型");
-      return;
+      return false;
     }
     const isLocal = isLocalProvider(selectedProvider);
     // 本地服务商允许空 API Key（自动填入 placeholder）
@@ -2520,7 +2522,7 @@ export function App() {
     const effectiveApiKeyEnv = apiKeyEnv.trim() || (isLocal ? (selectedProvider?.api_key_env_suggestion || envKeyFromSlug(selectedProvider?.slug || "local")) : "");
     if (!isLocal && (!effectiveApiKeyEnv || !effectiveApiKeyValue)) {
       setError("请填写 API Key 环境变量名和值（会写入工作区 .env）");
-      return;
+      return false;
     }
     setBusy(isEditingEndpoint ? "更新端点配置..." : "写入端点配置...");
     setError(null);
@@ -2631,6 +2633,10 @@ export function App() {
       );
       if (isEditingEndpoint) resetEndpointEditor();
       await loadSavedEndpoints();
+      return true;
+    } catch (e) {
+      setError(String(e));
+      return false;
     } finally {
       setBusy(null);
     }
@@ -4919,7 +4925,7 @@ export function App() {
                   >
                     {connTesting ? t("llm.testTesting") : t("llm.testConnection")}
                   </button>
-                  <button className="btnPrimary" style={{ padding: "8px 20px", borderRadius: 8 }} onClick={async () => { await doSaveEndpoint(); setAddEpDialogOpen(false); setConnTestResult(null); }} disabled={!selectedModelId.trim() || (!apiKeyEnv.trim() && !isLocalProvider(selectedProvider)) || (!apiKeyValue.trim() && !isLocalProvider(selectedProvider)) || !baseUrl.trim() || (!currentWorkspaceId && dataMode !== "remote") || !!busy}>
+                  <button className="btnPrimary" style={{ padding: "8px 20px", borderRadius: 8 }} onClick={async () => { const ok = await doSaveEndpoint(); if (ok) { setAddEpDialogOpen(false); setConnTestResult(null); } }} disabled={!selectedModelId.trim() || (!apiKeyEnv.trim() && !isLocalProvider(selectedProvider)) || (!apiKeyValue.trim() && !isLocalProvider(selectedProvider)) || !baseUrl.trim() || (!currentWorkspaceId && dataMode !== "remote") || !!busy}>
                     {isEditingEndpoint ? t("common.save") : t("llm.addEndpoint")}
                   </button>
                 </div>
@@ -5119,7 +5125,7 @@ export function App() {
                   >
                     {connTesting ? t("llm.testTesting") : t("llm.testConnection")}
                   </button>
-                  <button className="btnPrimary" style={{ padding: "8px 20px", borderRadius: 8 }} onClick={async () => { await doSaveCompilerEndpoint(); setAddCompDialogOpen(false); setConnTestResult(null); }} disabled={!compilerModel.trim() || (!compilerApiKeyEnv.trim() && !isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug))) || (!compilerApiKeyValue.trim() && !isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug))) || (!currentWorkspaceId && dataMode !== "remote") || !!busy}>
+                  <button className="btnPrimary" style={{ padding: "8px 20px", borderRadius: 8 }} onClick={async () => { const ok = await doSaveCompilerEndpoint(); if (ok) { setAddCompDialogOpen(false); setConnTestResult(null); } }} disabled={!compilerModel.trim() || (!compilerApiKeyEnv.trim() && !isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug))) || (!compilerApiKeyValue.trim() && !isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug))) || (!currentWorkspaceId && dataMode !== "remote") || !!busy}>
                     {t("llm.addEndpoint")}
                   </button>
                 </div>
@@ -5183,6 +5189,56 @@ export function App() {
             onChange={(e) => setEnvDraft((m) => envSet(m, k, String(e.target.checked)))} />
           {t("skills.enabled")}
         </label>
+      </div>
+    );
+  }
+
+  /** 读取并显示当前 Telegram 配对码（从 data/telegram/pairing/pairing_code.txt 文件）*/
+  function TelegramPairingCodeHint() {
+    const [currentCode, setCurrentCode] = useState<string | null>(null);
+    const [loading, setLoading] = useState(false);
+
+    const loadCode = useCallback(async () => {
+      if (!currentWorkspaceId) return;
+      setLoading(true);
+      try {
+        const code = await invoke<string>("workspace_read_file", {
+          workspaceId: currentWorkspaceId,
+          relativePath: "data/telegram/pairing/pairing_code.txt",
+        });
+        setCurrentCode(code.trim());
+      } catch {
+        setCurrentCode(null);
+      } finally {
+        setLoading(false);
+      }
+    }, [currentWorkspaceId]);
+
+    useEffect(() => { loadCode(); }, [loadCode]);
+
+    return (
+      <div style={{
+        fontSize: 12, color: "var(--text3, #666)", margin: "4px 0 0 0", lineHeight: 1.7,
+        display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
+      }}>
+        <span>🔑 {t("config.imCurrentPairingCode")}：</span>
+        {loading ? (
+          <span style={{ opacity: 0.5 }}>...</span>
+        ) : currentCode ? (
+          <code style={{
+            background: "var(--bg2, #f5f5f5)", padding: "2px 8px", borderRadius: 4,
+            fontSize: 13, fontWeight: 600, letterSpacing: 2, userSelect: "all",
+          }}>{currentCode}</code>
+        ) : (
+          <span style={{ opacity: 0.5 }}>{t("config.imPairingCodeNotGenerated")}</span>
+        )}
+        <button
+          type="button"
+          className="btnSmall"
+          style={{ fontSize: 11, padding: "1px 8px" }}
+          onClick={loadCode}
+          disabled={loading}
+        >↻ {t("common.refresh")}</button>
       </div>
     );
   }
@@ -5291,6 +5347,7 @@ export function App() {
             <FieldText k="TELEGRAM_PROXY" label={t("config.imProxy")} placeholder="http://127.0.0.1:7890" />
             <FieldBool k="TELEGRAM_REQUIRE_PAIRING" label={t("config.imPairing")} />
             <FieldText k="TELEGRAM_PAIRING_CODE" label={t("config.imPairingCode")} placeholder={t("config.imPairingCodeHint")} />
+            <TelegramPairingCodeHint />
             <FieldText k="TELEGRAM_WEBHOOK_URL" label="Webhook URL" placeholder="https://..." />
           </>
         ),
@@ -6168,6 +6225,10 @@ export function App() {
                   <>
                     <FieldText k="TELEGRAM_BOT_TOKEN" label="Bot Token" placeholder="从 BotFather 获取（仅会显示一次）" type="password" />
                     <FieldText k="TELEGRAM_PROXY" label="代理（可选）" placeholder="http://127.0.0.1:7890 / socks5://..." />
+                    <FieldBool k="TELEGRAM_REQUIRE_PAIRING" label={t("config.imPairing")} />
+                    <FieldText k="TELEGRAM_PAIRING_CODE" label={t("config.imPairingCode")} placeholder={t("config.imPairingCodeHint")} />
+                    <TelegramPairingCodeHint />
+                    <FieldText k="TELEGRAM_WEBHOOK_URL" label="Webhook URL" placeholder="https://..." />
                   </>
                 ),
               },
