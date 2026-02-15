@@ -78,12 +78,8 @@ struct AppStateFile {
     last_installed_version: Option<String>,
     #[serde(default)]
     install_mode: Option<String>,
-    #[serde(default = "default_auto_update")]
-    auto_update: bool,
-}
-
-fn default_auto_update() -> bool {
-    true
+    #[serde(default)]
+    auto_update: Option<bool>,
 }
 
 fn default_config_version() -> u32 {
@@ -2100,13 +2096,13 @@ fn set_auto_start_backend(enabled: bool) -> Result<(), String> {
 #[tauri::command]
 fn get_auto_update() -> Result<bool, String> {
     let state = read_state_file();
-    Ok(state.auto_update)
+    Ok(state.auto_update.unwrap_or(true))
 }
 
 #[tauri::command]
 fn set_auto_update(enabled: bool) -> Result<(), String> {
     let mut state = read_state_file();
-    state.auto_update = enabled;
+    state.auto_update = Some(enabled);
     write_state_file(&state)
 }
 
