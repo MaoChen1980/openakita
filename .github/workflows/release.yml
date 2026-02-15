@@ -374,6 +374,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      HAS_WEBSITE_TOKEN: ${{ secrets.WEBSITE_DEPLOY_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -451,7 +453,7 @@ jobs:
           gh release upload "${{ env.RELEASE_TAG }}" latest-this.json --clobber
 
       - name: Push to website repo
-        if: ${{ secrets.WEBSITE_DEPLOY_TOKEN != '' }}
+        if: ${{ env.HAS_WEBSITE_TOKEN != '' }}
         env:
           GH_TOKEN: ${{ secrets.WEBSITE_DEPLOY_TOKEN }}
           IS_STABLE: ${{ needs.create_release.outputs.is_stable }}
