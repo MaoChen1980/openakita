@@ -1095,6 +1095,10 @@ class ReasoningEngine:
                     f"[ReAct-Stream] Iter {_iteration+1}/{max_iterations} — REASON (model={current_model})"
                 )
 
+                # --- 状态转换: REASONING（与 run() 一致） ---
+                if state.status != TaskStatus.REASONING:
+                    state.transition(TaskStatus.REASONING)
+
                 # --- 上下文压缩（从第 2 轮迭代开始） ---
                 _ctx_compressed_info: dict | None = None
                 if _iteration > 0:
@@ -1244,7 +1248,10 @@ class ReasoningEngine:
                         self._save_react_trace(
                             react_trace, conversation_id, session_type, "completed", _trace_started_at
                         )
-                        state.transition(TaskStatus.COMPLETED)
+                        try:
+                            state.transition(TaskStatus.COMPLETED)
+                        except ValueError:
+                            state.status = TaskStatus.COMPLETED
                         logger.info(
                             f"[ReAct-Stream] === COMPLETED after {_iteration+1} iterations ==="
                         )
@@ -1260,7 +1267,10 @@ class ReasoningEngine:
                             f"[ReAct-Stream] Iter {_iteration+1} — VERIFY: incomplete, continuing loop"
                         )
                         react_trace.append(_iter_trace)
-                        state.transition(TaskStatus.VERIFYING)
+                        try:
+                            state.transition(TaskStatus.VERIFYING)
+                        except ValueError:
+                            state.status = TaskStatus.VERIFYING
                         (
                             working_messages,
                             no_tool_call_count,
@@ -1272,7 +1282,10 @@ class ReasoningEngine:
 
                 # ==================== TOOL_CALLS ====================
                 elif decision.type == DecisionType.TOOL_CALLS and decision.tool_calls:
-                    state.transition(TaskStatus.ACTING)
+                    try:
+                        state.transition(TaskStatus.ACTING)
+                    except ValueError:
+                        state.status = TaskStatus.ACTING
 
                     working_messages.append({
                         "role": "assistant",
@@ -1423,7 +1436,10 @@ class ReasoningEngine:
                     ]
                     react_trace.append(_iter_trace)
 
-                    state.transition(TaskStatus.OBSERVING)
+                    try:
+                        state.transition(TaskStatus.OBSERVING)
+                    except ValueError:
+                        state.status = TaskStatus.OBSERVING
 
                     # --- Rollback 检查（与 run() 一致） ---
                     should_rb, rb_reason = self._should_rollback(tool_results_for_msg)
@@ -1491,7 +1507,10 @@ class ReasoningEngine:
                             react_trace, conversation_id, session_type,
                             "loop_terminated", _trace_started_at,
                         )
-                        state.transition(TaskStatus.FAILED)
+                        try:
+                            state.transition(TaskStatus.FAILED)
+                        except ValueError:
+                            state.status = TaskStatus.FAILED
                         msg = cleaned or "⚠️ 检测到工具调用陷入死循环，任务已自动终止。请重新描述您的需求。"
                         yield {"type": "text_delta", "content": msg}
                         yield {"type": "done"}
@@ -1505,7 +1524,10 @@ class ReasoningEngine:
             self._save_react_trace(
                 react_trace, conversation_id, session_type, "max_iterations", _trace_started_at
             )
-            state.transition(TaskStatus.FAILED)
+            try:
+                state.transition(TaskStatus.FAILED)
+            except ValueError:
+                state.status = TaskStatus.FAILED
             logger.info(f"[ReAct-Stream] === MAX_ITERATIONS reached ({max_iterations}) ===")
             yield {"type": "text_delta", "content": "\n\n（已达到最大迭代次数）"}
             yield {"type": "done"}
