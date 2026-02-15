@@ -31,6 +31,10 @@ type ChainSummaryItem = {
   thinking_preview: string;
   thinking_duration_ms: number;
   tools: { name: string; input_preview: string }[];
+  context_compressed?: {
+    before_tokens: number;
+    after_tokens: number;
+  };
 };
 
 type IMMessage = {

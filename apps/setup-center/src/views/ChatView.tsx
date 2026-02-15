@@ -1503,8 +1503,9 @@ export function ChatView({
                 const _thinkDuration = event.duration_ms || (Date.now() - thinkingStartTime);
                 const _preview = currentThinkingContent.split(/[。\n]/)[0].slice(0, 80);
                 if (currentChainGroup) {
+                  const grp: ChainGroup = currentChainGroup;
                   currentChainGroup = {
-                    ...currentChainGroup,
+                    ...grp,
                     thinking: {
                       content: currentThinkingContent,
                       durationMs: _thinkDuration,
@@ -1524,6 +1525,7 @@ export function ChatView({
                 currentToolCalls = [...currentToolCalls, { tool: event.tool, args: event.args, status: "running", id: event.id }];
                 // 思维链: 追加工具调用到当前组
                 if (currentChainGroup) {
+                  const grp = currentChainGroup;
                   const newTc: ChainToolCall = {
                     toolId: event.id || genId(),
                     tool: event.tool,
@@ -1532,9 +1534,9 @@ export function ChatView({
                     description: formatToolDescription(event.tool, event.args),
                   };
                   currentChainGroup = {
-                    ...currentChainGroup,
-                    toolCalls: [...currentChainGroup.toolCalls, newTc],
-                    summary: generateGroupSummary([...currentChainGroup.toolCalls, newTc]),
+                    ...grp,
+                    toolCalls: [...grp.toolCalls, newTc],
+                    summary: generateGroupSummary([...grp.toolCalls, newTc]),
                   };
                   chainGroups = chainGroups.map((g, i) =>
                     i === chainGroups.length - 1 ? currentChainGroup! : g
@@ -1555,10 +1557,11 @@ export function ChatView({
                 });
                 // 思维链: 更新工具状态（与旧版匹配逻辑一致：id 匹配优先，无 id 时按 name+status 匹配）
                 if (currentChainGroup) {
+                  const grp = currentChainGroup;
                   let chainMatched = false;
                   currentChainGroup = {
-                    ...currentChainGroup,
-                    toolCalls: currentChainGroup.toolCalls.map(tc => {
+                    ...grp,
+                    toolCalls: grp.toolCalls.map(tc => {
                       if (chainMatched) return tc;
                       const idMatch = event.id && tc.toolId === event.id;
                       const nameMatch = !event.id && tc.tool === event.tool && tc.status === "running";
