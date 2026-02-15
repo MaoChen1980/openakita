@@ -1476,14 +1476,15 @@ class ReasoningEngine:
                         if tool_name == "create_plan" and isinstance(tool_args, dict):
                             raw_steps = tool_args.get("steps", [])
                             plan_steps = []
-                            for s in raw_steps:
+                            for idx, s in enumerate(raw_steps):
                                 if isinstance(s, dict):
                                     plan_steps.append({
+                                        "id": str(s.get("id", f"step_{idx + 1}")),
                                         "description": str(s.get("description", s.get("id", ""))),
                                         "status": "pending",
                                     })
                                 else:
-                                    plan_steps.append({"description": str(s), "status": "pending"})
+                                    plan_steps.append({"id": f"step_{idx + 1}", "description": str(s), "status": "pending"})
                             yield {"type": "plan_created", "plan": {
                                 "id": str(uuid.uuid4()),
                                 "taskSummary": tool_args.get("task_summary", ""),
@@ -1491,7 +1492,8 @@ class ReasoningEngine:
                                 "status": "in_progress",
                             }}
                         elif tool_name == "update_plan_step" and isinstance(tool_args, dict):
-                            yield {"type": "plan_step_updated", "stepIdx": tool_args.get("step_index", 0), "status": tool_args.get("status", "completed")}
+                            step_id = tool_args.get("step_id", "")
+                            yield {"type": "plan_step_updated", "stepId": step_id, "status": tool_args.get("status", "completed")}
 
                         tool_results_for_msg.append({
                             "type": "tool_result",

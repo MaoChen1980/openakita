@@ -216,6 +216,7 @@ export type ChatPlan = {
 };
 
 export type ChatPlanStep = {
+  id?: string;
   description: string;
   status: "pending" | "in_progress" | "completed" | "skipped";
   result?: string | null;

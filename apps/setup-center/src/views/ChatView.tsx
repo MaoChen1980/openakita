@@ -49,7 +49,7 @@ type StreamEvent =
   | { type: "tool_call_start"; tool: string; args: Record<string, unknown>; id?: string }
   | { type: "tool_call_end"; tool: string; result: string; id?: string }
   | { type: "plan_created"; plan: ChatPlan }
-  | { type: "plan_step_updated"; stepIdx: number; status: string }
+  | { type: "plan_step_updated"; stepId?: string; stepIdx?: number; status: string }
   | { type: "ask_user"; question: string; options?: { id: string; label: string }[]; allow_multiple?: boolean; questions?: { id: string; prompt: string; options?: { id: string; label: string }[]; allow_multiple?: boolean }[] }
   | { type: "agent_switch"; agentName: string; reason: string }
   | { type: "artifact"; artifact_type: string; file_url: string; path: string; name: string; caption: string; size?: number }
@@ -410,46 +410,91 @@ function ThinkingChain({ chain, streaming, showChain }: {
   );
 }
 
-function PlanBlock({ plan }: { plan: ChatPlan }) {
-  const { t } = useTranslation();
+/** 浮动 Plan 进度条 —— 贴在输入框上方，默认折叠只显示当前步骤 */
+function FloatingPlanBar({ plan }: { plan: ChatPlan }) {
+  const [expanded, setExpanded] = useState(false);
   const completed = plan.steps.filter((s) => s.status === "completed").length;
   const total = plan.steps.length;
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const allDone = completed === total && total > 0;
+
+  // 当前正在进行的步骤（优先 in_progress，否则取第一个 pending）
+  const activeStep = plan.steps.find((s) => s.status === "in_progress")
+    || plan.steps.find((s) => s.status === "pending");
+  const activeIdx = activeStep ? plan.steps.indexOf(activeStep) : -1;
+  const activeDesc = activeStep
+    ? (typeof activeStep.description === "string" ? activeStep.description : JSON.stringify(activeStep.description))
+    : null;
+
   return (
-    <div style={{ margin: "8px 0", border: "1px solid rgba(14,165,233,0.2)", borderRadius: 12, padding: "12px 14px", background: "rgba(14,165,233,0.03)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <span style={{ fontWeight: 800, fontSize: 14 }}>{t("chat.planLabel")}{typeof plan.taskSummary === "string" ? plan.taskSummary : JSON.stringify(plan.taskSummary)}</span>
-        <span style={{ fontSize: 12, opacity: 0.6 }}>{completed}/{total} ({pct}%)</span>
+    <div className="floatingPlanBar">
+      {/* 折叠头部：可点击展开 */}
+      <div className="floatingPlanHeader" onClick={() => setExpanded((v) => !v)}>
+        <div className="floatingPlanHeaderLeft">
+          <IconClipboard size={14} style={{ opacity: 0.6 }} />
+          <span className="floatingPlanTitle">
+            {typeof plan.taskSummary === "string" ? plan.taskSummary : JSON.stringify(plan.taskSummary)}
+          </span>
+        </div>
+        <div className="floatingPlanHeaderRight">
+          <span className="floatingPlanProgress">{completed}/{total}</span>
+          <span className="floatingPlanChevron" style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}>
+            <IconChevronDown size={14} />
+          </span>
+        </div>
       </div>
-      <div style={{ height: 4, borderRadius: 2, background: "rgba(14,165,233,0.12)", overflow: "hidden", marginBottom: 10 }}>
-        <div style={{ height: "100%", width: `${pct}%`, background: "var(--brand)", borderRadius: 2, transition: "width 0.3s" }} />
+
+      {/* 进度条 */}
+      <div className="floatingPlanProgressBar">
+        <div className="floatingPlanProgressFill" style={{ width: `${pct}%` }} />
       </div>
-      {plan.steps.map((step, idx) => (
-        <PlanStepItem key={idx} step={step} idx={idx} />
-      ))}
+
+      {/* 折叠态：只显示当前活跃步骤 */}
+      {!expanded && activeStep && !allDone && (
+        <div className="floatingPlanActive">
+          <span className="floatingPlanActiveIcon"><IconPlay size={11} /></span>
+          <span className="floatingPlanActiveText">{activeIdx + 1}/{total} {activeDesc}</span>
+        </div>
+      )}
+      {!expanded && allDone && (
+        <div className="floatingPlanActive floatingPlanDone">
+          <span className="floatingPlanActiveIcon"><IconCheck size={12} /></span>
+          <span className="floatingPlanActiveText">全部完成</span>
+        </div>
+      )}
+
+      {/* 展开态：完整步骤列表 */}
+      {expanded && (
+        <div className="floatingPlanSteps">
+          {plan.steps.map((step, idx) => (
+            <FloatingPlanStepItem key={step.id || idx} step={step} idx={idx} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function PlanStepItem({ step, idx }: { step: ChatPlanStep; idx: number }) {
+function FloatingPlanStepItem({ step, idx }: { step: ChatPlanStep; idx: number }) {
   const icon =
-    step.status === "completed" ? <IconCheck size={14} /> :
-    step.status === "in_progress" ? <IconPlay size={12} /> :
-    step.status === "skipped" ? <IconMinus size={14} /> :
-    <IconCircle size={10} />;
+    step.status === "completed" ? <IconCheck size={13} /> :
+    step.status === "in_progress" ? <IconPlay size={11} /> :
+    step.status === "skipped" ? <IconMinus size={13} /> :
+    <IconCircle size={9} />;
   const color =
-    step.status === "completed" ? "rgba(16,185,129,1)" : step.status === "in_progress" ? "var(--brand)" : step.status === "skipped" ? "var(--muted)" : "var(--muted)";
-  // Safely render description and result — backend may send objects instead of strings
+    step.status === "completed" ? "rgba(16,185,129,1)"
+    : step.status === "in_progress" ? "var(--brand)"
+    : step.status === "skipped" ? "var(--muted)" : "var(--muted)";
   const descText = typeof step.description === "string" ? step.description : JSON.stringify(step.description);
   const resultText = step.result
     ? (typeof step.result === "string" ? step.result : JSON.stringify(step.result))
     : null;
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "4px 0", fontSize: 13 }}>
-      <span style={{ color, fontWeight: 800, minWidth: 16, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{icon}</span>
-      <div style={{ flex: 1 }}>
+    <div className={`floatingPlanStepRow ${step.status === "in_progress" ? "floatingPlanStepActive" : ""}`}>
+      <span className="floatingPlanStepIcon" style={{ color }}>{icon}</span>
+      <div className="floatingPlanStepContent">
         <span style={{ opacity: step.status === "skipped" ? 0.5 : 1 }}>{idx + 1}. {descText}</span>
-        {resultText && <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>{resultText}</div>}
+        {resultText && <div className="floatingPlanStepResult">{resultText}</div>}
       </div>
     </div>
   );
@@ -923,8 +968,7 @@ function MessageBubble({
           <ToolCallsGroup toolCalls={msg.toolCalls} />
         )}
 
-        {/* Plan */}
-        {msg.plan && <PlanBlock plan={msg.plan} />}
+        {/* Plan 已移至输入框上方浮动显示 */}
 
         {/* Artifacts (images, files delivered by agent) */}
         {msg.artifacts && msg.artifacts.length > 0 && (
@@ -1099,8 +1143,7 @@ function FlatMessageItem({
             <ToolCallsGroup toolCalls={msg.toolCalls} />
           )}
 
-          {/* Plan */}
-          {msg.plan && <PlanBlock plan={msg.plan} />}
+          {/* Plan 已移至输入框上方浮动显示 */}
 
           {/* Artifacts */}
           {msg.artifacts && msg.artifacts.length > 0 && (
@@ -1779,10 +1822,13 @@ export function ChatView({
                 break;
               case "plan_step_updated":
                 if (currentPlan) {
-                  const newSteps: ChatPlanStep[] = [...currentPlan.steps];
-                  if (newSteps[event.stepIdx]) {
-                    newSteps[event.stepIdx] = { ...newSteps[event.stepIdx], status: event.status as ChatPlanStep["status"] };
-                  }
+                  const newSteps: ChatPlanStep[] = currentPlan.steps.map((s) => {
+                    // 优先按 stepId 匹配，兼容旧版 stepIdx
+                    const matched = event.stepId
+                      ? s.id === event.stepId
+                      : event.stepIdx != null && currentPlan!.steps.indexOf(s) === event.stepIdx;
+                    return matched ? { ...s, status: event.status as ChatPlanStep["status"] } : s;
+                  });
                   currentPlan = { ...currentPlan, steps: newSteps } as ChatPlan;
                 }
                 break;
@@ -2338,6 +2384,12 @@ export function ChatView({
           )}
           <div ref={messagesEndRef} />
         </div>
+
+        {/* 浮动 Plan 进度条 —— 贴在输入框上方 */}
+        {(() => {
+          const activePlan = [...messages].reverse().find((m) => m.plan)?.plan;
+          return activePlan ? <FloatingPlanBar plan={activePlan} /> : null;
+        })()}
 
         {/* 附件预览栏 */}
         {pendingAttachments.length > 0 && (

@@ -1251,6 +1251,145 @@ button:disabled {
   color: var(--text);
 }
 
+/* ─── Floating Plan Bar (above input) ─── */
+
+.floatingPlanBar {
+  margin: 0 16px;
+  border: 1px solid rgba(14, 165, 233, 0.18);
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  background: rgba(14, 165, 233, 0.03);
+  overflow: hidden;
+  transition: all 0.2s;
+}
+
+.floatingPlanHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.floatingPlanHeader:hover {
+  background: rgba(14, 165, 233, 0.06);
+}
+
+.floatingPlanHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.floatingPlanTitle {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.floatingPlanHeaderRight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.floatingPlanProgress {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.5;
+}
+
+.floatingPlanChevron {
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.4;
+  transition: transform 0.2s;
+}
+
+.floatingPlanProgressBar {
+  height: 3px;
+  background: rgba(14, 165, 233, 0.1);
+  overflow: hidden;
+}
+
+.floatingPlanProgressFill {
+  height: 100%;
+  background: var(--brand);
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+.floatingPlanActive {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 8px;
+  font-size: 12px;
+  color: var(--brand);
+}
+
+.floatingPlanActiveIcon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.floatingPlanActiveText {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.floatingPlanDone {
+  color: rgba(16, 185, 129, 1);
+}
+
+.floatingPlanSteps {
+  padding: 4px 12px 8px;
+}
+
+.floatingPlanStepRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 12px;
+  transition: background 0.1s;
+  border-radius: 4px;
+}
+
+.floatingPlanStepActive {
+  color: var(--brand);
+  font-weight: 600;
+}
+
+.floatingPlanStepIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  font-weight: 800;
+  padding-top: 1px;
+}
+
+.floatingPlanStepContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.floatingPlanStepResult {
+  font-size: 11px;
+  opacity: 0.5;
+  margin-top: 1px;
+}
+
 /* ─── Cursor-style unified input box ─── */
 
 .chatInputArea {
