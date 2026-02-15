@@ -260,9 +260,17 @@ class OpenAIProvider(LLMProvider):
         if request.extra_params:
             body.update(request.extra_params)
 
-        # DashScope 思考模式
-        if request.enable_thinking and self.config.provider == "dashscope":
-            body["enable_thinking"] = True
+        # DashScope 思考模式 — 必须在 extra_params 之后，以覆盖其中的 enable_thinking
+        if self.config.provider == "dashscope" and self.config.has_capability("thinking"):
+            body["enable_thinking"] = bool(request.enable_thinking)
+            if request.enable_thinking and request.thinking_depth:
+                # 映射 thinking_depth 到 DashScope thinking_budget
+                budget_map = {"low": 1024, "medium": 4096, "high": 16384}
+                budget = budget_map.get(request.thinking_depth)
+                if budget:
+                    body["thinking_budget"] = budget
+            elif not request.enable_thinking:
+                body.pop("thinking_budget", None)
 
         # OpenAI reasoning_effort (o1/o3 系列模型，仅非 DashScope 且声明了 thinking 能力)
         if (

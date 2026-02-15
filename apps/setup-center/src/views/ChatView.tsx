@@ -254,13 +254,19 @@ function ChainEntryLine({ entry }: { entry: ChainEntry }) {
       );
     case "text":
       return <div className="chainNarrText">{entry.content}</div>;
-    case "tool_start":
+    case "tool_start": {
+      const tsIcon = entry.status === "error"
+        ? <IconX size={11} />
+        : entry.status === "done"
+          ? <IconCheck size={11} />
+          : <IconLoader size={11} className="chainSpinner" />;
       return (
         <div className="chainNarrToolStart">
-          <IconLoader size={11} className="chainSpinner" />
+          {tsIcon}
           <span className="chainNarrToolName">{entry.description || entry.tool}</span>
         </div>
       );
+    }
     case "tool_end": {
       const isError = entry.status === "error";
       const icon = isError ? <IconX size={11} /> : <IconCheck size={11} />;
@@ -1655,16 +1661,28 @@ export function ChatView({
                   const grp: ChainGroup = currentChainGroup;
                   let chainMatched = false;
                   const isError = (event.result || "").includes("❌") || (event.result || "").includes("Tool error");
+                  const endStatus = isError ? "error" as const : "done" as const;
                   currentChainGroup = {
                     ...grp,
                     toolCalls: grp.toolCalls.map((tc: ChainToolCall) => {
                       if (chainMatched) return tc;
                       const idMatch = event.id && tc.toolId === event.id;
                       const nameMatch = !event.id && tc.tool === event.tool && tc.status === "running";
-                      if (idMatch || nameMatch) { chainMatched = true; return { ...tc, status: (isError ? "error" : "done") as ChainToolCall["status"], result: event.result }; }
+                      if (idMatch || nameMatch) { chainMatched = true; return { ...tc, status: endStatus as ChainToolCall["status"], result: event.result }; }
                       return tc;
                     }),
-                    entries: [...grp.entries, { kind: "tool_end" as const, toolId: event.id || "", tool: event.tool, result: event.result, status: isError ? "error" as const : "done" as const }],
+                    // 更新 tool_start 状态 + 追加 tool_end
+                    entries: [
+                      ...grp.entries.map(e => {
+                        if (e.kind === "tool_start" && !e.status) {
+                          const eIdMatch = event.id && e.toolId === event.id;
+                          const eNameMatch = !event.id && e.tool === event.tool;
+                          if (eIdMatch || eNameMatch) return { ...e, status: endStatus };
+                        }
+                        return e;
+                      }),
+                      { kind: "tool_end" as const, toolId: event.id || "", tool: event.tool, result: event.result, status: endStatus },
+                    ],
                   };
                   chainGroups = chainGroups.map((g, i) => i === chainGroups.length - 1 ? currentChainGroup! : g);
                 }
