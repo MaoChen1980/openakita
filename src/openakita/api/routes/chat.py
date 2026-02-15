@@ -141,6 +141,8 @@ async def _stream_chat(
             plan_mode=chat_request.plan_mode,
             endpoint_override=chat_request.endpoint,
             attachments=chat_request.attachments,
+            thinking_mode=chat_request.thinking_mode,
+            thinking_depth=chat_request.thinking_depth,
         ):
             # Check if client disconnected
             if await _check_disconnected():
@@ -219,6 +221,8 @@ async def chat(request: Request, body: ChatRequest):
         + (f" (+{att_count}个附件)" if att_count else "")
         + (f" | endpoint={body.endpoint}" if body.endpoint else "")
         + (" | plan_mode" if body.plan_mode else "")
+        + (f" | thinking={body.thinking_mode}" if body.thinking_mode else "")
+        + (f" | depth={body.thinking_depth}" if body.thinking_depth else "")
         + (f" | conv={body.conversation_id}" if body.conversation_id else "")
     )
 

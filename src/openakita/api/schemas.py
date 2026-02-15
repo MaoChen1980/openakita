@@ -15,6 +15,14 @@ class ChatRequest(BaseModel):
     plan_mode: bool = Field(False, description="Force Plan mode")
     endpoint: str | None = Field(None, description="Specific endpoint name (null=auto)")
     attachments: list[AttachmentInfo] | None = Field(None, description="Attached files/images")
+    thinking_mode: str | None = Field(
+        None,
+        description="Thinking mode override: 'auto'(system decides), 'on'(force enable), 'off'(force disable). null=use system default.",
+    )
+    thinking_depth: str | None = Field(
+        None,
+        description="Thinking depth: 'low', 'medium', 'high'. Only effective when thinking is enabled.",
+    )
 
 
 class AttachmentInfo(BaseModel):

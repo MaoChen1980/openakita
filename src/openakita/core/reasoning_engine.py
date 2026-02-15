@@ -369,6 +369,8 @@ class ReasoningEngine:
         session_type: str = "cli",
         interrupt_check_fn: Any = None,
         conversation_id: str | None = None,
+        thinking_mode: str | None = None,
+        thinking_depth: str | None = None,
     ) -> str:
         """
         主推理循环: Reason -> Act -> Observe。
@@ -383,6 +385,8 @@ class ReasoningEngine:
             session_type: 会话类型
             interrupt_check_fn: 中断检查函数
             conversation_id: 对话 ID
+            thinking_mode: 思考模式覆盖 ('auto'/'on'/'off'/None)
+            thinking_depth: 思考深度 ('low'/'medium'/'high'/None)
 
         Returns:
             最终响应文本
@@ -537,6 +541,8 @@ class ReasoningEngine:
                     tools=tools,
                     current_model=current_model,
                     conversation_id=conversation_id,
+                    thinking_mode=thinking_mode,
+                    thinking_depth=thinking_depth,
                 )
 
                 if task_monitor:
@@ -932,6 +938,8 @@ class ReasoningEngine:
         plan_mode: bool = False,
         endpoint_override: str | None = None,
         conversation_id: str | None = None,
+        thinking_mode: str | None = None,
+        thinking_depth: str | None = None,
     ):
         """
         流式推理循环，为 HTTP API (SSE) 设计。
@@ -1139,6 +1147,8 @@ class ReasoningEngine:
                         tools=tools,
                         current_model=current_model,
                         conversation_id=conversation_id,
+                        thinking_mode=thinking_mode,
+                        thinking_depth=thinking_depth,
                     ):
                         if hb_event["type"] == "heartbeat":
                             yield {"type": "heartbeat"}
@@ -1315,6 +1325,8 @@ class ReasoningEngine:
                             t_name = tc.get("name", "unknown")
                             t_args = tc.get("input", tc.get("arguments", {}))
                             t_id = tc.get("id", str(uuid.uuid4()))
+                            # chain_text: 工具描述
+                            yield {"type": "chain_text", "content": self._describe_tool_call(t_name, t_args)}
                             yield {"type": "tool_call_start", "tool": t_name, "args": t_args, "id": t_id}
                             try:
                                 r = await self._tool_executor.execute_tool(
@@ -1326,6 +1338,10 @@ class ReasoningEngine:
                             except Exception as exc:
                                 r = f"Tool error: {exc}"
                             yield {"type": "tool_call_end", "tool": t_name, "result": r[:2000], "id": t_id}
+                            # chain_text: 结果摘要
+                            _ask_result_summary = self._summarize_tool_result(t_name, r)
+                            if _ask_result_summary:
+                                yield {"type": "chain_text", "content": _ask_result_summary}
                             tool_results_for_msg.append({
                                 "type": "tool_result", "tool_use_id": t_id, "content": r[:4000],
                             })
@@ -1379,8 +1395,7 @@ class ReasoningEngine:
 
                     # ---- 正常工具执行 ----
                     tool_results_for_msg: list[dict] = []
-                    _num_tools = len(decision.tool_calls)
-                    for _tc_idx, tc in enumerate(decision.tool_calls):
+                    for tc in decision.tool_calls:
                         tool_name = tc.get("name", "unknown")
                         tool_args = tc.get("input", tc.get("arguments", {}))
                         tool_id = tc.get("id", str(uuid.uuid4()))
@@ -1761,6 +1776,8 @@ class ReasoningEngine:
         tools: list[dict],
         current_model: str,
         conversation_id: str | None = None,
+        thinking_mode: str | None = None,
+        thinking_depth: str | None = None,
     ):
         """
         包装 _reason()，在等待 LLM 响应期间每隔 HEARTBEAT_INTERVAL 秒
@@ -1779,6 +1796,8 @@ class ReasoningEngine:
                     tools=tools,
                     current_model=current_model,
                     conversation_id=conversation_id,
+                    thinking_mode=thinking_mode,
+                    thinking_depth=thinking_depth,
                 )
                 await queue.put(("result", decision))
             except Exception as exc:
@@ -1824,14 +1843,26 @@ class ReasoningEngine:
         tools: list[dict],
         current_model: str,
         conversation_id: str | None = None,
+        thinking_mode: str | None = None,
+        thinking_depth: str | None = None,
     ) -> Decision:
         """
         推理阶段: 调用 LLM，返回结构化 Decision。
         """
+        # 根据 thinking_mode 决定 use_thinking 参数
+        use_thinking = None  # None = 让 Brain 使用默认逻辑
+        if thinking_mode == "on":
+            use_thinking = True
+        elif thinking_mode == "off":
+            use_thinking = False
+        # "auto" 或 None: use_thinking=None → Brain 使用自身默认逻辑
+
         tracer = get_tracer()
         with tracer.llm_span(model=current_model) as span:
             response = await asyncio.to_thread(
                 self._brain.messages_create,
+                use_thinking=use_thinking,
+                thinking_depth=thinking_depth,
                 model=current_model,
                 max_tokens=self._brain.max_tokens,
                 system=system_prompt,

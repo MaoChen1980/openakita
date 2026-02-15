@@ -2060,8 +2060,8 @@ button:disabled {
   transition: all 0.2s ease;
 }
 
-.chainGroupCollapsed .chainThinkingContent,
-.chainGroupCollapsed .chainToolList {
+/* --- 折叠隐藏叙事流 --- */
+.chainGroupCollapsed .chainNarrFlow {
   display: none;
 }
 
@@ -2089,18 +2089,7 @@ button:disabled {
   opacity: 0.7;
 }
 
-.chainThinkingContent {
-  font-size: 13px;
-  line-height: 1.6;
-  opacity: 0.6;
-  color: var(--text);
-  padding: 2px 0 6px 16px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
+/* --- 紧凑行（无 entries） --- */
 .chainGroupCompact {
   margin-bottom: 4px;
 }
@@ -2119,47 +2108,130 @@ button:disabled {
   opacity: 0.5;
 }
 
-.chainToolList {
+/* ========== 叙事流容器 ========== */
+.chainNarrFlow {
   padding-left: 16px;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scroll-behavior: smooth;
 }
 
-.chainToolItem {
-  font-size: 12px;
+/* thinking 块: 斜体灰色 */
+.chainNarrThinking {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+  opacity: 0.55;
+  padding: 3px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
-.chainToolHeader {
+.chainNarrThinkingLabel {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.5;
+  margin-right: 6px;
+  vertical-align: middle;
+  border: 1px solid rgba(128,128,128,0.2);
+  border-radius: 3px;
+  padding: 0 4px;
+  line-height: 1.6;
+}
+
+.chainNarrThinkingText {
+  font-style: italic;
+}
+
+/* chain_text 叙事文本（LLM 推理意图 / 工具描述 / 结果摘要） */
+.chainNarrText {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+  opacity: 0.72;
+  padding: 1px 0;
+  animation: chainFadeIn 0.18s ease;
+}
+
+/* 工具开始行: spinner + 描述 */
+.chainNarrToolStart {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 0;
-  cursor: pointer;
-  user-select: none;
-  border-radius: 4px;
-  transition: background 0.1s;
-}
-
-.chainToolHeader:hover {
-  background: rgba(0, 0, 0, 0.03);
-}
-
-.chainToolDesc {
+  font-size: 12px;
   font-weight: 500;
-  color: var(--text);
-  opacity: 0.75;
+  color: var(--brand, #0ea5e9);
+  padding: 2px 0;
+  animation: chainFadeIn 0.18s ease;
 }
 
-.chainToolExpandHint {
-  opacity: 0.3;
+.chainNarrToolName {
+  opacity: 0.85;
+}
+
+/* 旋转 spinner */
+.chainSpinner {
+  animation: chainSpin 0.8s linear infinite;
+}
+
+@keyframes chainSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 工具结束行 */
+.chainNarrToolEnd {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--ok, #22c55e);
+  padding: 1px 0 2px 0;
+  animation: chainFadeIn 0.18s ease;
+}
+
+.chainNarrToolEnd svg {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.chainNarrToolError {
+  color: var(--danger, #ef4444);
+}
+
+.chainToolResultInline {
+  color: var(--muted, #888);
+  font-size: 11.5px;
+  opacity: 0.7;
+}
+
+.chainToolResultCollapsible {
+  display: inline;
+}
+
+.chainToolResultToggle {
+  font-size: 11px;
+  color: var(--brand, #0ea5e9);
+  cursor: pointer;
+  opacity: 0.7;
   display: inline-flex;
   align-items: center;
-  margin-left: auto;
+  gap: 2px;
+}
+
+.chainToolResultToggle:hover {
+  opacity: 1;
 }
 
 .chainToolResult {
-  margin: 4px 0 4px 20px;
+  margin: 4px 0 4px 0;
   padding: 6px 10px;
   background: rgba(0, 0, 0, 0.03);
   border-radius: 6px;
@@ -2170,27 +2242,33 @@ button:disabled {
   word-break: break-word;
 }
 
-.chainSummary {
-  font-size: 11px;
-  opacity: 0.5;
-  padding: 2px 0 4px 0;
-  font-weight: 500;
-}
-
-.chainCompressedIndicator {
+/* 上下文压缩 */
+.chainNarrCompressed {
   font-size: 11px;
   color: var(--warning, #f59e0b);
   opacity: 0.7;
-  padding: 2px 0 2px 16px;
+  padding: 2px 0;
   font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 4px;
 }
 
-.chainCompressedIndicator::before {
-  content: "📦";
-  font-size: 10px;
+/* 流式输出光标 */
+.chainNarrCursor {
+  width: 6px;
+  height: 14px;
+  background: var(--brand, #0ea5e9);
+  opacity: 0.5;
+  border-radius: 1px;
+  animation: chainBlink 0.8s step-end infinite;
+}
+
+@keyframes chainBlink {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0; }
+}
+
+@keyframes chainFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .chainCollapsedSummary {

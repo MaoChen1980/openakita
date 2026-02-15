@@ -2917,6 +2917,9 @@ search_github → install_skill → 使用
         session_id: str = "",
         session: Any = None,
         gateway: Any = None,
+        *,
+        thinking_mode: str | None = None,
+        thinking_depth: str | None = None,
     ) -> str:
         """
         使用外部 Session 历史进行对话（用于 IM / CLI 通道）。
@@ -2930,6 +2933,8 @@ search_github → install_skill → 使用
             session_id: 会话 ID
             session: Session 对象
             gateway: MessageGateway 对象
+            thinking_mode: 思考模式覆盖 ('auto'/'on'/'off'/None)
+            thinking_depth: 思考深度 ('low'/'medium'/'high'/None)
 
         Returns:
             Agent 响应
@@ -2968,9 +2973,22 @@ search_github → install_skill → 使用
                 )
             )
 
+            # === 从 session metadata 读取 thinking 偏好（IM 通道使用） ===
+            _thinking_mode = thinking_mode
+            _thinking_depth = thinking_depth
+            if session and (_thinking_mode is None or _thinking_depth is None):
+                try:
+                    if _thinking_mode is None:
+                        _thinking_mode = session.get_metadata("thinking_mode")
+                    if _thinking_depth is None:
+                        _thinking_depth = session.get_metadata("thinking_depth")
+                except Exception:
+                    pass
+
             # === 核心推理 (同步返回) ===
             response_text = await self._chat_with_tools_and_context(
                 messages, task_monitor=task_monitor, session_type=session_type,
+                thinking_mode=_thinking_mode, thinking_depth=_thinking_depth,
             )
 
             # === 共享收尾 ===
@@ -2996,6 +3014,8 @@ search_github → install_skill → 使用
         plan_mode: bool = False,
         endpoint_override: str | None = None,
         attachments: list | None = None,
+        thinking_mode: str | None = None,
+        thinking_depth: str | None = None,
     ):
         """
         流式版 chat_with_session，yield SSE 事件字典。
@@ -3014,6 +3034,8 @@ search_github → install_skill → 使用
             plan_mode: 是否启用 Plan 模式
             endpoint_override: 端点覆盖
             attachments: Desktop Chat 附件列表
+            thinking_mode: 思考模式覆盖 ('auto'/'on'/'off'/None)
+            thinking_depth: 思考深度 ('low'/'medium'/'high'/None)
 
         Yields:
             SSE 事件字典 {"type": "...", ...}
@@ -3073,6 +3095,18 @@ search_github → install_skill → 使用
 
             base_system_prompt = system_prompt
 
+            # === 从 session metadata 读取 thinking 偏好（IM 通道使用） ===
+            _thinking_mode = thinking_mode
+            _thinking_depth = thinking_depth
+            if session and (_thinking_mode is None or _thinking_depth is None):
+                try:
+                    if _thinking_mode is None:
+                        _thinking_mode = session.get_metadata("thinking_mode")
+                    if _thinking_depth is None:
+                        _thinking_depth = session.get_metadata("thinking_depth")
+                except Exception:
+                    pass
+
             # === 核心推理 (流式) ===
             async for event in self.reasoning_engine.reason_stream(
                 messages=messages,
@@ -3085,6 +3119,8 @@ search_github → install_skill → 使用
                 plan_mode=plan_mode,
                 endpoint_override=endpoint_override,
                 conversation_id=conversation_id,
+                thinking_mode=_thinking_mode,
+                thinking_depth=_thinking_depth,
             ):
                 # 收集回复文本（用于 session 保存 & memory）
                 if event.get("type") == "text_delta":
@@ -3479,6 +3515,8 @@ NEXT: 建议的下一步（如有）"""
         use_session_prompt: bool = True,
         task_monitor: TaskMonitor | None = None,
         session_type: str = "cli",
+        thinking_mode: str | None = None,
+        thinking_depth: str | None = None,
     ) -> str:
         """
         使用指定的消息上下文进行对话（委托给 ReasoningEngine）
@@ -3491,6 +3529,8 @@ NEXT: 建议的下一步（如有）"""
             use_session_prompt: 是否使用 Session 专用的 System Prompt
             task_monitor: 任务监控器
             session_type: 会话类型 ("cli" 或 "im")
+            thinking_mode: 思考模式覆盖 ('auto'/'on'/'off'/None)
+            thinking_depth: 思考深度 ('low'/'medium'/'high'/None)
 
         Returns:
             最终响应文本
@@ -3528,6 +3568,8 @@ NEXT: 建议的下一步（如有）"""
             task_monitor=task_monitor,
             session_type=session_type,
             conversation_id=conversation_id,
+            thinking_mode=thinking_mode,
+            thinking_depth=thinking_depth,
         )
 
         # ==================== 以下为旧代码（保留参考，后续完全清理） ====================

@@ -1542,27 +1542,31 @@ export function ChatView({
                 const _thinkDuration = event.duration_ms || (Date.now() - thinkingStartTime);
                 const _hasThinking = event.has_thinking ?? (currentThinkingContent.length > 0);
                 if (currentChainGroup) {
-                  // 添加 thinking 条目到 entries
+                  const grp: ChainGroup = currentChainGroup;
                   if (_hasThinking && currentThinkingContent) {
                     currentChainGroup = {
-                      ...currentChainGroup,
-                      entries: [...currentChainGroup.entries, { kind: "thinking", content: currentThinkingContent }],
+                      ...grp,
+                      entries: [...grp.entries, { kind: "thinking" as const, content: currentThinkingContent }],
                       hasThinking: true,
                       durationMs: _thinkDuration,
                     };
                   } else {
-                    currentChainGroup = { ...currentChainGroup, durationMs: _thinkDuration };
+                    currentChainGroup = { ...grp, durationMs: _thinkDuration };
                   }
                   chainGroups = chainGroups.map((g, i) => i === chainGroups.length - 1 ? currentChainGroup! : g);
                 }
                 break;
               }
               case "chain_text":
-                // 后端叙事文本 → 追加到当前 group entries
-                if (currentChainGroup && event.content) {
+                if (!currentChainGroup) {
+                  currentChainGroup = { iteration: chainGroups.length + 1, entries: [], toolCalls: [], hasThinking: false, collapsed: false };
+                  chainGroups = [...chainGroups, currentChainGroup];
+                }
+                if (event.content) {
+                  const grp: ChainGroup = currentChainGroup;
                   currentChainGroup = {
-                    ...currentChainGroup,
-                    entries: [...currentChainGroup.entries, { kind: "text", content: event.content }],
+                    ...grp,
+                    entries: [...grp.entries, { kind: "text" as const, content: event.content }],
                   };
                   chainGroups = chainGroups.map((g, i) => i === chainGroups.length - 1 ? currentChainGroup! : g);
                 }
@@ -1576,10 +1580,11 @@ export function ChatView({
                 const _desc = formatToolDescription(event.tool, event.args);
                 const newTc: ChainToolCall = { toolId: _tcId, tool: event.tool, args: event.args, status: "running", description: _desc };
                 if (currentChainGroup) {
+                  const grp: ChainGroup = currentChainGroup;
                   currentChainGroup = {
-                    ...currentChainGroup,
-                    toolCalls: [...currentChainGroup.toolCalls, newTc],
-                    entries: [...currentChainGroup.entries, { kind: "tool_start", toolId: _tcId, tool: event.tool, args: event.args, description: _desc }],
+                    ...grp,
+                    toolCalls: [...grp.toolCalls, newTc],
+                    entries: [...grp.entries, { kind: "tool_start" as const, toolId: _tcId, tool: event.tool, args: event.args, description: _desc }],
                   };
                   chainGroups = chainGroups.map((g, i) => i === chainGroups.length - 1 ? currentChainGroup! : g);
                 }
@@ -1595,18 +1600,19 @@ export function ChatView({
                   return tc;
                 });
                 if (currentChainGroup) {
+                  const grp: ChainGroup = currentChainGroup;
                   let chainMatched = false;
                   const isError = (event.result || "").includes("❌") || (event.result || "").includes("Tool error");
                   currentChainGroup = {
-                    ...currentChainGroup,
-                    toolCalls: currentChainGroup.toolCalls.map(tc => {
+                    ...grp,
+                    toolCalls: grp.toolCalls.map((tc: ChainToolCall) => {
                       if (chainMatched) return tc;
                       const idMatch = event.id && tc.toolId === event.id;
                       const nameMatch = !event.id && tc.tool === event.tool && tc.status === "running";
                       if (idMatch || nameMatch) { chainMatched = true; return { ...tc, status: (isError ? "error" : "done") as ChainToolCall["status"], result: event.result }; }
                       return tc;
                     }),
-                    entries: [...currentChainGroup.entries, { kind: "tool_end", toolId: event.id || "", tool: event.tool, result: event.result, status: isError ? "error" : "done" }],
+                    entries: [...grp.entries, { kind: "tool_end" as const, toolId: event.id || "", tool: event.tool, result: event.result, status: isError ? "error" as const : "done" as const }],
                   };
                   chainGroups = chainGroups.map((g, i) => i === chainGroups.length - 1 ? currentChainGroup! : g);
                 }
