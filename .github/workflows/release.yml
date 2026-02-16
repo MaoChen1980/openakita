@@ -156,12 +156,7 @@ jobs:
             suffix: "-full"
           # Linux
           - platform: ubuntu-22.04
-            bundles: "deb"
-            args: ""
-            build_mode: "core"
-            suffix: ""
-          - platform: ubuntu-24.04
-            bundles: "appimage"
+            bundles: "deb,appimage"
             args: ""
             build_mode: "core"
             suffix: ""
@@ -258,6 +253,25 @@ jobs:
       - name: Install frontend dependencies
         working-directory: apps/setup-center
         run: npm ci
+
+      - name: Pre-extract linuxdeploy for FUSE-less runners
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: |
+          CACHE_DIR="${HOME}/.cache/tauri/linuxdeploy"
+          mkdir -p "$CACHE_DIR"
+          cd "$CACHE_DIR"
+          if [ ! -f linuxdeploy-x86_64.AppImage ]; then
+            curl -fSL -o linuxdeploy-x86_64.AppImage \
+              https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy/linuxdeploy-x86_64.AppImage
+          fi
+          chmod +x linuxdeploy-x86_64.AppImage
+          ./linuxdeploy-x86_64.AppImage --appimage-extract 2>/dev/null || true
+          if [ -d squashfs-root ]; then
+            cp squashfs-root/AppRun linuxdeploy-x86_64.AppImage.bak || true
+            cat squashfs-root/AppRun > linuxdeploy-x86_64
+            chmod +x linuxdeploy-x86_64
+            echo "linuxdeploy extracted successfully"
+          fi
 
       - name: Build Tauri bundles
         working-directory: apps/setup-center

@@ -4,10 +4,50 @@ Web Search 处理器
 直接使用 ddgs 库执行网络搜索，无需通过 MCP。
 """
 
+import asyncio
 import logging
+import traceback
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _sync_web_search(
+    query: str,
+    max_results: int,
+    region: str,
+    safesearch: str,
+) -> list[dict[str, Any]]:
+    """在独立线程中执行同步的 ddgs 搜索（避免事件循环冲突）"""
+    from ddgs import DDGS
+
+    with DDGS() as ddgs:
+        return ddgs.text(
+            query,
+            max_results=max_results,
+            region=region,
+            safesearch=safesearch,
+        )
+
+
+def _sync_news_search(
+    query: str,
+    max_results: int,
+    region: str,
+    safesearch: str,
+    timelimit: str | None,
+) -> list[dict[str, Any]]:
+    """在独立线程中执行同步的 ddgs 新闻搜索"""
+    from ddgs import DDGS
+
+    with DDGS() as ddgs:
+        return ddgs.news(
+            query,
+            max_results=max_results,
+            region=region,
+            safesearch=safesearch,
+            timelimit=timelimit,
+        )
 
 
 class WebSearchHandler:
@@ -37,25 +77,26 @@ class WebSearchHandler:
         safesearch = params.get("safesearch", "moderate")
 
         try:
-            from ddgs import DDGS
+            from ddgs import DDGS  # noqa: F401
         except ImportError:
             from openakita.tools._import_helper import import_or_hint
             return f"错误：{import_or_hint('ddgs')}"
 
         try:
-            with DDGS() as ddgs:
-                results = list(
-                    ddgs.text(
-                        query,
-                        max_results=max_results,
-                        region=region,
-                        safesearch=safesearch,
-                    )
-                )
-                return self._format_web_results(results)
+            results = await asyncio.to_thread(
+                _sync_web_search,
+                query=query,
+                max_results=max_results,
+                region=region,
+                safesearch=safesearch,
+            )
+            return self._format_web_results(results)
         except Exception as e:
-            logger.error(f"Web search failed: {e}")
-            return f"搜索失败: {str(e)}"
+            tb = traceback.format_exc()
+            logger.error(
+                f"Web search failed: {type(e).__name__}: {e}\n{tb}"
+            )
+            return f"搜索失败: {type(e).__name__}: {e}"
 
     async def _news_search(self, params: dict[str, Any]) -> str:
         """搜索新闻"""
@@ -69,26 +110,27 @@ class WebSearchHandler:
         timelimit = params.get("timelimit")
 
         try:
-            from ddgs import DDGS
+            from ddgs import DDGS  # noqa: F401
         except ImportError:
             from openakita.tools._import_helper import import_or_hint
             return f"错误：{import_or_hint('ddgs')}"
 
         try:
-            with DDGS() as ddgs:
-                results = list(
-                    ddgs.news(
-                        query,
-                        max_results=max_results,
-                        region=region,
-                        safesearch=safesearch,
-                        timelimit=timelimit,
-                    )
-                )
-                return self._format_news_results(results)
+            results = await asyncio.to_thread(
+                _sync_news_search,
+                query=query,
+                max_results=max_results,
+                region=region,
+                safesearch=safesearch,
+                timelimit=timelimit,
+            )
+            return self._format_news_results(results)
         except Exception as e:
-            logger.error(f"News search failed: {e}")
-            return f"新闻搜索失败: {str(e)}"
+            tb = traceback.format_exc()
+            logger.error(
+                f"News search failed: {type(e).__name__}: {e}\n{tb}"
+            )
+            return f"新闻搜索失败: {type(e).__name__}: {e}"
 
     @staticmethod
     def _format_web_results(results: list) -> str:

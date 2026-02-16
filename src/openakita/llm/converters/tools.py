@@ -15,6 +15,35 @@ from ..types import Tool, ToolUseBlock
 logger = logging.getLogger(__name__)
 
 
+def _try_repair_json(s: str) -> dict | None:
+    """尝试修复被截断的 JSON 字符串。
+
+    LLM 生成超长 tool_call arguments 时，API 可能截断 JSON，
+    导致 json.loads 失败。此函数尝试简单修复：
+    - 补齐缺少的引号
+    - 补齐缺少的花括号
+    返回 None 表示修复失败。
+    """
+    s = s.strip()
+    if not s:
+        return None
+
+    # 确保以 { 开头
+    if not s.startswith("{"):
+        return None
+
+    # 尝试逐步补齐
+    for suffix in ['"}', '"}', '"}}}', '"}}}}}', '"}]}'  , '"}]}', '"]}'  , '"}'  , '}', '}}', '}}}']:
+        try:
+            result = json.loads(s + suffix)
+            if isinstance(result, dict):
+                return result
+        except json.JSONDecodeError:
+            continue
+
+    return None
+
+
 def convert_tools_to_openai(tools: list[Tool]) -> list[dict]:
     """
     将内部工具定义转换为 OpenAI 格式
@@ -101,8 +130,22 @@ def convert_tool_calls_from_openai(tool_calls: list[dict]) -> list[ToolUseBlock]
             if isinstance(arguments, str):
                 try:
                     input_dict = json.loads(arguments)
-                except json.JSONDecodeError:
-                    input_dict = {}
+                except json.JSONDecodeError as je:
+                    # 大参数 JSON 可能被 API 截断，记录详细日志以便排查
+                    tool_name = func.get("name", "?")
+                    arg_preview = arguments[:200] + "..." if len(arguments) > 200 else arguments
+                    logger.warning(
+                        f"[TOOL_CALL] JSON parse failed for tool '{tool_name}': "
+                        f"{je} | arg_len={len(arguments)} | preview={arg_preview!r}"
+                    )
+                    # 尝试修复截断的 JSON（补齐缺少的引号和括号）
+                    input_dict = _try_repair_json(arguments)
+                    if input_dict is None:
+                        input_dict = {}
+                        logger.error(
+                            f"[TOOL_CALL] JSON repair failed for tool '{tool_name}', "
+                            f"falling back to empty dict. Full args ({len(arguments)} chars) dumped above."
+                        )
             else:
                 input_dict = arguments
 
