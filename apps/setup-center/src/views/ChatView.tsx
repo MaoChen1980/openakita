@@ -1675,7 +1675,22 @@ export function ChatView({
               try {
                 const event: StreamEvent = JSON.parse(data);
                 if (event.type === "text_delta") currentContent += event.content;
-                if (event.type === "done") gracefulDone = true;
+                else if (event.type === "plan_created") currentPlan = event.plan;
+                else if (event.type === "plan_step_updated" && currentPlan) {
+                  const newSteps = currentPlan.steps.map((s) => {
+                    const matched = event.stepId ? s.id === event.stepId : false;
+                    return matched ? { ...s, status: event.status as ChatPlanStep["status"] } : s;
+                  });
+                  currentPlan = { ...currentPlan, steps: newSteps } as ChatPlan;
+                } else if (event.type === "plan_completed" && currentPlan) {
+                  currentPlan = { ...currentPlan, status: "completed" as const } as ChatPlan;
+                }
+                if (event.type === "done") {
+                  gracefulDone = true;
+                  if (currentPlan && currentPlan.status === "in_progress") {
+                    currentPlan = { ...currentPlan, status: "completed" as const };
+                  }
+                }
               } catch { /* ignore malformed */ }
             }
           }
@@ -1827,6 +1842,13 @@ export function ChatView({
               }
               case "plan_created":
                 currentPlan = event.plan;
+                // 新 Plan 创建时，将之前消息中的旧 Plan 标记为 completed，
+                // 避免浮动进度条显示已过时的旧 Plan
+                setMessages((prev) => prev.map((m) =>
+                  m.plan && m.plan.status !== "completed" && m.plan.status !== "failed"
+                    ? { ...m, plan: { ...m.plan, status: "completed" as const } }
+                    : m
+                ));
                 break;
               case "plan_step_updated":
                 if (currentPlan) {
@@ -1907,6 +1929,10 @@ export function ChatView({
                 break;
               case "done":
                 gracefulDone = true;
+                // 任务结束时，如果 Plan 仍在进行中，自动标记为 completed
+                if (currentPlan && currentPlan.status === "in_progress") {
+                  currentPlan = { ...currentPlan, status: "completed" as const };
+                }
                 break;
             }
 
