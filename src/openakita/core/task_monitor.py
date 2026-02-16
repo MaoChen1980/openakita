@@ -313,6 +313,11 @@ class TaskMonitor:
             f"[TaskMonitor] Model switched: {old_model} → {new_model}, "
             f"reason: {reason}, context_reset: {reset_context}, retries: {self._retry_count}"
         )
+        # 重置 LLM 错误重试计数，让新模型有完整的重试机会
+        # 不重置会导致：切换后 _retry_count 已 >= retry_before_switch，
+        # 此后每个错误都立即触发再次切换，形成死循环
+        self._retry_count = 0
+        self._last_error = None
 
     def record_error(self, error: str) -> bool:
         """

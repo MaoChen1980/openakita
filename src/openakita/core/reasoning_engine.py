@@ -2226,6 +2226,9 @@ class ReasoningEngine:
         state.reset_for_model_switch()
         return new_model, new_messages
 
+    # 最大模型切换次数（防止死循环）
+    MAX_MODEL_SWITCHES = 5
+
     def _handle_llm_error(
         self,
         error: Exception,
@@ -2251,8 +2254,27 @@ class ReasoningEngine:
             logger.info(f"[LLM] Will retry (attempt {task_monitor.retry_count})")
             return "retry"
 
-        # 切换模型
+        # --- 熔断：超过最大模型切换次数时终止，防止死循环 ---
+        switch_count = getattr(state, '_model_switch_count', 0) + 1
+        state._model_switch_count = switch_count
+        if switch_count > self.MAX_MODEL_SWITCHES:
+            logger.error(
+                f"[ReAct] Exceeded max model switches ({self.MAX_MODEL_SWITCHES}), "
+                f"aborting to prevent infinite loop. Last error: {str(error)[:200]}"
+            )
+            return None  # 终止循环
+
+        # --- 检查 fallback 是否与当前模型实际相同 ---
         new_model = task_monitor.fallback_model
+        resolved = self._resolve_endpoint_name(new_model)
+        current_endpoint = self._resolve_endpoint_name(current_model)
+        if resolved and current_endpoint and resolved == current_endpoint:
+            logger.warning(
+                f"[ModelSwitch] Fallback model '{new_model}' resolves to same endpoint "
+                f"as current '{current_model}' ({resolved}), aborting retry loop"
+            )
+            return None  # 切换目标与当前相同，无意义，终止循环
+
         self._switch_llm_endpoint(new_model, reason=f"LLM error fallback: {error}")
         task_monitor.switch_model(new_model, "LLM 调用失败后切换", reset_context=True)
 

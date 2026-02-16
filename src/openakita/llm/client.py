@@ -361,6 +361,21 @@ class LLMClient:
                         eligible, request, allow_failover=allow_failover
                     )
 
+            # 检查是否全部是结构性错误（400 参数错误等），此类错误重试无意义
+            # 只有瞬态错误（503/timeout/连接错误）才值得 "anyway" 降级尝试
+            unhealthy_structural = [
+                p for p in capability_matched
+                if not p.is_healthy and getattr(p, '_error_category', '') == "structural"
+            ]
+            unhealthy_total = [p for p in capability_matched if not p.is_healthy]
+            if unhealthy_structural and len(unhealthy_structural) == len(unhealthy_total):
+                # 全部都是结构性错误导致的 cooldown，不应强行重试
+                last_err = unhealthy_structural[0]._last_error or "unknown structural error"
+                raise AllEndpointsFailedError(
+                    f"All endpoints failed with structural errors (cooldown {min_cooldown}s). "
+                    f"Last error: {last_err}"
+                )
+
             logger.warning(
                 "No healthy endpoint meets required capabilities: "
                 f"tools={require_tools}, vision={require_vision}, video={require_video}, "

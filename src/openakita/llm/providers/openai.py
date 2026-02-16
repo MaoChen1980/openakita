@@ -272,17 +272,34 @@ class OpenAIProvider(LLMProvider):
             elif not request.enable_thinking:
                 body.pop("thinking_budget", None)
 
-        # OpenAI reasoning_effort (o1/o3 系列模型，仅非 DashScope 且声明了 thinking 能力)
+        # OpenAI 兼容端点思考模式（非 DashScope，覆盖火山引擎/硅基流动/vLLM/OpenRouter 等）
+        #
+        # 背景：
+        # - 原生 OpenAI o1/o3 系列天然就是思考模型，只需 reasoning_effort 控制深度
+        # - 但其他 OpenAI-compatible 端点（火山引擎/DeepSeek/vLLM 等）需要显式传
+        #   thinking: {"type": "enabled"} 来启用思考模式，reasoning_effort 只是可选的深度控制
+        # - 如果只传 reasoning_effort 而不启用 thinking，火山引擎等 API 会返回 400:
+        #   "Invalid combination of reasoning_effort and thinking type: medium + disabled"
         if (
-            request.enable_thinking
-            and request.thinking_depth
-            and self.config.provider != "dashscope"
+            self.config.provider != "dashscope"
             and self.config.has_capability("thinking")
         ):
-            depth_map = {"low": "low", "medium": "medium", "high": "high"}
-            effort = depth_map.get(request.thinking_depth)
-            if effort:
-                body["reasoning_effort"] = effort
+            if request.enable_thinking:
+                # 显式启用思考（DeepSeek/vLLM/火山引擎等 OpenAI-compatible 标准）
+                # 对于原生 OpenAI o1/o3 模型，此参数会被忽略（它们天然就是思考模型）
+                if "thinking" not in body:
+                    body["thinking"] = {"type": "enabled"}
+                # 思考深度控制（可选）
+                if request.thinking_depth:
+                    depth_map = {"low": "low", "medium": "medium", "high": "high"}
+                    effort = depth_map.get(request.thinking_depth)
+                    if effort:
+                        body["reasoning_effort"] = effort
+            else:
+                # 显式关闭思考（避免 extra_params 中的残留设置）
+                body.pop("reasoning_effort", None)
+                if "thinking" in body:
+                    body["thinking"] = {"type": "disabled"}
 
         return body
 
