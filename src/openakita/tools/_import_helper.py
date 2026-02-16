@@ -63,13 +63,13 @@ _PACKAGE_MODULE_MAP: dict[str, tuple[str | None, str | None, str]] = {
     "static_ffmpeg": ("whisper", "语音识别", "static-ffmpeg"),
     # -- 多 Agent 协同 --
     "zmq": ("orchestration", "多Agent协同", "pyzmq"),
-    # -- IM 通道适配器 --
-    "lark_oapi": ("im-feishu", "飞书通道", "lark-oapi"),
-    "dingtalk_stream": ("im-dingtalk", "钉钉通道", "dingtalk-stream"),
-    "Crypto": ("im-wework", "企业微信通道", "pycryptodome"),
-    "Cryptodome": ("im-wework", "企业微信通道", "pycryptodome"),
-    "botpy": ("im-qqbot", "QQ机器人", "qq-botpy"),
-    "pilk": ("im-qqbot", "QQ机器人", "pilk"),
+    # -- IM 通道适配器 (已直接打包) --
+    "lark_oapi": (None, None, "lark-oapi"),
+    "dingtalk_stream": (None, None, "dingtalk-stream"),
+    "Crypto": (None, None, "pycryptodome"),
+    "Cryptodome": (None, None, "pycryptodome"),
+    "botpy": (None, None, "qq-botpy"),
+    "pilk": (None, None, "pilk"),
     # -- 其他 --
     "telegram": (None, None, "python-telegram-bot"),
     "pytesseract": (None, None, "pytesseract"),

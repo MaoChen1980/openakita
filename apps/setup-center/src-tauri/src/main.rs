@@ -288,22 +288,14 @@ struct ModuleInfo {
 
 fn module_definitions() -> Vec<(&'static str, &'static str, &'static str, &'static [&'static str], u32, &'static str)> {
     // (id, name, description, pip_packages, estimated_size_mb, category)
-    // category: "core" = 重量级可选模块(向导中显示), "im" = IM 适配器(仅设置页/配置通道时显示)
     //
-    // NOTE: 文档处理/图像处理/桌面自动化等轻量包已直接打包进 PyInstaller bundle,
-    //       不再作为可选模块。仅体积大(>50MB)或有特殊二进制依赖的包才需要模块化。
+    // 仅体积大(>50MB)或有特殊二进制依赖的包才需要模块化安装。
+    // 其余轻量包(文档处理/图像处理/桌面自动化/IM适配器等)已直接打包进 PyInstaller bundle。
     vec![
-        // == 重量级可选模块 (向导中显示) ==
         ("vector-memory", "向量记忆增强", "语义搜索与向量记忆 (sentence-transformers + chromadb)", &["sentence-transformers", "chromadb"], 500, "core"),
         ("browser", "浏览器自动化", "Playwright 浏览器 + browser-use AI 代理", &["playwright", "browser-use", "langchain-openai"], 200, "core"),
         ("whisper", "语音识别", "OpenAI Whisper 语音转文字", &["openai-whisper", "static-ffmpeg"], 300, "core"),
         ("orchestration", "多Agent协同", "ZeroMQ 多 Agent 协同通信", &["pyzmq"], 10, "core"),
-        // == IM 通道适配器 (仅在设置页显示，配置通道时按需安装) ==
-        ("im-feishu", "飞书通道", "飞书 IM 机器人适配器", &["lark-oapi"], 5, "im"),
-        ("im-dingtalk", "钉钉通道", "钉钉 IM 机器人 (Stream 模式)", &["dingtalk-stream"], 5, "im"),
-        ("im-wework", "企业微信通道", "企业微信机器人回调适配器", &["pycryptodome"], 3, "im"),
-        ("im-qqbot", "QQ机器人", "QQ 官方机器人适配器", &["qq-botpy"], 10, "im"),
-        ("im-onebot", "OneBot协议", "NapCat/Lagrange 等 OneBot 协议适配器", &["websockets"], 2, "im"),
     ]
 }
 

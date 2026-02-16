@@ -124,6 +124,13 @@ hidden_imports_core = [
     "pywinauto.controls.uiawrapper",
     "mss",                      # Screenshot capture (~1MB)
     "mss.tools",
+    # -- IM channel adapters (small, bundled to avoid install-on-config bugs) --
+    "lark_oapi",                # Feishu/Lark (~3MB)
+    "dingtalk_stream",          # DingTalk Stream (~2MB)
+    "Crypto",                   # pycryptodome for WeWork (~3MB)
+    "Crypto.Cipher",
+    "Crypto.Cipher.AES",
+    "botpy",                    # QQ Bot (~5MB)
 ]
 
 hidden_imports_full = [

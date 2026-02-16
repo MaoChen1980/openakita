@@ -7189,7 +7189,7 @@ export function App() {
                 已为你推荐常用模块，如不需要可取消勾选。模块安装后也可在设置中管理。
               </p>
               <div className="obModuleList">
-                {obModules.filter((m) => m.category !== "im").map((m) => (
+                {obModules.map((m) => (
                   <label key={m.id} className={`obModuleItem ${m.installed || m.bundled ? "obModuleInstalled" : ""}`}
                     style={obSelectedModules.has(m.id) && !m.installed && !m.bundled ? { borderColor: "#5B8DEF", background: "#f0f5ff" } : {}}
                   >
@@ -7478,80 +7478,65 @@ export function App() {
       return <IMView serviceRunning={serviceStatus?.running ?? false} />;
     }
     if (view === "modules") {
-      const categoryOrder = ["core", "im"] as const;
-      const categoryLabels: Record<string, string> = {
-        core: t("modules.categoryCore"),
-        im: t("modules.categoryIM"),
-      };
-      const renderModuleItem = (m: ModuleInfo) => (
-        <div key={m.id} className={`obModuleItem ${m.installed || m.bundled ? "obModuleInstalled" : ""}`}>
-          <div className="obModuleInfo" style={{ flex: 1 }}>
-            <strong>{m.name}</strong>
-            <span className="obModuleDesc">{m.description}</span>
-            <span className="obModuleSize">~{m.sizeMb} MB</span>
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {(m.installed || m.bundled) ? (
-              <>
-                <span className="obModuleBadge">{t("modules.installed")}</span>
-                <button
-                  className="btnSmall"
-                  style={{ color: "#ef4444" }}
-                  onClick={async () => {
-                    try {
-                      await invoke("uninstall_module", { moduleId: m.id });
-                      setNotice(t("modules.uninstalled", { name: m.name }));
-                      obLoadModules();
-                    } catch (e) {
-                      setError(String(e));
-                    }
-                  }}
-                  disabled={m.bundled}
-                  title={m.bundled ? t("modules.bundledCannotUninstall") : t("modules.uninstall")}
-                >
-                  {t("modules.uninstall")}
-                </button>
-              </>
-            ) : (
-              <button
-                className="btnPrimary btnSmall"
-                onClick={async () => {
-                  try {
-                    setBusy(t("modules.installing", { name: m.name }));
-                    await invoke("install_module", { moduleId: m.id, mirror: null });
-                    setNotice(t("modules.installSuccess", { name: m.name }));
-                    obLoadModules();
-                  } catch (e) {
-                    setError(String(e));
-                  } finally {
-                    setBusy(null);
-                  }
-                }}
-                disabled={!!busy}
-              >
-                {t("modules.install")}
-              </button>
-            )}
-          </div>
-        </div>
-      );
       return (
         <div className="card">
           <h2 className="cardTitle">{t("modules.title")}</h2>
           <p style={{ color: "#64748b", fontSize: 13, marginBottom: 16 }}>{t("modules.desc")}</p>
-          {categoryOrder.map((cat) => {
-            const items = obModules.filter((m) => m.category === cat);
-            if (items.length === 0) return null;
-            return (
-              <div key={cat} style={{ marginBottom: 20 }}>
-                <h3 style={{ fontSize: 14, fontWeight: 600, color: "#475569", margin: "0 0 8px", paddingBottom: 6, borderBottom: "1px solid #e2e8f0" }}>
-                  {categoryLabels[cat] || cat}
-                </h3>
-                <div className="obModuleList">{items.map(renderModuleItem)}</div>
+          <div className="obModuleList">
+            {obModules.map((m) => (
+              <div key={m.id} className={`obModuleItem ${m.installed || m.bundled ? "obModuleInstalled" : ""}`}>
+                <div className="obModuleInfo" style={{ flex: 1 }}>
+                  <strong>{m.name}</strong>
+                  <span className="obModuleDesc">{m.description}</span>
+                  <span className="obModuleSize">~{m.sizeMb} MB</span>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  {(m.installed || m.bundled) ? (
+                    <>
+                      <span className="obModuleBadge">{t("modules.installed")}</span>
+                      <button
+                        className="btnSmall"
+                        style={{ color: "#ef4444" }}
+                        onClick={async () => {
+                          try {
+                            await invoke("uninstall_module", { moduleId: m.id });
+                            setNotice(t("modules.uninstalled", { name: m.name }));
+                            obLoadModules();
+                          } catch (e) {
+                            setError(String(e));
+                          }
+                        }}
+                        disabled={m.bundled}
+                        title={m.bundled ? t("modules.bundledCannotUninstall") : t("modules.uninstall")}
+                      >
+                        {t("modules.uninstall")}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="btnPrimary btnSmall"
+                      onClick={async () => {
+                        try {
+                          setBusy(t("modules.installing", { name: m.name }));
+                          await invoke("install_module", { moduleId: m.id, mirror: null });
+                          setNotice(t("modules.installSuccess", { name: m.name }));
+                          obLoadModules();
+                        } catch (e) {
+                          setError(String(e));
+                        } finally {
+                          setBusy(null);
+                        }
+                      }}
+                      disabled={!!busy}
+                    >
+                      {t("modules.install")}
+                    </button>
+                  )}
+                </div>
               </div>
-            );
-          })}
-          {obModules.length === 0 && <p style={{ color: "#94a3b8" }}>{t("modules.loading")}</p>}
+            ))}
+            {obModules.length === 0 && <p style={{ color: "#94a3b8" }}>{t("modules.loading")}</p>}
+          </div>
           <button className="btnSmall" style={{ marginTop: 16 }} onClick={obLoadModules} disabled={!!busy}>
             {t("modules.refresh")}
           </button>
