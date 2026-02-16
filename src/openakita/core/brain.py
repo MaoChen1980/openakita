@@ -832,7 +832,7 @@ class Brain:
         Truncation 规则:
         - text: 保留完整
         - thinking: truncate 到 500 字符
-        - tool_use: name/id 完整保留，input truncate 到 2000 字符
+        - tool_use: name/id 完整保留，input 完整保留（便于诊断截断问题）
         """
         blocks = []
 
@@ -846,7 +846,7 @@ class Brain:
                     "type": "tool_use",
                     "id": tc.id,
                     "name": tc.name,
-                    "input": input_str[:2000],
+                    "input": input_str,
                 })
             return blocks
 
@@ -875,7 +875,7 @@ class Brain:
                     "type": "tool_use",
                     "id": bid,
                     "name": name,
-                    "input": input_str[:2000],
+                    "input": input_str,
                 })
             else:
                 blocks.append({"type": str(block_type), "raw": str(block)[:500]})

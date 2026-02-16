@@ -9,10 +9,14 @@ import json
 import logging
 import re
 import uuid
+from pathlib import Path
 
 from ..types import Tool, ToolUseBlock
 
 logger = logging.getLogger(__name__)
+
+# JSON 解析失败时写入 input 的标记键，供 ToolExecutor 拦截
+PARSE_ERROR_KEY = "__parse_error__"
 
 
 def _try_repair_json(s: str) -> dict | None:
@@ -33,7 +37,7 @@ def _try_repair_json(s: str) -> dict | None:
         return None
 
     # 尝试逐步补齐
-    for suffix in ['"}', '"}', '"}}}', '"}}}}}', '"}]}'  , '"}]}', '"]}'  , '"}'  , '}', '}}', '}}}']:
+    for suffix in ['"}', '"}}', '"}}}}', '"}]}'  , '"]}'  , '"}'  , '}', '}}', '}}}']:
         try:
             result = json.loads(s + suffix)
             if isinstance(result, dict):
@@ -42,6 +46,24 @@ def _try_repair_json(s: str) -> dict | None:
             continue
 
     return None
+
+
+def _dump_raw_arguments(tool_name: str, arguments: str) -> None:
+    """将解析失败的原始 arguments 写入诊断文件，方便排查截断问题。"""
+    try:
+        from datetime import datetime
+
+        debug_dir = Path("data/llm_debug")
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        dump_file = debug_dir / f"truncated_args_{tool_name}_{ts}.txt"
+        dump_file.write_text(arguments, encoding="utf-8")
+        logger.info(
+            f"[TOOL_CALL] Raw truncated arguments ({len(arguments)} chars) "
+            f"saved to {dump_file}"
+        )
+    except Exception as exc:
+        logger.warning(f"[TOOL_CALL] Failed to dump raw arguments: {exc}")
 
 
 def convert_tools_to_openai(tools: list[Tool]) -> list[dict]:
@@ -131,20 +153,37 @@ def convert_tool_calls_from_openai(tool_calls: list[dict]) -> list[ToolUseBlock]
                 try:
                     input_dict = json.loads(arguments)
                 except json.JSONDecodeError as je:
-                    # 大参数 JSON 可能被 API 截断，记录详细日志以便排查
                     tool_name = func.get("name", "?")
-                    arg_preview = arguments[:200] + "..." if len(arguments) > 200 else arguments
+                    arg_len = len(arguments)
+                    arg_preview = arguments[:300] + "..." if arg_len > 300 else arguments
                     logger.warning(
                         f"[TOOL_CALL] JSON parse failed for tool '{tool_name}': "
-                        f"{je} | arg_len={len(arguments)} | preview={arg_preview!r}"
+                        f"{je} | arg_len={arg_len} | preview={arg_preview!r}"
                     )
                     # 尝试修复截断的 JSON（补齐缺少的引号和括号）
                     input_dict = _try_repair_json(arguments)
-                    if input_dict is None:
-                        input_dict = {}
+                    if input_dict is not None:
+                        logger.info(
+                            f"[TOOL_CALL] JSON repair succeeded for tool '{tool_name}' "
+                            f"(recovered {len(input_dict)} keys)"
+                        )
+                    else:
+                        # ★ 不再静默回退为 {}。
+                        # 将错误信息放入 input，由 ToolExecutor 拦截并
+                        # 返回给 LLM，让模型知道参数被截断，可自行重试。
+                        _dump_raw_arguments(tool_name, arguments)
+                        err_msg = (
+                            f"⚠️ 你的工具调用 '{tool_name}' 的 JSON 参数被 API 截断或格式错误 "
+                            f"(共 {arg_len} 字符)，无法解析。\n"
+                            "请缩短参数内容后重试，例如：\n"
+                            "- 对于 write_file：将大文件拆分为多次小写入\n"
+                            "- 对于其他工具：精简参数，避免在参数中嵌入过长文本"
+                        )
+                        input_dict = {PARSE_ERROR_KEY: err_msg}
                         logger.error(
                             f"[TOOL_CALL] JSON repair failed for tool '{tool_name}', "
-                            f"falling back to empty dict. Full args ({len(arguments)} chars) dumped above."
+                            f"injecting parse error marker. "
+                            f"Raw args ({arg_len} chars) dumped to data/llm_debug/."
                         )
             else:
                 input_dict = arguments

@@ -78,6 +78,18 @@ class ToolExecutor:
         """
         logger.info(f"Executing tool: {tool_name} with {tool_input}")
 
+        # ★ 拦截 JSON 解析失败的工具调用（参数被 API 截断）
+        # convert_tool_calls_from_openai() 在 JSON 解析失败时会注入 __parse_error__
+        from ..llm.converters.tools import PARSE_ERROR_KEY
+
+        if isinstance(tool_input, dict) and PARSE_ERROR_KEY in tool_input:
+            err_msg = tool_input[PARSE_ERROR_KEY]
+            logger.warning(
+                f"[ToolExecutor] Skipping tool '{tool_name}' due to parse error: "
+                f"{err_msg[:200]}"
+            )
+            return err_msg
+
         # Plan 模式强制检查
         plan_block = self._check_plan_required(tool_name, session_id)
         if plan_block:
