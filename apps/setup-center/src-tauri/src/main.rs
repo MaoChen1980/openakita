@@ -947,6 +947,7 @@ fn stop_service_pid_entry(ent: &ServicePidEntry, port: Option<u16>) -> Result<()
         graceful_stop_pid(ent.pid, port)?;
     }
     let _ = fs::remove_file(PathBuf::from(&ent.pid_file));
+    remove_heartbeat_file(&ent.workspace_id);
     Ok(())
 }
 
