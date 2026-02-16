@@ -114,24 +114,48 @@ def get_pip_command(packages: list[str]) -> list[str] | None:
 
 
 def inject_module_paths() -> None:
-    """将 ~/.openakita/modules/*/site-packages 注入 sys.path（兜底机制）。
+    """将可选模块的 site-packages 目录注入 sys.path。
 
-    在 PyInstaller 打包环境中，Rust 端通过 PYTHONPATH 环境变量注入模块路径，
-    但在 CLI 直接运行或 PYTHONPATH 未设置时，此函数作为兜底确保已安装的
-    可选模块能被正确发现。
+    路径来源（按优先级）：
+    1. OPENAKITA_MODULE_PATHS 环境变量 — Tauri 端通过此变量传递已安装模块路径
+    2. 扫描 ~/.openakita/modules/*/site-packages — 兜底机制
+
+    重要：必须使用 sys.path.append() 而非 insert(0)！
+    PyInstaller 打包环境中，内置模块（如 pydantic）位于 _MEIPASS/_internal 目录
+    且在 sys.path 前端。如果外部模块路径被插入到前面，外部的 pydantic 会覆盖
+    内置版本，其 C 扩展 pydantic_core._pydantic_core 与 PyInstaller 环境不兼容，
+    导致进程在 import 阶段直接崩溃。
+
+    注意：Tauri 端不使用 PYTHONPATH 注入模块路径，因为 Python 启动时
+    PYTHONPATH 会被自动插入到 sys.path 最前面，无法保证内置模块优先。
     """
     if not IS_FROZEN:
         return
-    modules_base = _get_openakita_root() / "modules"
-    if not modules_base.exists():
-        return
+
+    import os
+
     injected = []
-    for module_dir in modules_base.iterdir():
-        if not module_dir.is_dir():
-            continue
-        sp = module_dir / "site-packages"
-        if sp.is_dir() and str(sp) not in sys.path:
-            sys.path.insert(0, str(sp))
-            injected.append(module_dir.name)
+
+    # 来源 1：从 OPENAKITA_MODULE_PATHS 环境变量读取（Tauri 端设置）
+    env_paths = os.environ.get("OPENAKITA_MODULE_PATHS", "")
+    if env_paths:
+        sep = ";" if sys.platform == "win32" else ":"
+        for p in env_paths.split(sep):
+            p = p.strip()
+            if p and p not in sys.path:
+                sys.path.append(p)
+                injected.append(Path(p).parent.name)
+
+    # 来源 2：扫描 ~/.openakita/modules/*/site-packages（兜底）
+    modules_base = _get_openakita_root() / "modules"
+    if modules_base.exists():
+        for module_dir in modules_base.iterdir():
+            if not module_dir.is_dir():
+                continue
+            sp = module_dir / "site-packages"
+            if sp.is_dir() and str(sp) not in sys.path:
+                sys.path.append(str(sp))
+                injected.append(module_dir.name)
+
     if injected:
-        logger.debug(f"已注入模块路径: {', '.join(injected)}")
+        logger.debug(f"已注入模块路径（追加到 sys.path 末尾）: {', '.join(injected)}")

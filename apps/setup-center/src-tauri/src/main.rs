@@ -147,7 +147,8 @@ fn get_backend_executable(venv_dir: &str) -> (PathBuf, Vec<String>) {
     (py, vec!["-m".into(), "openakita.main".into(), "serve".into()])
 }
 
-/// 构建模块 PYTHONPATH 环境变量（自动从 module_definitions 获取模块列表）
+/// 构建可选模块路径字符串（自动从 module_definitions 获取模块列表）
+/// 返回 path-separated 的 site-packages 目录列表，用于 OPENAKITA_MODULE_PATHS 环境变量
 fn build_modules_pythonpath() -> Option<String> {
     let base = modules_dir();
     if !base.exists() {
@@ -2040,17 +2041,14 @@ fn openakita_service_start(venv_dir: String, workspace_id: String) -> Result<Ser
     }
     cmd.env("LLM_ENDPOINTS_CONFIG", ws_dir.join("data").join("llm_endpoints.json"));
 
-    // 设置模块 PYTHONPATH (已安装的可选模块 site-packages)
+    // 设置可选模块路径（已安装的可选模块 site-packages）
+    // 重要：不能使用 PYTHONPATH！Python 启动时 PYTHONPATH 会被插入到 sys.path
+    // 最前面，覆盖 PyInstaller 内置的包（如 pydantic），导致外部 pydantic 的
+    // C 扩展 pydantic_core._pydantic_core 加载失败，进程在 import 阶段崩溃。
+    // 改用自定义环境变量 OPENAKITA_MODULE_PATHS，由 Python 端的
+    // inject_module_paths() 读取并 append 到 sys.path 末尾。
     if let Some(extra_path) = build_modules_pythonpath() {
-        // 追加到已有 PYTHONPATH
-        let existing = std::env::var("PYTHONPATH").unwrap_or_default();
-        let sep = if cfg!(windows) { ";" } else { ":" };
-        let combined = if existing.is_empty() {
-            extra_path
-        } else {
-            format!("{}{}{}", extra_path, sep, existing)
-        };
-        cmd.env("PYTHONPATH", combined);
+        cmd.env("OPENAKITA_MODULE_PATHS", extra_path);
     }
 
     // detach + redirect io
