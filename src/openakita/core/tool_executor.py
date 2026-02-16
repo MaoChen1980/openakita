@@ -8,11 +8,14 @@
 - Handler 互斥锁管理 (browser/desktop/mcp)
 - 结构化错误处理 (ToolError)
 - Plan 模式检查
+- 通用截断守卫 (大结果自动截断 + 溢出文件)
 """
 
 import asyncio
 import logging
 import time
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from ..config import settings
@@ -22,6 +25,44 @@ from ..tracing.tracer import get_tracer
 from .agent_state import TaskState
 
 logger = logging.getLogger(__name__)
+
+# ========== 通用截断守卫常量 ==========
+MAX_TOOL_RESULT_CHARS = 16000  # 通用截断阈值 (~8000 tokens)
+OVERFLOW_MARKER = "[OUTPUT_TRUNCATED]"  # 截断标记，已含此标记的不二次截断
+_OVERFLOW_DIR = Path("data/tool_overflow")
+_OVERFLOW_MAX_FILES = 50  # 溢出目录保留的最大文件数
+
+
+def save_overflow(tool_name: str, content: str) -> str:
+    """将大输出保存到溢出文件，返回文件路径。
+
+    供 tool_executor 和各 handler 共用。
+    """
+    try:
+        _OVERFLOW_DIR.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        filename = f"{tool_name}_{ts}.txt"
+        filepath = _OVERFLOW_DIR / filename
+        filepath.write_text(content, encoding="utf-8")
+        _cleanup_overflow_files(_OVERFLOW_DIR, _OVERFLOW_MAX_FILES)
+        logger.info(
+            f"[Overflow] Saved {len(content)} chars to {filepath}"
+        )
+        return str(filepath)
+    except Exception as exc:
+        logger.warning(f"[Overflow] Failed to save overflow file: {exc}")
+        return "(溢出文件保存失败)"
+
+
+def _cleanup_overflow_files(directory: Path, max_files: int) -> None:
+    """清理溢出目录，只保留最近 max_files 个文件。"""
+    try:
+        files = sorted(directory.glob("*.txt"), key=lambda f: f.stat().st_mtime)
+        if len(files) > max_files:
+            for f in files[: len(files) - max_files]:
+                f.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 class ToolExecutor:
@@ -125,6 +166,9 @@ class ToolExecutor:
                     result += "\n\n[执行日志]:\n"
                     for log in new_logs[-10:]:
                         result += f"[{log['level']}] {log['module']}: {log['message']}\n"
+
+                # ★ 通用截断守卫：工具自身未做截断时的安全网
+                result = self._guard_truncate(tool_name, result)
 
                 span.set_attribute("result_length", len(result))
                 return result
@@ -329,6 +373,33 @@ class ToolExecutor:
                 delivery_receipts = receipts_item
 
         return tool_results, executed_tool_names, delivery_receipts
+
+    @staticmethod
+    def _guard_truncate(tool_name: str, result: str) -> str:
+        """通用截断守卫：如果工具自身未截断且结果超长，在此兜底。
+
+        - 已含 OVERFLOW_MARKER 的跳过（工具自行处理过了）
+        - 超限时保存完整输出到溢出文件，截断并附加分页提示
+        """
+        if not result or len(result) <= MAX_TOOL_RESULT_CHARS:
+            return result
+        if OVERFLOW_MARKER in result:
+            return result  # 工具自己已处理
+
+        overflow_path = save_overflow(tool_name, result)
+        total_chars = len(result)
+        truncated = result[:MAX_TOOL_RESULT_CHARS]
+        hint = (
+            f"\n\n{OVERFLOW_MARKER} 工具 '{tool_name}' 输出共 {total_chars} 字符，"
+            f"已截断到前 {MAX_TOOL_RESULT_CHARS} 字符。\n"
+            f"完整输出已保存到: {overflow_path}\n"
+            f'使用 read_file(path="{overflow_path}", offset=1, limit=300) 查看完整内容。'
+        )
+        logger.info(
+            f"[Guard] Truncated {tool_name} output: {total_chars} → {MAX_TOOL_RESULT_CHARS} chars, "
+            f"overflow saved to {overflow_path}"
+        )
+        return truncated + hint
 
     def _check_plan_required(self, tool_name: str, session_id: str | None) -> str | None:
         """

@@ -292,6 +292,11 @@ BROWSER_TOOLS = [
                     "description": "返回格式：text（纯文本，默认）或 html（HTML 源码）",
                     "default": "text",
                 },
+                "max_length": {
+                    "type": "integer",
+                    "description": "最大返回字符数，默认 12000。超出部分保存到溢出文件，可用 read_file 分页读取",
+                    "default": 12000,
+                },
             },
             "required": [],
         },

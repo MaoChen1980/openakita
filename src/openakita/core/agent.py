@@ -4642,6 +4642,9 @@ NEXT: 建议的下一步（如有）"""
                 for log in new_logs[-10:]:  # 最多显示 10 条
                     result += f"[{log['level']}] {log['module']}: {log['message']}\n"
 
+            # ★ 通用截断守卫（与 ToolExecutor._guard_truncate 逻辑一致）
+            result = ToolExecutor._guard_truncate(tool_name, result)
+
             return result
 
         except Exception as e:

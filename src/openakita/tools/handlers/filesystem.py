@@ -147,8 +147,11 @@ class FilesystemHandler:
         )
         return f'python "{tmp.name}"'
 
+    # run_shell 成功输出最大行数
+    SHELL_MAX_LINES = 200
+
     async def _run_shell(self, params: dict) -> str:
-        """执行 Shell 命令"""
+        """执行 Shell 命令（大输出自动截断 + 溢出文件）"""
         command = params["command"]
         timeout = params.get("timeout", 60)
         timeout = max(10, min(timeout, 600))
@@ -166,12 +169,9 @@ class FilesystemHandler:
                         logger.warning(msg)
                         return msg
                 except re.error:
-                    # 忽略无效 regex
                     continue
 
-        # Windows 多行 python -c 修复：
-        # Windows cmd.exe 无法正确处理 python -c 中的换行符，导致 stdout 为空。
-        # 自动将多行 python -c 命令写入临时文件后执行。
+        # Windows 多行 python -c 修复
         import platform
         if platform.system() == "Windows":
             command = self._fix_windows_python_c(command)
@@ -194,11 +194,13 @@ class FilesystemHandler:
                 message=f"$ {command}\n[exit: 0]\n{result.stdout}"
                 + (f"\n[stderr]: {result.stderr}" if result.stderr else ""),
             )
-            # 即使成功，也返回 stderr 中的警告信息
             output = result.stdout
             if result.stderr:
                 output += f"\n[警告]:\n{result.stderr}"
-            return f"命令执行成功 (exit code: 0):\n{output}"
+
+            # 成功输出截断 + 溢出文件
+            full_text = f"命令执行成功 (exit code: 0):\n{output}"
+            return self._truncate_shell_output(full_text)
         else:
             log_buffer.add_log(
                 level="ERROR",
@@ -210,13 +212,11 @@ class FilesystemHandler:
                 """失败时强限长：只保留尾部，避免注入过多终端日志。"""
                 if not text:
                     return ""
-                # 先按行取尾部
                 lines = text.splitlines()
                 if len(lines) > max_lines:
                     lines = lines[-max_lines:]
                     text = "\n".join(lines)
                     text = f"...(已截断，仅保留最后 {max_lines} 行)\n{text}"
-                # 再按字符强裁剪
                 if len(text) > max_chars:
                     text = text[-max_chars:]
                     text = f"...(已截断，仅保留最后 {max_chars} 字符)\n{text}"
@@ -229,10 +229,33 @@ class FilesystemHandler:
                 output_parts.append(f"[stderr-tail]:\n{_tail(result.stderr)}")
             if not result.stdout and not result.stderr:
                 output_parts.append("(无输出，可能命令不存在或语法错误)")
-            output_parts.append(
+
+            # 失败输出也可能很大，使用同样的溢出机制
+            full_error = "\n".join(output_parts)
+            truncated_result = self._truncate_shell_output(full_error)
+            truncated_result += (
                 "\n提示: 如果不确定原因，可以调用 get_session_logs 查看详细日志，或尝试其他命令。"
             )
-            return "\n".join(output_parts)
+            return truncated_result
+
+    def _truncate_shell_output(self, text: str) -> str:
+        """截断 shell 输出，大输出保存到溢出文件并附分页提示。"""
+        lines = text.split("\n")
+        if len(lines) <= self.SHELL_MAX_LINES:
+            return text
+
+        total_lines = len(lines)
+        from ...core.tool_executor import save_overflow
+        overflow_path = save_overflow("run_shell", text)
+        truncated = "\n".join(lines[: self.SHELL_MAX_LINES])
+        truncated += (
+            f"\n\n[OUTPUT_TRUNCATED] 命令输出共 {total_lines} 行，"
+            f"已显示前 {self.SHELL_MAX_LINES} 行。\n"
+            f"完整输出已保存到: {overflow_path}\n"
+            f'使用 read_file(path="{overflow_path}", offset={self.SHELL_MAX_LINES + 1}) '
+            f"查看后续内容。"
+        )
+        return truncated
 
     async def _write_file(self, params: dict) -> str:
         """写入文件"""
@@ -256,31 +279,105 @@ class FilesystemHandler:
         await self.agent.file_tool.write(path, content)
         return f"文件已写入: {path}"
 
+    # read_file 默认最大行数（参考 Claude Code 的 2000 行，我们用 300 更保守）
+    READ_FILE_DEFAULT_LIMIT = 300
+
     async def _read_file(self, params: dict) -> str:
-        """读取文件"""
+        """读取文件（支持 offset/limit 分页）"""
+        path = params.get("path", "")
+        if not path:
+            return "❌ read_file 缺少必要参数 'path'。"
+
         policy = self._get_fix_policy()
         if policy:
-            target = self._resolve_to_abs(params["path"])
+            target = self._resolve_to_abs(path)
             read_roots = policy.get("read_roots") or []
             if not self._is_under_any_root(target, read_roots):
                 msg = f"❌ 自检自动修复护栏：禁止读取该路径。\n目标: {target}"
                 logger.warning(msg)
                 return msg
-        content = await self.agent.file_tool.read(params["path"])
-        return f"文件内容:\n{content}"
+
+        content = await self.agent.file_tool.read(path)
+
+        offset = params.get("offset", 1)  # 起始行号（1-based），默认第 1 行
+        limit = params.get("limit", self.READ_FILE_DEFAULT_LIMIT)
+
+        # 确保 offset/limit 合法
+        try:
+            offset = max(1, int(offset))
+            limit = max(1, int(limit))
+        except (TypeError, ValueError):
+            offset, limit = 1, self.READ_FILE_DEFAULT_LIMIT
+
+        lines = content.split("\n")
+        total_lines = len(lines)
+
+        # 如果文件在 limit 范围内且从头读取，直接返回全部
+        if total_lines <= limit and offset <= 1:
+            return f"文件内容 ({total_lines} 行):\n{content}"
+
+        # 分页截取
+        start = offset - 1  # 转为 0-based
+        end = min(start + limit, total_lines)
+
+        if start >= total_lines:
+            return (
+                f"⚠️ offset={offset} 超出文件范围（文件共 {total_lines} 行）。\n"
+                f'使用 read_file(path="{path}", offset=1, limit={limit}) 从头开始读取。'
+            )
+
+        shown = "\n".join(lines[start:end])
+        result = f"文件内容 (第 {start+1}-{end} 行，共 {total_lines} 行):\n{shown}"
+
+        # 如果还有更多内容，附加分页提示
+        if end < total_lines:
+            remaining = total_lines - end
+            result += (
+                f"\n\n[OUTPUT_TRUNCATED] 文件共 {total_lines} 行，"
+                f"当前显示第 {start+1}-{end} 行，剩余 {remaining} 行。\n"
+                f'使用 read_file(path="{path}", offset={end+1}, limit={limit}) '
+                f"查看后续内容。"
+            )
+
+        return result
+
+    # list_directory 默认最大条目数
+    LIST_DIR_DEFAULT_MAX = 200
 
     async def _list_directory(self, params: dict) -> str:
-        """列出目录"""
+        """列出目录（支持 max_items 限制）"""
+        path = params.get("path", "")
+        if not path:
+            return "❌ list_directory 缺少必要参数 'path'。"
+
         policy = self._get_fix_policy()
         if policy:
-            target = self._resolve_to_abs(params["path"])
+            target = self._resolve_to_abs(path)
             read_roots = policy.get("read_roots") or []
             if not self._is_under_any_root(target, read_roots):
                 msg = f"❌ 自检自动修复护栏：禁止列出该目录。\n目标: {target}"
                 logger.warning(msg)
                 return msg
-        files = await self.agent.file_tool.list_dir(params["path"])
-        return "目录内容:\n" + "\n".join(files)
+
+        files = await self.agent.file_tool.list_dir(path)
+        max_items = params.get("max_items", self.LIST_DIR_DEFAULT_MAX)
+        try:
+            max_items = max(1, int(max_items))
+        except (TypeError, ValueError):
+            max_items = self.LIST_DIR_DEFAULT_MAX
+
+        total = len(files)
+        if total <= max_items:
+            return f"目录内容 ({total} 条):\n" + "\n".join(files)
+
+        shown = files[:max_items]
+        result = f"目录内容 (显示前 {max_items} 条，共 {total} 条):\n" + "\n".join(shown)
+        result += (
+            f"\n\n[OUTPUT_TRUNCATED] 目录共 {total} 条目，已显示前 {max_items} 条。\n"
+            f"如需查看更多，请使用 list_directory(path=\"{path}\", max_items={total}) "
+            f"或缩小查询范围。"
+        )
+        return result
 
 
 def create_handler(agent: "Agent"):

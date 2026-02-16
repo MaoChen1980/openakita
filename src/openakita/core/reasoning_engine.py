@@ -525,9 +525,9 @@ class ReasoningEngine:
                     recent_tool_signatures = []
                     no_confirmation_text_count = 0
 
-            # 上下文压缩
+            # 上下文压缩（不限 iteration > 0，只要有足够消息就检查）
             _ctx_compressed_info: dict | None = None
-            if iteration > 0:
+            if len(working_messages) > 2:
                 _before_tokens = self._context_manager.estimate_messages_tokens(working_messages)
                 working_messages = await self._context_manager.compress_if_needed(
                     working_messages,
@@ -1154,9 +1154,9 @@ class ReasoningEngine:
                 if state.status != TaskStatus.REASONING:
                     state.transition(TaskStatus.REASONING)
 
-                # --- 上下文压缩（从第 2 轮迭代开始） ---
+                # --- 上下文压缩（不限 iteration > 0，只要有足够消息就检查） ---
                 _ctx_compressed_info: dict | None = None
-                if _iteration > 0:
+                if len(working_messages) > 2:
                     effective_prompt = _build_effective_prompt()  # 每轮刷新 Plan
                     _before_tokens = self._context_manager.estimate_messages_tokens(working_messages)
                     working_messages = await self._context_manager.compress_if_needed(
