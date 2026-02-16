@@ -104,6 +104,28 @@ hidden_imports_core = [
     "nest_asyncio",
     # -- Lightweight runtime dependencies (frequently used, small footprint) --
     "ddgs",                     # DuckDuckGo search (~2MB)
+    "ddgs.engines",             # ddgs 搜索引擎模块 (pkgutil 动态发现)
+    "ddgs.engines.bing",
+    "ddgs.engines.brave",
+    "ddgs.engines.duckduckgo",
+    "ddgs.engines.duckduckgo_images",
+    "ddgs.engines.duckduckgo_news",
+    "ddgs.engines.duckduckgo_videos",
+    "ddgs.engines.google",
+    "ddgs.engines.grokipedia",
+    "ddgs.engines.mojeek",
+    "ddgs.engines.wikipedia",
+    "ddgs.engines.yahoo",
+    "ddgs.engines.yahoo_news",
+    "ddgs.engines.yandex",
+    "ddgs.engines.annasarchive",
+    "primp",                    # ddgs HTTP 客户端 (Rust .pyd)
+    "lxml",                     # ddgs HTML 解析
+    "lxml.html",
+    "lxml.etree",
+    "fake_useragent",           # ddgs 随机 User-Agent
+    "h2",                       # ddgs HTTP/2 支持
+    "httpcore",                 # httpx 传输层
     "psutil",                   # Process info (~1MB)
     "pyperclip",                # Clipboard (~50KB)
     "websockets",               # WebSocket protocol (~500KB)

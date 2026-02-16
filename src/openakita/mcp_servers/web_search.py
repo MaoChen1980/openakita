@@ -12,6 +12,7 @@ Web Search MCP 服务器
 """
 
 import logging
+import traceback
 
 from mcp.server.fastmcp import FastMCP
 
@@ -102,8 +103,9 @@ def web_search(
             )
             return _format_web_results(results)
     except Exception as e:
-        logger.error(f"Web search failed: {e}")
-        return f"搜索失败: {str(e)}"
+        tb = traceback.format_exc()
+        logger.error(f"Web search failed: {type(e).__name__}: {e}\n{tb}")
+        return f"搜索失败: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
@@ -138,19 +140,18 @@ def news_search(
 
     try:
         with DDGS() as ddgs:
-            results = list(
-                ddgs.news(
-                    query,
-                    max_results=max_results,
-                    region=region,
-                    safesearch=safesearch,
-                    timelimit=timelimit,
-                )
+            results = ddgs.news(
+                query,
+                max_results=max_results,
+                region=region,
+                safesearch=safesearch,
+                timelimit=timelimit,
             )
             return _format_news_results(results)
     except Exception as e:
-        logger.error(f"News search failed: {e}")
-        return f"新闻搜索失败: {str(e)}"
+        tb = traceback.format_exc()
+        logger.error(f"News search failed: {type(e).__name__}: {e}\n{tb}")
+        return f"新闻搜索失败: {type(e).__name__}: {e}"
 
 
 # 作为模块运行时启动服务器

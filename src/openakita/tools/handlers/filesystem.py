@@ -236,9 +236,15 @@ class FilesystemHandler:
 
     async def _write_file(self, params: dict) -> str:
         """写入文件"""
+        path = params.get("path")
+        content = params.get("content")
+        if not path:
+            return "❌ write_file 缺少必要参数 'path'。请提供文件路径和内容后重试。"
+        if content is None:
+            return "❌ write_file 缺少必要参数 'content'。请提供文件内容后重试。"
         policy = self._get_fix_policy()
         if policy:
-            target = self._resolve_to_abs(params["path"])
+            target = self._resolve_to_abs(path)
             write_roots = policy.get("write_roots") or []
             if not self._is_under_any_root(target, write_roots):
                 msg = (
@@ -247,8 +253,8 @@ class FilesystemHandler:
                 )
                 logger.warning(msg)
                 return msg
-        await self.agent.file_tool.write(params["path"], params["content"])
-        return f"文件已写入: {params['path']}"
+        await self.agent.file_tool.write(path, content)
+        return f"文件已写入: {path}"
 
     async def _read_file(self, params: dict) -> str:
         """读取文件"""

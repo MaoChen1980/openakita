@@ -254,23 +254,33 @@ jobs:
         working-directory: apps/setup-center
         run: npm ci
 
-      - name: Pre-extract linuxdeploy for FUSE-less runners
+      - name: Setup linuxdeploy (extract to bypass FUSE requirement)
         if: startsWith(matrix.platform, 'ubuntu')
         run: |
-          CACHE_DIR="${HOME}/.cache/tauri/linuxdeploy"
-          mkdir -p "$CACHE_DIR"
-          cd "$CACHE_DIR"
-          if [ ! -f linuxdeploy-x86_64.AppImage ]; then
-            curl -fSL -o linuxdeploy-x86_64.AppImage \
-              https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy/linuxdeploy-x86_64.AppImage
-          fi
+          WORK_DIR="/tmp/linuxdeploy-setup"
+          mkdir -p "$WORK_DIR"
+          cd "$WORK_DIR"
+
+          # Download linuxdeploy AppImage
+          curl -fSL -o linuxdeploy-x86_64.AppImage \
+            https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy/linuxdeploy-x86_64.AppImage
           chmod +x linuxdeploy-x86_64.AppImage
-          ./linuxdeploy-x86_64.AppImage --appimage-extract 2>/dev/null || true
-          if [ -d squashfs-root ]; then
-            cp squashfs-root/AppRun linuxdeploy-x86_64.AppImage.bak || true
-            cat squashfs-root/AppRun > linuxdeploy-x86_64
-            chmod +x linuxdeploy-x86_64
-            echo "linuxdeploy extracted successfully"
+
+          # Extract (works without FUSE)
+          ./linuxdeploy-x86_64.AppImage --appimage-extract || true
+
+          # Create a wrapper that runs the extracted version
+          EXTRACTED="$WORK_DIR/squashfs-root/AppRun"
+          if [ -f "$EXTRACTED" ]; then
+            WRAPPER="/usr/local/bin/linuxdeploy-x86_64.AppImage"
+            echo '#!/bin/bash' | sudo tee "$WRAPPER" > /dev/null
+            echo "export APPDIR=\"$WORK_DIR/squashfs-root\"" | sudo tee -a "$WRAPPER" > /dev/null
+            echo "exec \"$EXTRACTED\" \"\$@\"" | sudo tee -a "$WRAPPER" > /dev/null
+            sudo chmod +x "$WRAPPER"
+            echo "✓ linuxdeploy wrapper installed at $WRAPPER"
+            linuxdeploy-x86_64.AppImage --list-plugins 2>&1 || true
+          else
+            echo "⚠ AppImage extraction failed, falling back to APPIMAGE_EXTRACT_AND_RUN"
           fi
 
       - name: Build Tauri bundles
