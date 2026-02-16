@@ -263,12 +263,23 @@ _rud_dir = str(Path(_rud.__file__).parent)
 datas.append((_rud_dir, "rich/_unicode_data"))
 
 # fake_useragent 数据文件 (browsers.jsonl)
-# fake_useragent 使用 importlib.resources 动态加载数据文件，PyInstaller 无法自动捕获
+# fake_useragent 使用 importlib.resources.files("fake_useragent.data") 动态加载数据文件。
+# importlib.resources 要求 fake_useragent.data 是可导入的包，但该目录缺少 __init__.py
+# （隐式命名空间包在 PyInstaller 中不工作）。
+# 解决：① 将数据文件打包到 fake_useragent/data/ ② 创建临时 __init__.py 一起打包
 try:
     import fake_useragent as _fua
     _fua_data_dir = Path(_fua.__file__).parent / "data"
     if _fua_data_dir.exists():
         datas.append((str(_fua_data_dir), "fake_useragent/data"))
+        # 确保 data 目录有 __init__.py，使 importlib.resources 能将其作为包导入
+        _fua_init = _fua_data_dir / "__init__.py"
+        if not _fua_init.exists():
+            import tempfile as _tmpmod
+            _tmp_init = Path(_tmpmod.gettempdir()) / "fake_useragent_data_init.py"
+            _tmp_init.write_text("# auto-generated for PyInstaller\n", encoding="utf-8")
+            datas.append((str(_tmp_init), "fake_useragent/data"))
+            print(f"[spec] Created temporary __init__.py for fake_useragent.data")
         print(f"[spec] Bundling fake_useragent data: {_fua_data_dir}")
 except ImportError:
     print("[spec] WARNING: fake_useragent not installed, data files not bundled")

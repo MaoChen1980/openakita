@@ -130,8 +130,9 @@ class AnthropicProvider(LLMProvider):
             self.mark_unhealthy(f"Timeout: {detail}")
             raise LLMError(f"Request timeout: {detail}")
         except httpx.RequestError as e:
-            self.mark_unhealthy(f"Request error: {e}")
-            raise LLMError(f"Request failed: {e}")
+            detail = f"{type(e).__name__}: {e}" if str(e) else f"{type(e).__name__}({repr(e)})"
+            self.mark_unhealthy(f"Request error: {detail}")
+            raise LLMError(f"Request failed: {detail}")
 
     async def chat_stream(self, request: LLMRequest) -> AsyncIterator[dict]:
         """流式聊天请求"""
@@ -169,6 +170,10 @@ class AnthropicProvider(LLMProvider):
             detail = f"{type(e).__name__}: {e}"
             self.mark_unhealthy(f"Timeout: {detail}")
             raise LLMError(f"Stream timeout: {detail}")
+        except httpx.RequestError as e:
+            detail = f"{type(e).__name__}: {e}" if str(e) else f"{type(e).__name__}({repr(e)})"
+            self.mark_unhealthy(f"Stream request error: {detail}")
+            raise LLMError(f"Stream request failed: {detail}")
 
     def _build_headers(self) -> dict:
         """构建请求头"""

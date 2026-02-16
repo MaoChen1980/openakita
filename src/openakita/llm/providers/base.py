@@ -117,14 +117,16 @@ class LLMProvider(ABC):
             因为重试不会改变结果，升级毫无意义。
             全局故障（shorten_cooldown）产生的短冷静期也不计入连续次数。
         """
+        was_already_unhealthy = not self._healthy
         self._healthy = False
         self._last_error = error
         self._error_category = category or self._classify_error(error)
 
         # 累计连续冷静期次数
-        # 结构性错误不累计：每次重试结果相同（如 "does not support thinking"），
-        # 累计到升级阈值只会造成无意义的 1 小时锁定
-        if self._error_category != "structural":
+        # - 只在从健康 → 不健康时递增（同一轮重试中多次 mark_unhealthy 不重复计数）
+        # - 结构性错误不累计：每次重试结果相同（如 "does not support thinking"），
+        #   累计到升级阈值只会造成无意义的 1 小时锁定
+        if self._error_category != "structural" and not was_already_unhealthy:
             self._consecutive_cooldowns += 1
 
         # 连续 N 次非结构性失败 → 升级到 1 小时冷静期
