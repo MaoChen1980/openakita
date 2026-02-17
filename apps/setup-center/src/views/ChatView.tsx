@@ -2710,6 +2710,13 @@ export function ChatView({
                       </span>
                       <div className="queuedItemActions">
                         <button
+                          className="queuedItemBtn queuedItemSendBtn"
+                          onClick={() => handleSendQueuedNow(qm.id)}
+                          title={t("chat.sendNow")}
+                        >
+                          <IconSend size={12} />
+                        </button>
+                        <button
                           className="queuedItemBtn"
                           onClick={() => handleEditQueued(qm.id)}
                           title={t("chat.editMessage")}

@@ -1704,6 +1704,10 @@ button:disabled {
   cursor: default;
 }
 
+.queuedItemSendBtn:hover {
+  color: var(--brand, #0ea5e9) !important;
+}
+
 .queuedItemDeleteBtn:hover {
   color: var(--danger, #ef4444) !important;
 }
