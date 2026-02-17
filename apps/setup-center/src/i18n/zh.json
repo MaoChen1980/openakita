@@ -433,6 +433,7 @@
     "subtitle": "配置 AI 模型端点，支持主备自动切换",
     "addEndpoint": "添加端点",
     "editEndpoint": "编辑端点",
+    "editProviderHint": "服务商在创建时确定，不可更改",
     "noEndpoints": "暂无端点，点击上方按钮添加",
     "primary": "主",
     "setPrimary": "设为主",

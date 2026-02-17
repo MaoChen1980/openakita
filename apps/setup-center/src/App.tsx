@@ -5555,7 +5555,7 @@ export function App() {
           </div>
         )}
 
-        {/* ── Edit endpoint modal (existing) ── */}
+        {/* ── Edit endpoint modal (aligned with add dialog) ── */}
         {editModalOpen && editDraft && (
           <div className="modalOverlay" onClick={() => resetEndpointEditor()}>
             <div className="modalContent" onClick={(e) => e.stopPropagation()}>
@@ -5564,10 +5564,22 @@ export function App() {
                 <button className="dialogCloseBtn" onClick={() => resetEndpointEditor()}><IconX size={14} /></button>
               </div>
               <div className="dialogBody">
+
+              {/* Provider (read-only) */}
               <div className="dialogSection">
-                <div className="dialogLabel">Base URL</div>
-                <input value={editDraft.baseUrl || ""} onChange={(e) => setEditDraft({ ...editDraft, baseUrl: e.target.value })} />
+                <div className="dialogLabel">{t("llm.provider")}</div>
+                <input value={(() => { const p = providers.find((x) => x.slug === editDraft.providerSlug); return p ? p.name : (editDraft.providerSlug || "custom"); })()} disabled style={{ opacity: 0.7, cursor: "not-allowed" }} />
+                <div className="help" style={{ fontSize: 11, marginTop: 2 }}>{t("llm.editProviderHint") || "服务商在创建时确定，不可更改"}</div>
               </div>
+
+              {/* Base URL */}
+              <div className="dialogSection">
+                <div className="dialogLabel">{t("llm.baseUrl")}</div>
+                <input value={editDraft.baseUrl || ""} onChange={(e) => setEditDraft({ ...editDraft, baseUrl: e.target.value })} />
+                <div className="help" style={{ marginTop: 4, paddingLeft: 2 }}>{t("llm.baseUrlHint")}</div>
+              </div>
+
+              {/* API Key */}
               <div className="dialogSection">
                 <div className="dialogLabel">API Key {isLocalProvider(providers.find((p) => p.slug === editDraft.providerSlug)) && <span style={{ color: "var(--muted)", fontSize: 11, fontWeight: 400 }}>({t("llm.localNoKey")})</span>}</div>
                 <div style={{ position: "relative" }}>
@@ -5578,6 +5590,8 @@ export function App() {
                 </div>
                 {isLocalProvider(providers.find((p) => p.slug === editDraft.providerSlug)) && <div className="help" style={{ marginTop: 4, paddingLeft: 2, color: "var(--brand)" }}>{t("llm.localHint")}</div>}
               </div>
+
+              {/* Model */}
               <div className="dialogSection">
                 <div className="dialogLabel">{t("status.model")}</div>
                 <SearchSelect
@@ -5600,44 +5614,71 @@ export function App() {
                   </div>
                 )}
               </div>
-              {/* 高级参数设置 */}
+
+              {/* Capabilities as chips */}
+              <div className="dialogSection">
+                <div className="dialogLabel">{t("llm.capabilities")}</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {[
+                    { k: "text", name: t("llm.capText") },
+                    { k: "thinking", name: t("llm.capThinking") },
+                    { k: "vision", name: t("llm.capVision") },
+                    { k: "video", name: t("llm.capVideo") },
+                    { k: "tools", name: t("llm.capTools") },
+                  ].map((c) => {
+                    const on = (editDraft.caps || []).includes(c.k);
+                    return (
+                      <span key={c.k} className={`capChip ${on ? "capChipActive" : ""}`}
+                        onClick={() => setEditDraft((d) => {
+                          if (!d) return d;
+                          const set = new Set(d.caps || []);
+                          if (set.has(c.k)) set.delete(c.k); else set.add(c.k);
+                          const out = Array.from(set);
+                          return { ...d, caps: out.length ? out : ["text"] };
+                        })}
+                      >{on ? "\u2713 " : ""}{c.name}</span>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Advanced (collapsed) */}
               <details style={{ margin: "8px 0 4px 0" }}>
                 <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 500, color: "var(--fg-secondary, #888)", userSelect: "none", padding: "4px 0" }}>
                   ⚙ {t("llm.advancedParams") || t("llm.advanced") || "高级参数"}
                 </summary>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, padding: "8px 0 4px 0" }}>
-                  <div className="dialogSection" style={{ margin: 0 }}>
-                    <div className="dialogLabel" style={{ fontSize: 12 }}>Max Tokens</div>
-                    <input
-                      type="number"
-                      min={0}
-                      value={editDraft.maxTokens}
-                      onChange={(e) => setEditDraft({ ...editDraft, maxTokens: Math.max(0, parseInt(e.target.value) || 0) })}
-                      style={{ width: "100%" }}
-                    />
-                    <div className="help" style={{ fontSize: 11, marginTop: 2 }}>0 = 使用模型默认值</div>
+                <div style={{ padding: "8px 0 4px 0" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 10 }}>
+                    <div className="dialogSection" style={{ margin: 0 }}>
+                      <div className="dialogLabel" style={{ fontSize: 12 }}>API Type</div>
+                      <select value={editDraft.apiType} onChange={(e) => setEditDraft({ ...editDraft, apiType: e.target.value as any })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }}>
+                        <option value="openai">openai</option>
+                        <option value="anthropic">anthropic</option>
+                      </select>
+                    </div>
+                    <div className="dialogSection" style={{ margin: 0 }}>
+                      <div className="dialogLabel" style={{ fontSize: 12 }}>Key Env Name</div>
+                      <input value={editDraft.apiKeyEnv} onChange={(e) => setEditDraft({ ...editDraft, apiKeyEnv: e.target.value })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }} />
+                    </div>
                   </div>
-                  <div className="dialogSection" style={{ margin: 0 }}>
-                    <div className="dialogLabel" style={{ fontSize: 12 }}>Context Window</div>
-                    <input
-                      type="number"
-                      min={1024}
-                      value={editDraft.contextWindow}
-                      onChange={(e) => setEditDraft({ ...editDraft, contextWindow: Math.max(1024, parseInt(e.target.value) || 150000) })}
-                      style={{ width: "100%" }}
-                    />
-                    <div className="help" style={{ fontSize: 11, marginTop: 2 }}>上下文窗口 (tokens)</div>
-                  </div>
-                  <div className="dialogSection" style={{ margin: 0 }}>
-                    <div className="dialogLabel" style={{ fontSize: 12 }}>Timeout (s)</div>
-                    <input
-                      type="number"
-                      min={10}
-                      value={editDraft.timeout}
-                      onChange={(e) => setEditDraft({ ...editDraft, timeout: Math.max(10, parseInt(e.target.value) || 180) })}
-                      style={{ width: "100%" }}
-                    />
-                    <div className="help" style={{ fontSize: 11, marginTop: 2 }}>请求超时 (秒)</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+                    <div className="dialogSection" style={{ margin: 0 }}>
+                      <div className="dialogLabel" style={{ fontSize: 12 }}>Priority</div>
+                      <input type="number" value={editDraft.priority} onChange={(e) => setEditDraft({ ...editDraft, priority: Number(e.target.value) || 1 })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }} />
+                    </div>
+                    <div className="dialogSection" style={{ margin: 0 }}>
+                      <div className="dialogLabel" style={{ fontSize: 12 }}>Max Tokens</div>
+                      <input type="number" min={0} value={editDraft.maxTokens} onChange={(e) => setEditDraft({ ...editDraft, maxTokens: Math.max(0, parseInt(e.target.value) || 0) })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }} />
+                      <div className="help" style={{ fontSize: 11, marginTop: 2 }}>0 = 默认</div>
+                    </div>
+                    <div className="dialogSection" style={{ margin: 0 }}>
+                      <div className="dialogLabel" style={{ fontSize: 12 }}>Context Window</div>
+                      <input type="number" min={1024} value={editDraft.contextWindow} onChange={(e) => setEditDraft({ ...editDraft, contextWindow: Math.max(1024, parseInt(e.target.value) || 150000) })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }} />
+                    </div>
+                    <div className="dialogSection" style={{ margin: 0 }}>
+                      <div className="dialogLabel" style={{ fontSize: 12 }}>Timeout (s)</div>
+                      <input type="number" min={10} value={editDraft.timeout} onChange={(e) => setEditDraft({ ...editDraft, timeout: Math.max(10, parseInt(e.target.value) || 180) })} style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 13 }} />
+                    </div>
                   </div>
                 </div>
               </details>

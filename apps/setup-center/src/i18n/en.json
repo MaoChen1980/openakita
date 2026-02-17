@@ -433,6 +433,7 @@
     "subtitle": "Configure AI model endpoints with auto-failover",
     "addEndpoint": "Add Endpoint",
     "editEndpoint": "Edit Endpoint",
+    "editProviderHint": "Provider is set at creation and cannot be changed",
     "noEndpoints": "No endpoints yet. Click above to add one.",
     "primary": "Primary",
     "setPrimary": "Set primary",
