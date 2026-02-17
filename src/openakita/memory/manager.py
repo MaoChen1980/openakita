@@ -470,36 +470,37 @@ class MemoryManager:
             except Exception as e:
                 logger.warning(f"Failed to read MEMORY.md: {e}")
 
-        # 2. 向量搜索相关记忆（如果有任务描述）
-        if task_description and self.vector_store.enabled:
-            try:
-                related_ids = self.vector_store.search(
-                    query=task_description,
-                    limit=max_related,
-                    min_importance=0.5,
-                )
+        # 2. 搜索相关记忆（如果有任务描述）
+        if task_description:
+            related_memories = []
+            used_vector = False
 
-                if related_ids:
-                    # 获取完整记忆对象
-                    related_memories = []
+            # 优先尝试向量搜索
+            if self.vector_store.enabled:
+                try:
+                    related_ids = self.vector_store.search(
+                        query=task_description,
+                        limit=max_related,
+                        min_importance=0.5,
+                    )
                     for mid, _distance in related_ids:
                         memory = self._memories.get(mid)
                         if memory:
                             related_memories.append(memory)
-
                     if related_memories:
-                        lines.append("\n## 相关记忆（语义匹配）")
-                        for m in related_memories:
-                            lines.append(f"- [{m.type.value}] {m.content}")
+                        used_vector = True
+                except Exception as e:
+                    logger.warning(f"Vector search failed, falling back to keyword: {e}")
 
-            except Exception as e:
-                logger.warning(f"Vector search failed: {e}")
-                # 降级到关键词搜索
-                related = self._keyword_search(task_description, max_related)
-                if related:
-                    lines.append("\n## 相关记忆")
-                    for m in related:
-                        lines.append(f"- [{m.type.value}] {m.content}")
+            # 向量搜索不可用或无结果 → 回退关键词搜索
+            if not related_memories:
+                related_memories = self._keyword_search(task_description, max_related)
+
+            if related_memories:
+                search_type = "语义匹配" if used_vector else "关键词匹配"
+                lines.append(f"\n## 相关记忆（{search_type}）")
+                for m in related_memories:
+                    lines.append(f"- [{m.type.value}] {m.content}")
 
         return "\n".join(lines)
 

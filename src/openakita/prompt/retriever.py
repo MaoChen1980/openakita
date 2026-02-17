@@ -45,16 +45,17 @@ def retrieve_memory(
         lines.append("## 核心记忆\n")
         lines.append(core_memory)
 
-    # 2. 向量搜索相关记忆（仅在 query 非空时执行）
+    # 2. 搜索相关记忆（向量搜索优先，回退关键词搜索）
     if query and query.strip():
-        related = _search_related_memories(
+        related, used_vector = _search_related_memories(
             query=query,
             memory_manager=memory_manager,
             max_items=max_items,
             min_importance=min_importance,
         )
         if related:
-            lines.append("\n## 相关记忆（语义匹配）\n")
+            search_type = "语义匹配" if used_vector else "关键词匹配"
+            lines.append(f"\n## 相关记忆（{search_type}）\n")
             lines.append(related)
 
     # 3. 应用 token 限制
@@ -118,9 +119,9 @@ def _search_related_memories(
     memory_manager: "MemoryManager",
     max_items: int = 5,
     min_importance: float = 0.5,
-) -> str:
+) -> tuple[str, bool]:
     """
-    向量搜索相关记忆
+    搜索相关记忆（向量搜索优先，回退关键词搜索）
 
     Args:
         query: 查询文本
@@ -129,38 +130,43 @@ def _search_related_memories(
         min_importance: 最小重要性阈值
 
     Returns:
-        格式化的相关记忆
+        (格式化的相关记忆, 是否使用了向量搜索)
     """
     vector_store = getattr(memory_manager, "vector_store", None)
-    if not vector_store or not getattr(vector_store, "enabled", False):
-        return ""
 
-    try:
-        # 搜索相关记忆 ID
-        results = vector_store.search(
-            query=query,
-            limit=max_items,
-            min_importance=min_importance,
-        )
+    # 优先向量搜索
+    if vector_store and getattr(vector_store, "enabled", False):
+        try:
+            results = vector_store.search(
+                query=query,
+                limit=max_items,
+                min_importance=min_importance,
+            )
+            if results:
+                memories = getattr(memory_manager, "_memories", {})
+                lines = []
+                for memory_id, _distance in results:
+                    memory = memories.get(memory_id)
+                    if memory:
+                        content = getattr(memory, "content", str(memory))
+                        lines.append(f"- {content}")
+                if lines:
+                    return "\n".join(lines), True
+        except Exception as e:
+            logger.warning(f"Vector memory search failed, falling back to keyword: {e}")
 
-        if not results:
-            return ""
+    # 回退：关键词搜索
+    keyword_search = getattr(memory_manager, "_keyword_search", None)
+    if keyword_search:
+        try:
+            results = keyword_search(query, max_items)
+            if results:
+                lines = [f"- {getattr(m, 'content', str(m))}" for m in results]
+                return "\n".join(lines), False
+        except Exception as e:
+            logger.warning(f"Keyword memory search failed: {e}")
 
-        # 获取完整记忆对象
-        memories = getattr(memory_manager, "_memories", {})
-        lines = []
-
-        for memory_id, _distance in results:
-            memory = memories.get(memory_id)
-            if memory:
-                content = getattr(memory, "content", str(memory))
-                # 格式化输出
-                lines.append(f"- {content}")
-
-        return "\n".join(lines)
-    except Exception as e:
-        logger.warning(f"Memory search failed: {e}")
-        return ""
+    return "", False
 
 
 async def async_search_related_memories(
@@ -168,41 +174,48 @@ async def async_search_related_memories(
     memory_manager: "MemoryManager",
     max_items: int = 5,
     min_importance: float = 0.5,
-) -> str:
+) -> tuple[str, bool]:
     """
-    异步版本的语义搜索相关记忆（避免阻塞事件循环）
+    异步版本的搜索相关记忆（向量搜索优先，回退关键词搜索）
 
     参数和返回值与 _search_related_memories() 完全相同。
     """
     vector_store = getattr(memory_manager, "vector_store", None)
-    if not vector_store or not getattr(vector_store, "enabled", False):
-        return ""
 
-    try:
-        # 使用异步搜索
-        results = await vector_store.async_search(
-            query=query,
-            limit=max_items,
-            min_importance=min_importance,
-        )
+    # 优先向量搜索
+    if vector_store and getattr(vector_store, "enabled", False):
+        try:
+            results = await vector_store.async_search(
+                query=query,
+                limit=max_items,
+                min_importance=min_importance,
+            )
+            if results:
+                memories = getattr(memory_manager, "_memories", {})
+                lines = []
+                for memory_id, _distance in results:
+                    memory = memories.get(memory_id)
+                    if memory:
+                        content = getattr(memory, "content", str(memory))
+                        lines.append(f"- {content}")
+                if lines:
+                    return "\n".join(lines), True
+        except Exception as e:
+            logger.warning(f"Async vector memory search failed, falling back to keyword: {e}")
 
-        if not results:
-            return ""
+    # 回退：关键词搜索（同步，通过 to_thread 避免阻塞）
+    keyword_search = getattr(memory_manager, "_keyword_search", None)
+    if keyword_search:
+        try:
+            import asyncio
+            results = await asyncio.to_thread(keyword_search, query, max_items)
+            if results:
+                lines = [f"- {getattr(m, 'content', str(m))}" for m in results]
+                return "\n".join(lines), False
+        except Exception as e:
+            logger.warning(f"Async keyword memory search failed: {e}")
 
-        # 获取完整记忆对象
-        memories = getattr(memory_manager, "_memories", {})
-        lines = []
-
-        for memory_id, _distance in results:
-            memory = memories.get(memory_id)
-            if memory:
-                content = getattr(memory, "content", str(memory))
-                lines.append(f"- {content}")
-
-        return "\n".join(lines)
-    except Exception as e:
-        logger.warning(f"Async memory search failed: {e}")
-        return ""
+    return "", False
 
 
 def retrieve_memory_simple(

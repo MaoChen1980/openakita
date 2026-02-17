@@ -253,6 +253,8 @@ class VectorStore:
         - 正在加载 → 返回 False（调用方优雅降级）
         - 加载失败且冷却期已过 → 触发后台重试，返回 False
         """
+        global _sentence_transformers_available, _chromadb
+
         with self._lock:
             if self._init_state == "ready" and self._enabled:
                 return True
@@ -271,6 +273,10 @@ class VectorStore:
                     f"[VectorStore] 上次初始化失败已过 {elapsed:.0f}s，后台重新尝试..."
                 )
                 self._init_failed = False
+                # 重置全局导入缓存，允许重新尝试 import
+                # （模块可能在冷却期内通过设置中心安装）
+                _sentence_transformers_available = None
+                _chromadb = None
 
         # 触发后台重试
         self._start_background_init()

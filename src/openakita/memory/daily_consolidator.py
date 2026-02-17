@@ -478,49 +478,63 @@ class DailyConsolidator:
             if memory.id in deleted_ids:
                 continue
 
-            # 向量搜索找相似记忆
-            if not self.memory_manager.vector_store.enabled:
-                continue
-
-            similar = self.memory_manager.vector_store.search(
-                memory.content,
-                limit=5,
-                filter_type=memory.type.value,  # 只在同类型中查找
-            )
-
-            for other_id, distance in similar:
-                if other_id == memory.id or other_id in deleted_ids:
-                    continue
-
-                # 避免重复检查
-                pair_key = tuple(sorted([memory.id, other_id]))
-                if pair_key in checked_pairs:
-                    continue
-                checked_pairs.add(pair_key)
-
-                # 距离太远，跳过
-                if distance > self.DUPLICATE_DISTANCE_THRESHOLD:
-                    continue
-
-                other_memory = self.memory_manager._memories.get(other_id)
-                if not other_memory:
-                    continue
-
-                # 用 LLM 判断是否真的重复
-                is_dup = await self.memory_manager.check_duplicate_with_llm(
-                    memory.content, other_memory.content
+            if self.memory_manager.vector_store.enabled:
+                # 向量搜索找相似记忆
+                similar = self.memory_manager.vector_store.search(
+                    memory.content,
+                    limit=5,
+                    filter_type=memory.type.value,  # 只在同类型中查找
                 )
 
-                if is_dup:
-                    # 决定保留哪一条
-                    # 规则: 保留更重要的，同等重要保留更新的
-                    keep, remove = self._decide_which_to_keep(memory, other_memory)
+                for other_id, distance in similar:
+                    if other_id == memory.id or other_id in deleted_ids:
+                        continue
 
-                    logger.info(f"Duplicate found: '{remove.content}' -> keeping '{keep.content}'")
+                    pair_key = tuple(sorted([memory.id, other_id]))
+                    if pair_key in checked_pairs:
+                        continue
+                    checked_pairs.add(pair_key)
 
-                    # 删除重复的
-                    self.memory_manager.delete_memory(remove.id)
-                    deleted_ids.add(remove.id)
+                    if distance > self.DUPLICATE_DISTANCE_THRESHOLD:
+                        continue
+
+                    other_memory = self.memory_manager._memories.get(other_id)
+                    if not other_memory:
+                        continue
+
+                    is_dup = await self.memory_manager.check_duplicate_with_llm(
+                        memory.content, other_memory.content
+                    )
+
+                    if is_dup:
+                        keep, remove = self._decide_which_to_keep(memory, other_memory)
+                        logger.info(f"Duplicate found: '{remove.content}' -> keeping '{keep.content}'")
+                        self.memory_manager.delete_memory(remove.id)
+                        deleted_ids.add(remove.id)
+            else:
+                # 回退：字符串前缀匹配去重（向量库不可用时）
+                strip = self.memory_manager._strip_common_prefix
+                core_a = strip(memory.content)
+                for other in memories:
+                    if other.id == memory.id or other.id in deleted_ids:
+                        continue
+                    if other.type != memory.type:
+                        continue
+
+                    pair_key = tuple(sorted([memory.id, other.id]))
+                    if pair_key in checked_pairs:
+                        continue
+                    checked_pairs.add(pair_key)
+
+                    core_b = strip(other.content)
+                    if core_a == core_b:
+                        keep, remove = self._decide_which_to_keep(memory, other)
+                        logger.info(
+                            f"Duplicate found (string match): "
+                            f"'{remove.content}' -> keeping '{keep.content}'"
+                        )
+                        self.memory_manager.delete_memory(remove.id)
+                        deleted_ids.add(remove.id)
 
         if deleted_ids:
             logger.info(f"Removed {len(deleted_ids)} duplicate memories")
