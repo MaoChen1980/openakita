@@ -8271,6 +8271,12 @@ export function App() {
               <p style={{ fontSize: 13, color: "#64748b", margin: "0 0 8px", lineHeight: 1.5 }}>
                 已为你推荐常用模块，如不需要可取消勾选。模块安装后也可在设置中管理。
               </p>
+              <div style={{
+                fontSize: 12, color: "#475569", marginBottom: 12, padding: "10px 14px",
+                background: "#f1f5f9", borderRadius: 8, border: "1px solid #e2e8f0", lineHeight: 1.6,
+              }}>
+                <strong style={{ color: "#334155" }}>说明：</strong>上述可选模块包含本地模型与插件资源，体积较大，下载耗时较长（预计最长约 30～60 分钟）。若暂不需要可取消勾选，后续可在左侧栏「模块」中按需安装；安装后可提升记忆、浏览器、语音等能力，建议在网络稳定时下载。
+              </div>
               <div className="obModuleList">
                 {obModules.map((m) => (
                   <label key={m.id} className={`obModuleItem ${m.installed || m.bundled ? "obModuleInstalled" : ""}`}
@@ -8430,6 +8436,9 @@ export function App() {
           <div className="obPage">
             <div className="obContent" style={{ display: "flex", flexDirection: "column", gap: 0, flex: 1, minHeight: 0 }}>
               <h2 className="obStepTitle">{t("onboarding.progress.title")}</h2>
+              <p style={{ fontSize: 12, color: "#64748b", margin: "0 0 12px", lineHeight: 1.5 }}>
+                模块与运行环境体积较大，安装过程中请耐心等待，请勿关闭本窗口。
+              </p>
 
               {/* ── 任务进度列表 ── */}
               <div style={{
