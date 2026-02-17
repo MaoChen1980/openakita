@@ -1043,7 +1043,7 @@ class LLMClient:
 
     def has_any_endpoint_with_capability(self, capability: str) -> bool:
         """检查是否有任何端点支持指定能力（供 Agent 查询）"""
-        return any(p.config.has_capability(capability) for p in self._providers)
+        return any(p.config.has_capability(capability) for p in self._providers.values())
 
     def _has_tool_context(self, messages: list[Message]) -> bool:
         """检查消息中是否包含工具调用上下文（tool_use 或 tool_result）
