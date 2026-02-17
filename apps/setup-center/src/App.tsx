@@ -1118,6 +1118,16 @@ export function App() {
   const [compilerCodingPlan, setCompilerCodingPlan] = useState(false);
   const [compilerModels, setCompilerModels] = useState<ListedModel[]>([]); // models fetched for compiler section
 
+  // STT endpoint form state（与 LLM/Compiler 完全独立，避免互相影响）
+  const [sttProviderSlug, setSttProviderSlug] = useState("");
+  const [sttApiType, setSttApiType] = useState<"openai" | "anthropic">("openai");
+  const [sttBaseUrl, setSttBaseUrl] = useState("");
+  const [sttApiKeyEnv, setSttApiKeyEnv] = useState("");
+  const [sttApiKeyValue, setSttApiKeyValue] = useState("");
+  const [sttModel, setSttModel] = useState("");
+  const [sttEndpointName, setSttEndpointName] = useState("");
+  const [sttModels, setSttModels] = useState<ListedModel[]>([]);
+
   // Edit endpoint modal (do not reuse the "add" form)
   const [editingOriginalName, setEditingOriginalName] = useState<string | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -2475,6 +2485,44 @@ export function App() {
     }
   }
 
+  async function doFetchSttModels() {
+    const sttSelectedProvider = providers.find((p) => p.slug === sttProviderSlug) || null;
+    const isSttLocal = isLocalProvider(sttSelectedProvider);
+    if (!sttApiKeyValue.trim() && !isSttLocal) {
+      setError("请先填写 STT 端点的 API Key 值");
+      return;
+    }
+    if (!sttBaseUrl.trim()) {
+      setError("请先填写 STT 端点的 Base URL");
+      return;
+    }
+    setError(null);
+    setSttModels([]);
+    setBusy("拉取 STT 端点模型列表...");
+    try {
+      const effectiveKey = sttApiKeyValue.trim() || (isSttLocal ? localProviderPlaceholderKey(sttSelectedProvider) : "");
+      const parsed = await fetchModelListUnified({
+        apiType: sttApiType,
+        baseUrl: sttBaseUrl,
+        providerSlug: sttProviderSlug || null,
+        apiKey: effectiveKey,
+      });
+      setSttModels(parsed);
+      setSttModel("");
+      if (parsed.length > 0) {
+        setNotice(t("llm.fetchSuccess", { count: parsed.length }));
+      } else {
+        setError(t("llm.fetchErrorEmpty"));
+      }
+    } catch (e: any) {
+      const raw = String(e?.message || e);
+      const sprov = providers.find((p) => p.slug === sttProviderSlug);
+      setError(friendlyFetchError(raw, t, sprov?.name));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function doSaveCompilerEndpoint(): Promise<boolean> {
     if (!currentWorkspaceId && dataMode !== "remote") {
       setError("请先创建/选择一个当前工作区");
@@ -2610,17 +2658,16 @@ export function App() {
       setError("请先创建/选择一个当前工作区");
       return false;
     }
-    if (!compilerModel.trim()) {
+    if (!sttModel.trim()) {
       setError("请填写 STT 模型名称");
       return false;
     }
-    const sttSelectedProvider = providers.find((p) => p.slug === compilerProviderSlug) || null;
+    const sttSelectedProvider = providers.find((p) => p.slug === sttProviderSlug) || null;
     const isSttLocal = isLocalProvider(sttSelectedProvider);
-    // apiKeyEnv 兜底：即使用户没有手动编辑也能生成合理的环境变量名
-    const effectiveSttApiKeyEnv = compilerApiKeyEnv.trim()
+    const effectiveSttApiKeyEnv = sttApiKeyEnv.trim()
       || sttSelectedProvider?.api_key_env_suggestion
-      || envKeyFromSlug(compilerProviderSlug || "custom");
-    const effectiveSttApiKeyValue = compilerApiKeyValue.trim() || (isSttLocal ? localProviderPlaceholderKey(sttSelectedProvider) : "");
+      || envKeyFromSlug(sttProviderSlug || "custom");
+    const effectiveSttApiKeyValue = sttApiKeyValue.trim() || (isSttLocal ? localProviderPlaceholderKey(sttSelectedProvider) : "");
     if (!isSttLocal && !effectiveSttApiKeyValue) {
       setError("请填写 STT 端点的 API Key 值");
       return false;
@@ -2628,7 +2675,6 @@ export function App() {
     setBusy("保存 STT 端点...");
     setError(null);
     try {
-      // Write API key to .env
       const sttEnvPayload = { entries: { [effectiveSttApiKeyEnv]: effectiveSttApiKeyValue } };
       if (shouldUseHttpApi()) {
         try {
@@ -2653,7 +2699,6 @@ export function App() {
       }
       setEnvDraft((e) => envSet(e, effectiveSttApiKeyEnv, effectiveSttApiKeyValue));
 
-      // Read existing JSON
       let currentJson = "";
       try {
         currentJson = await readWorkspaceFile("data/llm_endpoints.json");
@@ -2661,7 +2706,7 @@ export function App() {
       const base = currentJson ? JSON.parse(currentJson) : { endpoints: [], settings: {} };
       base.stt_endpoints = Array.isArray(base.stt_endpoints) ? base.stt_endpoints : [];
 
-      const baseName = (compilerEndpointName.trim() || `stt-${compilerProviderSlug || "provider"}-${compilerModel.trim()}`).slice(0, 64);
+      const baseName = (sttEndpointName.trim() || `stt-${sttProviderSlug || "provider"}-${sttModel.trim()}`).slice(0, 64);
       const usedNames = new Set(base.stt_endpoints.map((e: any) => String(e?.name || "")).filter(Boolean));
       let name = baseName;
       if (usedNames.has(name)) {
@@ -2673,11 +2718,11 @@ export function App() {
 
       const endpoint = {
         name,
-        provider: compilerProviderSlug || "custom",
-        api_type: compilerApiType,
-        base_url: compilerBaseUrl,
+        provider: sttProviderSlug || "custom",
+        api_type: sttApiType,
+        base_url: sttBaseUrl,
         api_key_env: effectiveSttApiKeyEnv,
-        model: compilerModel.trim(),
+        model: sttModel.trim(),
         priority: base.stt_endpoints.length + 1,
         max_tokens: 0,
         context_window: 0,
@@ -2689,11 +2734,11 @@ export function App() {
 
       await writeWorkspaceFile("data/llm_endpoints.json", JSON.stringify(base, null, 2) + "\n");
 
-      // Reset form
-      setCompilerModel("");
-      setCompilerApiKeyValue("");
-      setCompilerEndpointName("");
-      setCompilerBaseUrl("");
+      setSttModel("");
+      setSttApiKeyValue("");
+      setSttEndpointName("");
+      setSttBaseUrl("");
+      setSttModels([]);
       setNotice(`STT 端点 ${name} 已保存`);
       await loadSavedEndpoints();
       return true;
@@ -5323,7 +5368,7 @@ export function App() {
               <div className="statusCardLabel">{t("llm.stt")}</div>
               <div className="cardHint" style={{ fontSize: 11 }}>{t("llm.sttHint")}</div>
             </div>
-            <button className="btnSmall btnSmallPrimary" onClick={() => { doLoadProviders(); setAddSttDialogOpen(true); }} disabled={!!busy}>
+            <button className="btnSmall btnSmallPrimary" onClick={() => { doLoadProviders(); setSttProviderSlug(""); setSttApiType("openai"); setSttBaseUrl(""); setSttApiKeyEnv(""); setSttApiKeyValue(""); setSttModel(""); setSttEndpointName(""); setSttModels([]); setAddSttDialogOpen(true); }} disabled={!!busy}>
               + {t("llm.addStt")}
             </button>
           </div>
@@ -5901,27 +5946,27 @@ export function App() {
               <div className="dialogSection">
                 <div className="dialogLabel">{t("llm.provider")}</div>
                 <ProviderSearchSelect
-                  value={compilerProviderSlug}
+                  value={sttProviderSlug}
                   onChange={(slug) => {
-                    setCompilerProviderSlug(slug);
+                    setSttProviderSlug(slug);
                     if (slug === "__custom__") {
-                      setCompilerApiType("openai");
-                      setCompilerBaseUrl("");
-                      setCompilerApiKeyEnv("CUSTOM_STT_API_KEY");
-                      setCompilerApiKeyValue("");
+                      setSttApiType("openai");
+                      setSttBaseUrl("");
+                      setSttApiKeyEnv("CUSTOM_STT_API_KEY");
+                      setSttApiKeyValue("");
                     } else {
                       const p = providers.find((x) => x.slug === slug);
                       if (p) {
-                        setCompilerApiType((p.api_type as any) || "openai");
-                        setCompilerBaseUrl(p.default_base_url || "");
+                        setSttApiType((p.api_type as any) || "openai");
+                        setSttBaseUrl(p.default_base_url || "");
                         const suggested = p.api_key_env_suggestion || envKeyFromSlug(p.slug);
                         const used = new Set(Object.keys(envDraft || {}));
                         for (const ep of [...savedEndpoints, ...savedCompilerEndpoints, ...savedSttEndpoints]) { if (ep.api_key_env) used.add(ep.api_key_env); }
-                        setCompilerApiKeyEnv(nextEnvKeyName(suggested, used));
+                        setSttApiKeyEnv(nextEnvKeyName(suggested, used));
                         if (isLocalProvider(p)) {
-                          setCompilerApiKeyValue(localProviderPlaceholderKey(p));
+                          setSttApiKeyValue(localProviderPlaceholderKey(p));
                         } else {
-                          setCompilerApiKeyValue("");
+                          setSttApiKeyValue("");
                         }
                       }
                     }
@@ -5932,37 +5977,36 @@ export function App() {
               </div>
               <div className="dialogSection">
                 <div className="dialogLabel">{t("llm.baseUrl")}</div>
-                <input value={compilerBaseUrl} onChange={(e) => setCompilerBaseUrl(e.target.value)} placeholder="https://api.example.com/v1" />
+                <input value={sttBaseUrl} onChange={(e) => setSttBaseUrl(e.target.value)} placeholder="https://api.example.com/v1" />
                 <div className="cardHint" style={{ fontSize: 11, marginTop: 2 }}>{t("llm.baseUrlHint")}</div>
               </div>
               <div className="dialogSection">
                 <div className="dialogLabel">{t("llm.apiKeyEnv")}</div>
-                <input value={compilerApiKeyEnv} onChange={(e) => setCompilerApiKeyEnv(e.target.value)} placeholder="MY_API_KEY" />
+                <input value={sttApiKeyEnv} onChange={(e) => setSttApiKeyEnv(e.target.value)} placeholder="MY_API_KEY" />
               </div>
               <div className="dialogSection">
-                <div className="dialogLabel">API Key {isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug)) && <span style={{ color: "var(--muted)", fontSize: 11, fontWeight: 400 }}>({t("llm.localNoKey")})</span>}</div>
-                <input value={compilerApiKeyValue} onChange={(e) => setCompilerApiKeyValue(e.target.value)} placeholder={isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug)) ? t("llm.localKeyPlaceholder") : "sk-..."} type="password" />
-                {isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug)) && (
+                <div className="dialogLabel">API Key {isLocalProvider(providers.find((p) => p.slug === sttProviderSlug)) && <span style={{ color: "var(--muted)", fontSize: 11, fontWeight: 400 }}>({t("llm.localNoKey")})</span>}</div>
+                <input value={sttApiKeyValue} onChange={(e) => setSttApiKeyValue(e.target.value)} placeholder={isLocalProvider(providers.find((p) => p.slug === sttProviderSlug)) ? t("llm.localKeyPlaceholder") : "sk-..."} type="password" />
+                {isLocalProvider(providers.find((p) => p.slug === sttProviderSlug)) && (
                   <div className="help" style={{ marginTop: 4, paddingLeft: 2, color: "var(--brand)" }}>{t("llm.localHint")}</div>
                 )}
               </div>
-              {/* Model name — always visible; fetch is optional */}
               <div className="dialogSection">
                 <div className="dialogLabel">{t("status.model")}</div>
-                <SearchSelect value={compilerModel} onChange={(v) => setCompilerModel(v)} options={compilerModels.map((m) => m.id)} placeholder={compilerModels.length > 0 ? t("llm.searchModel") : t("llm.modelPlaceholder")} disabled={!!busy} />
-                {compilerModels.length === 0 && (
+                <SearchSelect value={sttModel} onChange={(v) => setSttModel(v)} options={sttModels.map((m) => m.id)} placeholder={sttModels.length > 0 ? t("llm.searchModel") : t("llm.modelPlaceholder")} disabled={!!busy} />
+                {sttModels.length === 0 && (
                   <div className="help" style={{ marginTop: 4, paddingLeft: 2, display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{ opacity: 0.7 }}>{t("llm.modelManualHint")}</span>
-                    <button onClick={doFetchCompilerModels} className="btnSmall" disabled={(!compilerApiKeyValue.trim() && !isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug))) || !compilerBaseUrl.trim() || !!busy}
+                    <button onClick={doFetchSttModels} className="btnSmall" disabled={(!sttApiKeyValue.trim() && !isLocalProvider(providers.find((p) => p.slug === sttProviderSlug))) || !sttBaseUrl.trim() || !!busy}
                       style={{ fontSize: 11, padding: "2px 10px", borderRadius: 6 }}>
                       {t("llm.fetchModels")}
                     </button>
                   </div>
                 )}
-                {compilerModels.length > 0 && (
+                {sttModels.length > 0 && (
                   <div className="help" style={{ marginTop: 4, paddingLeft: 2, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ opacity: 0.6 }}>{t("llm.modelFetched", { count: compilerModels.length })}</span>
-                    <button onClick={doFetchCompilerModels} className="btnSmall" disabled={(!compilerApiKeyValue.trim() && !isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug))) || !compilerBaseUrl.trim() || !!busy}
+                    <span style={{ opacity: 0.6 }}>{t("llm.modelFetched", { count: sttModels.length })}</span>
+                    <button onClick={doFetchSttModels} className="btnSmall" disabled={(!sttApiKeyValue.trim() && !isLocalProvider(providers.find((p) => p.slug === sttProviderSlug))) || !sttBaseUrl.trim() || !!busy}
                       style={{ fontSize: 11, padding: "2px 10px", borderRadius: 6 }}>
                       {t("llm.refetch")}
                     </button>
@@ -5971,11 +6015,10 @@ export function App() {
               </div>
               <div className="dialogSection">
                 <div className="dialogLabel">{t("llm.endpointName")} <span style={{ color: "var(--muted)", fontSize: 11 }}>({t("common.optional")})</span></div>
-                <input value={compilerEndpointName} onChange={(e) => setCompilerEndpointName(e.target.value)} placeholder={`stt-${compilerProviderSlug || "custom"}-${compilerModel || "model"}`} />
+                <input value={sttEndpointName} onChange={(e) => setSttEndpointName(e.target.value)} placeholder={`stt-${sttProviderSlug || "custom"}-${sttModel || "model"}`} />
               </div>
               </div>
 
-              {/* 连接测试结果 */}
               {connTestResult && (
                 <div className={`connTestResult ${connTestResult.ok ? "connTestOk" : "connTestFail"}`}>
                   {connTestResult.ok
@@ -5990,21 +6033,21 @@ export function App() {
                   <button
                     className="btnSmall"
                     style={{ padding: "8px 16px", borderRadius: 8 }}
-                    disabled={(!compilerApiKeyValue.trim() && !isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug))) || !compilerBaseUrl.trim() || connTesting}
-                    onClick={() => { const _sp = providers.find((p) => p.slug === compilerProviderSlug); doTestConnection({
-                      testApiType: compilerApiType,
-                      testBaseUrl: compilerBaseUrl,
-                      testApiKey: compilerApiKeyValue.trim() || (isLocalProvider(_sp) ? localProviderPlaceholderKey(_sp) : ""),
-                      testProviderSlug: compilerProviderSlug || null,
+                    disabled={(!sttApiKeyValue.trim() && !isLocalProvider(providers.find((p) => p.slug === sttProviderSlug))) || !sttBaseUrl.trim() || connTesting}
+                    onClick={() => { const _sp = providers.find((p) => p.slug === sttProviderSlug); doTestConnection({
+                      testApiType: sttApiType,
+                      testBaseUrl: sttBaseUrl,
+                      testApiKey: sttApiKeyValue.trim() || (isLocalProvider(_sp) ? localProviderPlaceholderKey(_sp) : ""),
+                      testProviderSlug: sttProviderSlug || null,
                     }); }}
                   >
                     {connTesting ? t("llm.testTesting") : t("llm.testConnection")}
                   </button>
                   {(() => {
-                    const _isSttLocal = isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug));
+                    const _isSttLocal = isLocalProvider(providers.find((p) => p.slug === sttProviderSlug));
                     const sMissing: string[] = [];
-                    if (!compilerModel.trim()) sMissing.push(t("status.model"));
-                    if (!_isSttLocal && !compilerApiKeyValue.trim()) sMissing.push("API Key");
+                    if (!sttModel.trim()) sMissing.push(t("status.model"));
+                    if (!_isSttLocal && !sttApiKeyValue.trim()) sMissing.push("API Key");
                     if (!currentWorkspaceId && dataMode !== "remote") sMissing.push(t("workspace.title") || "工作区");
                     const sBtnDisabled = sMissing.length > 0 || !!busy;
                     return (
@@ -7718,6 +7761,29 @@ export function App() {
     let obLogPath: string | null = null;
     try {
       obLogPath = await invoke<string>("start_onboarding_log", { dateLabel });
+      // 写入配置快照（不记录密钥明文）
+      if (obLogPath) {
+        const configLines: string[] = [];
+        configLines.push("");
+        configLines.push("=== LLM 配置 ===");
+        if (savedEndpoints.length === 0) {
+          configLines.push("  (无)");
+        } else {
+          for (const e of savedEndpoints) {
+            configLines.push(`  - ${e.name}: base_url=${(e as any).base_url || ""}, model=${(e as any).model || ""}, api_key_env=${(e as any).api_key_env || "(无)"}`);
+          }
+        }
+        configLines.push("");
+        configLines.push("=== IM 配置（仅键名，不记录密钥值）===");
+        const imKeys = getAutoSaveKeysForStep("im");
+        for (const k of imKeys) {
+          const set = Object.prototype.hasOwnProperty.call(envDraft, k) && envDraft[k];
+          configLines.push(`  - ${k}: ${set ? "(已设置)" : "(未设置)"}`);
+        }
+        configLines.push("");
+        configLines.push("=== 流程日志 ===");
+        invoke("append_onboarding_log_lines", { logPath: obLogPath, lines: configLines }).catch(() => {});
+      }
     } catch {
       // 日志文件创建失败不影响主流程
     }
@@ -7760,11 +7826,22 @@ export function App() {
         invoke("append_onboarding_log", { logPath: obLogPath, line }).catch(() => {});
       }
     };
+    /** 将任务状态写入日志，便于排查 */
+    const logTask = (label: string, status: string, detail?: string) => {
+      const msg = detail ? `[任务] ${label}: ${status} - ${detail}` : `[任务] ${label}: ${status}`;
+      const now = new Date();
+      const ts = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+      const line = `[${ts}] ${msg}`;
+      if (obLogPath) {
+        invoke("append_onboarding_log", { logPath: obLogPath, line }).catch(() => {});
+      }
+    };
     let hasErr = false;
 
     try {
       // ── STEP: workspace ──
       updateTask("workspace", { status: "running" });
+      logTask("准备工作区", "running");
       let activeWsId = currentWorkspaceId;
       log(t("onboarding.progress.creatingWorkspace"));
       if (!activeWsId || !workspaces.length) {
@@ -7784,10 +7861,12 @@ export function App() {
         log(t("onboarding.progress.workspaceExists"));
       }
       updateTask("workspace", { status: "done" });
+      logTask("准备工作区", "done");
 
       // ── STEP: llm-config ──
       if (savedEndpoints.length > 0) {
         updateTask("llm-config", { status: "running" });
+        logTask("保存 LLM 配置", "running");
         const llmData = { endpoints: savedEndpoints, settings: {} };
         await invoke("workspace_write_file", {
           workspaceId: activeWsId,
@@ -7796,10 +7875,12 @@ export function App() {
         });
         log(t("onboarding.progress.llmConfigSaved"));
         updateTask("llm-config", { status: "done", detail: `${savedEndpoints.length} 个端点` });
+        logTask("保存 LLM 配置", "done", `${savedEndpoints.length} 个端点`);
       }
 
       // ── STEP: env-save ──
       updateTask("env-save", { status: "running" });
+      logTask("保存环境变量", "running");
       try {
         const imKeys = getAutoSaveKeysForStep("im");
         const envEntries: { key: string; value: string }[] = [];
@@ -7819,15 +7900,18 @@ export function App() {
           log(t("onboarding.progress.envSaved") || "✓ 环境变量已保存");
         }
         updateTask("env-save", { status: "done", detail: `${envEntries.length} 项` });
+        logTask("保存环境变量", "done", `${envEntries.length} 项`);
       } catch (e) {
         log(`⚠ 保存环境变量失败: ${String(e)}`);
         updateTask("env-save", { status: "error", detail: String(e) });
+        logTask("保存环境变量", "error", String(e));
         hasErr = true;
       }
 
       // ── STEP: python-check + modules ──
       if (obSelectedModules.size > 0) {
         updateTask("python-check", { status: "running" });
+        logTask("检查 Python 环境", "running");
         let pyReady = false;
         log("检查 Python 环境...");
         try {
@@ -7835,27 +7919,34 @@ export function App() {
           log(`✓ ${pyCheck}`);
           pyReady = true;
           updateTask("python-check", { status: "done", detail: pyCheck });
+          logTask("检查 Python 环境", "done", pyCheck);
         } catch {
           log("未找到 Python 环境，正在安装嵌入式 Python...");
           updateTask("python-check", { detail: "正在安装嵌入式 Python..." });
-          try {
-            await invoke("install_embedded_python", { pythonSeries: "3.11" });
+          logTask("检查 Python 环境", "running", "正在安装嵌入式 Python...");
+            try {
+            await invoke("install_embedded_python", { pythonSeries: "3.11", logPath: obLogPath ?? null });
             log("✓ 嵌入式 Python 安装完成");
             pyReady = true;
             updateTask("python-check", { status: "done", detail: "嵌入式 Python" });
+            logTask("检查 Python 环境", "done", "嵌入式 Python");
           } catch (pyErr) {
             log(`⚠ 嵌入式 Python 安装失败: ${String(pyErr)}`);
             updateTask("python-check", { status: "error", detail: String(pyErr) });
+            logTask("检查 Python 环境", "error", String(pyErr));
             hasErr = true;
           }
         }
 
         for (const moduleId of obSelectedModules) {
           const taskId = `module-${moduleId}`;
+          const taskLabel = `安装模块: ${moduleId}`;
           updateTask(taskId, { status: "running" });
+          logTask(taskLabel, "running");
           log(t("onboarding.progress.installingModule", { module: moduleId }));
           if (!pyReady) {
             updateTask(taskId, { status: "error", detail: "Python 环境不可用" });
+            logTask(taskLabel, "error", "Python 环境不可用");
             log(`⚠ 跳过 ${moduleId}: Python 环境不可用`);
             hasErr = true;
             continue;
@@ -7864,9 +7955,11 @@ export function App() {
             await invoke("install_module", { moduleId, mirror: null });
             log(t("onboarding.progress.moduleInstalled", { module: moduleId }));
             updateTask(taskId, { status: "done" });
+            logTask(taskLabel, "done");
           } catch (e) {
             log(t("onboarding.progress.moduleFailed", { module: moduleId, error: String(e) }));
             updateTask(taskId, { status: "error", detail: String(e).slice(0, 120) });
+            logTask(taskLabel, "error", String(e).slice(0, 200));
             hasErr = true;
           }
         }
@@ -7875,6 +7968,7 @@ export function App() {
       // ── STEP: cli ──
       if (cliCommands.length > 0) {
         updateTask("cli", { status: "running" });
+        logTask(`注册 CLI 命令 (${cliCommands.join(", ")})`, "running");
         log("注册 CLI 命令...");
         try {
           const result = await invoke<string>("register_cli", {
@@ -7883,42 +7977,55 @@ export function App() {
           });
           log(`✓ ${result}`);
           updateTask("cli", { status: "done" });
+          logTask(`注册 CLI 命令 (${cliCommands.join(", ")})`, "done", result);
         } catch (e) {
           log(`⚠ CLI 命令注册失败: ${String(e)}`);
           updateTask("cli", { status: "error", detail: String(e) });
+          logTask(`注册 CLI 命令 (${cliCommands.join(", ")})`, "error", String(e));
         }
       }
 
       // ── STEP: autostart ──
       if (obAutostart) {
         updateTask("autostart", { status: "running" });
+        logTask(t("onboarding.autostart.taskLabel"), "running");
         try {
           await invoke("autostart_set_enabled", { enabled: true });
           setAutostartEnabled(true);
           log(t("onboarding.autostart.success"));
           updateTask("autostart", { status: "done" });
+          logTask(t("onboarding.autostart.taskLabel"), "done");
         } catch (e) {
           log(t("onboarding.autostart.fail") + ": " + String(e));
           updateTask("autostart", { status: "error", detail: String(e).slice(0, 120) });
+          logTask(t("onboarding.autostart.taskLabel"), "error", String(e));
         }
       }
 
       // ── STEP: service-start ──
       updateTask("service-start", { status: "running" });
+      logTask("启动后端服务", "running");
       log(t("onboarding.progress.startingService"));
       const effectiveVenv = venvDir || (info ? joinPath(info.openakitaRootDir, "venv") : "");
       try {
         await invoke("openakita_service_start", { venvDir: effectiveVenv, workspaceId: activeWsId });
         log(t("onboarding.progress.serviceStarted"));
         updateTask("service-start", { status: "done" });
+        logTask("启动后端服务", "done");
 
         // ── STEP: http-wait ──
         updateTask("http-wait", { status: "running" });
+        logTask("等待 HTTP 服务就绪", "running");
         log("等待 HTTP 服务就绪...");
         let httpReady = false;
         for (let i = 0; i < 20; i++) {
           await new Promise(r => setTimeout(r, 2000));
           updateTask("http-wait", { detail: `已等待 ${(i + 1) * 2}s...` });
+          if (i > 0 && obLogPath) {
+            const now = new Date();
+            const ts = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+            invoke("append_onboarding_log", { logPath: obLogPath, line: `[${ts}] [任务] 等待 HTTP 服务就绪: 已等待 ${(i + 1) * 2}s...` }).catch(() => {});
+          }
           try {
             const res = await fetch("http://127.0.0.1:18900/api/health", { signal: AbortSignal.timeout(3000) });
             if (res.ok) {
@@ -7926,6 +8033,7 @@ export function App() {
               setServiceStatus({ running: true, pid: null, pidFile: "" });
               httpReady = true;
               updateTask("http-wait", { status: "done", detail: `${(i + 1) * 2}s` });
+              logTask("等待 HTTP 服务就绪", "done", `${(i + 1) * 2}s`);
               break;
             }
           } catch { /* not ready yet */ }
@@ -7934,12 +8042,15 @@ export function App() {
         if (!httpReady) {
           log("⚠ HTTP 服务尚未就绪，可进入主页面后手动刷新");
           updateTask("http-wait", { status: "error", detail: "超时" });
+          logTask("等待 HTTP 服务就绪", "error", "超时");
         }
       } catch (e) {
         const errStr = String(e);
         log(t("onboarding.progress.serviceStartFailed", { error: errStr }));
         updateTask("service-start", { status: "error", detail: errStr.slice(0, 120) });
+        logTask("启动后端服务", "error", errStr.slice(0, 200));
         updateTask("http-wait", { status: "skipped" });
+        logTask("等待 HTTP 服务就绪", "skipped", "服务启动失败");
         if (errStr.length > 200) {
           log('--- 详细错误信息 ---');
           log(errStr);

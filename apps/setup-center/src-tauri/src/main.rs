@@ -12,7 +12,9 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::sync::Mutex;
+use std::thread;
 use std::time::Duration;
 use tauri::Emitter;
 use tauri::Manager;
@@ -154,6 +156,24 @@ fn append_onboarding_log(log_path: String, line: String) -> Result<(), String> {
         .open(&path)
         .map_err(|e| format!("append onboarding log failed: {e}"))?;
     writeln!(f, "{}", line).map_err(|e| format!("write line failed: {e}"))?;
+    f.flush().map_err(|e| format!("flush failed: {e}"))?;
+    Ok(())
+}
+
+/// 批量追加多行到安装配置日志（用于写入配置快照等）。
+#[tauri::command]
+fn append_onboarding_log_lines(log_path: String, lines: Vec<String>) -> Result<(), String> {
+    let path = PathBuf::from(&log_path);
+    if !path.exists() || lines.is_empty() {
+        return Ok(());
+    }
+    let mut f = OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .map_err(|e| format!("append onboarding log failed: {e}"))?;
+    for line in lines {
+        writeln!(f, "{}", line).map_err(|e| format!("write line failed: {e}"))?;
+    }
     f.flush().map_err(|e| format!("flush failed: {e}"))?;
     Ok(())
 }
@@ -432,7 +452,7 @@ async fn install_module(
                 "status": "installing",
                 "message": "未找到 Python 环境，正在自动下载嵌入式 Python...",
             }));
-            let result = install_embedded_python_sync(None)?;
+            let result = install_embedded_python_sync(None, None)?;
             let p = PathBuf::from(&result.python_path);
             if !p.exists() {
                 return Err(format!("自动安装嵌入式 Python 后仍找不到: {}", p.display()));
@@ -2007,6 +2027,7 @@ fn main() {
             cleanup_old_environment,
             start_onboarding_log,
             append_onboarding_log,
+            append_onboarding_log_lines,
             register_cli,
             unregister_cli,
             get_cli_status
@@ -3066,10 +3087,28 @@ fn get_with_mirrors(client: &reqwest::blocking::Client, urls: &[&str]) -> Result
     Err(last_err)
 }
 
+/// 向 onboarding 日志文件追加一行（仅用于内部进度，忽略错误）
+fn append_to_onboarding_log(log_path: Option<&Path>, line: &str) {
+    let Some(path) = log_path else { return };
+    if !path.exists() {
+        return;
+    }
+    let mut f = match OpenOptions::new().append(true).open(path) {
+        Ok(f) => f,
+        Err(_) => return,
+    };
+    let _ = writeln!(f, "{}", line);
+    let _ = f.flush();
+}
+
 /// 同步下载并安装嵌入式 Python（供 install_module 等内部函数调用）
-fn install_embedded_python_sync(python_series: Option<String>) -> Result<EmbeddedPythonInstallResult, String> {
+fn install_embedded_python_sync(
+    python_series: Option<String>,
+    log_path: Option<PathBuf>,
+) -> Result<EmbeddedPythonInstallResult, String> {
     let python_series = python_series.unwrap_or_else(|| "3.11".to_string());
     let triple = target_triple_hint()?;
+    let log_path = log_path.as_deref();
 
     let client = reqwest::blocking::Client::builder()
         .user_agent("openakita-setup-center")
@@ -3130,15 +3169,105 @@ fn install_embedded_python_sync(python_series: Option<String>) -> Result<Embedde
         fs::create_dir_all(parent).map_err(|e| format!("create download dir failed: {e}"))?;
     }
 
+    // 安装包为 python-build-standalone 的 install_only 归档，典型 20–50 MB，慢网下可能较久
     if !archive_path.exists() {
-        // 下载 Python 包，国内镜像优先
+        append_to_onboarding_log(log_path, "[嵌入式 Python] 开始下载安装包（约 20–50 MB）...");
+        let download_client = reqwest::blocking::Client::builder()
+            .user_agent("openakita-setup-center")
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(3600))
+            .build()
+            .map_err(|e| format!("download client build failed: {e}"))?;
         let dl_mirror_ghp = format!("https://ghp.ci/{}", &asset.browser_download_url);
         let dl_urls = [dl_mirror_ghp.as_str(), asset.browser_download_url.as_str()];
-        let mut resp = get_with_mirrors(&client, &dl_urls)
-            .map_err(|e| format!("download failed (all mirrors): {e}"))?;
-        let mut out =
-            std::fs::File::create(&archive_path).map_err(|e| format!("create archive failed: {e}"))?;
-        std::io::copy(&mut resp, &mut out).map_err(|e| format!("write archive failed: {e}"))?;
+        const MAX_DOWNLOAD_ATTEMPTS: u32 = 3;
+        const IDLE_TIMEOUT_SECS: u64 = 120;
+        let mut last_err = String::new();
+        for attempt in 1..=MAX_DOWNLOAD_ATTEMPTS {
+            if attempt > 1 {
+                let _ = fs::remove_file(&archive_path);
+                append_to_onboarding_log(log_path, &format!("[嵌入式 Python] 重试 {}/{}...", attempt, MAX_DOWNLOAD_ATTEMPTS));
+            }
+            match get_with_mirrors(&download_client, &dl_urls) {
+                Ok(resp) => {
+                    let mut out = match std::fs::File::create(&archive_path) {
+                        Ok(f) => f,
+                        Err(e) => {
+                            last_err = format!("create archive failed: {e}");
+                            continue;
+                        }
+                    };
+                    let (tx, rx) = mpsc::sync_channel::<Result<Vec<u8>, String>>(4);
+                    let reader_handle = thread::spawn(move || {
+                        let mut resp = resp;
+                        let mut buf = [0u8; 65536];
+                        loop {
+                            match resp.read(&mut buf) {
+                                Ok(0) => {
+                                    let _ = tx.send(Ok(vec![]));
+                                    break;
+                                }
+                                Ok(n) => {
+                                    if tx.send(Ok(buf[..n].to_vec())).is_err() {
+                                        break;
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = tx.send(Err(format!("{e}")));
+                                    break;
+                                }
+                            }
+                        }
+                    });
+                    let idle = Duration::from_secs(IDLE_TIMEOUT_SECS);
+                    let mut write_err: Option<String> = None;
+                    loop {
+                        match rx.recv_timeout(idle) {
+                            Ok(Ok(chunk)) => {
+                                if chunk.is_empty() {
+                                    break;
+                                }
+                                if let Err(e) = out.write_all(&chunk) {
+                                    write_err = Some(format!("{e}"));
+                                    break;
+                                }
+                            }
+                            Ok(Ok(_)) => {}
+                            Ok(Err(e)) => {
+                                write_err = Some(e);
+                                break;
+                            }
+                            Err(mpsc::RecvTimeoutError::Timeout) => {
+                                last_err = format!("下载无进度超时（{}s 内无数据），请检查网络", IDLE_TIMEOUT_SECS);
+                                drop(rx);
+                                let _ = reader_handle.join();
+                                break;
+                            }
+                            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                        }
+                    }
+                    if let Some(e) = write_err {
+                        last_err = e;
+                        let _ = reader_handle.join();
+                        continue;
+                    }
+                    if last_err.contains("无进度超时") {
+                        let _ = fs::remove_file(&archive_path);
+                        continue;
+                    }
+                    let _ = reader_handle.join();
+                    append_to_onboarding_log(log_path, "[嵌入式 Python] 下载完成，正在解压...");
+                    break;
+                }
+                Err(e) => last_err = format!("download failed (all mirrors): {e}"),
+            }
+            if attempt == MAX_DOWNLOAD_ATTEMPTS {
+                let _ = fs::remove_file(&archive_path);
+                return Err(format!("{last_err} (已重试 {MAX_DOWNLOAD_ATTEMPTS} 次)"));
+            }
+        }
+    } else {
+        append_to_onboarding_log(log_path, "[嵌入式 Python] 使用已缓存安装包，正在解压...");
     }
 
     // extract
@@ -3149,6 +3278,7 @@ fn install_embedded_python_sync(python_series: Option<String>) -> Result<Embedde
     } else {
         return Err("unsupported archive type".into());
     }
+    append_to_onboarding_log(log_path, "[嵌入式 Python] 解压完成");
 
     let py =
         find_python_executable(&install_dir).ok_or_else(|| "python executable not found after extract".to_string())?;
@@ -3162,8 +3292,12 @@ fn install_embedded_python_sync(python_series: Option<String>) -> Result<Embedde
 }
 
 #[tauri::command]
-async fn install_embedded_python(python_series: Option<String>) -> Result<EmbeddedPythonInstallResult, String> {
-    spawn_blocking_result(move || install_embedded_python_sync(python_series)).await
+async fn install_embedded_python(
+    python_series: Option<String>,
+    log_path: Option<String>,
+) -> Result<EmbeddedPythonInstallResult, String> {
+    let path_buf = log_path.map(PathBuf::from);
+    spawn_blocking_result(move || install_embedded_python_sync(python_series, path_buf)).await
 }
 
 #[tauri::command]
