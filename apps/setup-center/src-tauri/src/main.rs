@@ -3078,16 +3078,25 @@ fn install_embedded_python_sync(python_series: Option<String>) -> Result<Embedde
         .build()
         .map_err(|e| format!("http client build failed: {e}"))?;
 
-    // 国内镜像优先，GitHub 原始 URL 兜底
-    // 注意：mirror.ghproxy.com 已被 GFW 封锁（2024年末），已移除
+    // 多镜像：jsDelivr 国内常可访问，ghp.ci 代理，最后直连 GitHub raw
     let latest_urls = [
+        "https://cdn.jsdelivr.net/gh/astral-sh/python-build-standalone@latest-release/latest-release.json",
         "https://ghp.ci/https://raw.githubusercontent.com/astral-sh/python-build-standalone/latest-release/latest-release.json",
         "https://raw.githubusercontent.com/astral-sh/python-build-standalone/latest-release/latest-release.json",
     ];
-    let latest: LatestReleaseInfo = get_with_mirrors(&client, &latest_urls)
-        .map_err(|e| format!("fetch latest-release.json failed (all mirrors): {e}"))?
-        .json()
-        .map_err(|e| format!("parse latest-release.json failed: {e}"))?;
+    let latest: LatestReleaseInfo = match get_with_mirrors(&client, &latest_urls) {
+        Ok(resp) => resp
+            .json()
+            .map_err(|e| format!("parse latest-release.json failed: {e}"))?,
+        Err(e) => {
+            // 所有镜像均失败时使用内置 fallback 标签，避免因网络拉不到 JSON 导致无法安装（需与 python-build-standalone 已发布 release 一致）
+            const FALLBACK_TAG: &str = "20260211";
+            eprintln!("fetch latest-release.json failed (all mirrors): {e}, using fallback tag {FALLBACK_TAG}");
+            LatestReleaseInfo {
+                tag: FALLBACK_TAG.to_string(),
+            }
+        }
+    };
 
     let gh_api_urls_str = [
         format!("https://ghp.ci/https://api.github.com/repos/astral-sh/python-build-standalone/releases/tags/{}", latest.tag),
