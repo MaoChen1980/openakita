@@ -2191,10 +2191,10 @@ export function App() {
           api_key_env: String(e.api_key_env || ""),
           model: String(e.model || ""),
           priority: Number.isFinite(Number(e.priority)) ? Number(e.priority) : 1,
-          max_tokens: 0,
-          context_window: 0,
+          max_tokens: Number.isFinite(Number(e.max_tokens)) ? Number(e.max_tokens) : 0,
+          context_window: Number.isFinite(Number(e.context_window)) ? Number(e.context_window) : 0,
           timeout: Number.isFinite(Number(e.timeout)) ? Number(e.timeout) : 60,
-          capabilities: ["text"],
+          capabilities: Array.isArray(e.capabilities) ? e.capabilities.map((x: any) => String(x)) : ["text"],
           note: e.note ? String(e.note) : null,
         }))
         .sort((a: EndpointDraft, b: EndpointDraft) => a.priority - b.priority);
@@ -2603,9 +2603,50 @@ export function App() {
       setError("请先创建/选择一个当前工作区");
       return false;
     }
+    if (!compilerModel.trim()) {
+      setError("请填写 STT 模型名称");
+      return false;
+    }
+    const sttSelectedProvider = providers.find((p) => p.slug === compilerProviderSlug) || null;
+    const isSttLocal = isLocalProvider(sttSelectedProvider);
+    // apiKeyEnv 兜底：即使用户没有手动编辑也能生成合理的环境变量名
+    const effectiveSttApiKeyEnv = compilerApiKeyEnv.trim()
+      || sttSelectedProvider?.api_key_env_suggestion
+      || envKeyFromSlug(compilerProviderSlug || "custom");
+    const effectiveSttApiKeyValue = compilerApiKeyValue.trim() || (isSttLocal ? localProviderPlaceholderKey(sttSelectedProvider) : "");
+    if (!isSttLocal && !effectiveSttApiKeyValue) {
+      setError("请填写 STT 端点的 API Key 值");
+      return false;
+    }
     setBusy("保存 STT 端点...");
     setError(null);
     try {
+      // Write API key to .env
+      const sttEnvPayload = { entries: { [effectiveSttApiKeyEnv]: effectiveSttApiKeyValue } };
+      if (shouldUseHttpApi()) {
+        try {
+          await safeFetch(`${httpApiBase()}/api/config/env`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(sttEnvPayload),
+          });
+        } catch {
+          if (currentWorkspaceId) {
+            await invoke("workspace_update_env", {
+              workspaceId: currentWorkspaceId,
+              entries: [{ key: effectiveSttApiKeyEnv, value: effectiveSttApiKeyValue }],
+            });
+          }
+        }
+      } else if (currentWorkspaceId) {
+        await invoke("workspace_update_env", {
+          workspaceId: currentWorkspaceId,
+          entries: [{ key: effectiveSttApiKeyEnv, value: effectiveSttApiKeyValue }],
+        });
+      }
+      setEnvDraft((e) => envSet(e, effectiveSttApiKeyEnv, effectiveSttApiKeyValue));
+
+      // Read existing JSON
       let currentJson = "";
       try {
         currentJson = await readWorkspaceFile("data/llm_endpoints.json");
@@ -2613,37 +2654,35 @@ export function App() {
       const base = currentJson ? JSON.parse(currentJson) : { endpoints: [], settings: {} };
       base.stt_endpoints = Array.isArray(base.stt_endpoints) ? base.stt_endpoints : [];
 
-      const effectiveSttApiKeyEnv = compilerApiKeyEnv.trim();
       const baseName = (compilerEndpointName.trim() || `stt-${compilerProviderSlug || "provider"}-${compilerModel.trim()}`).slice(0, 64);
       const usedNames = new Set(base.stt_endpoints.map((e: any) => String(e?.name || "")).filter(Boolean));
       let name = baseName;
       if (usedNames.has(name)) {
         for (let i = 2; i < 10; i++) {
-          const candidate = `${baseName}-${i}`;
+          const candidate = `${baseName}-${i}`.slice(0, 64);
           if (!usedNames.has(candidate)) { name = candidate; break; }
         }
       }
 
-      if (effectiveSttApiKeyEnv && compilerApiKeyValue.trim()) {
-        setEnvDraft((prev) => ({ ...prev, [effectiveSttApiKeyEnv]: compilerApiKeyValue.trim() }));
-        await saveEnvKeys([effectiveSttApiKeyEnv]);
-      }
-
       const endpoint = {
         name,
-        provider: compilerProviderSlug,
+        provider: compilerProviderSlug || "custom",
         api_type: compilerApiType,
         base_url: compilerBaseUrl,
         api_key_env: effectiveSttApiKeyEnv,
         model: compilerModel.trim(),
         priority: base.stt_endpoints.length + 1,
+        max_tokens: 0,
+        context_window: 0,
         timeout: 60,
+        capabilities: ["text"],
       };
       base.stt_endpoints.push(endpoint);
       base.stt_endpoints.sort((a: any, b: any) => (Number(a?.priority) || 999) - (Number(b?.priority) || 999));
 
       await writeWorkspaceFile("data/llm_endpoints.json", JSON.stringify(base, null, 2) + "\n");
 
+      // Reset form
       setCompilerModel("");
       setCompilerApiKeyValue("");
       setCompilerEndpointName("");
@@ -5802,7 +5841,7 @@ export function App() {
           </div>
         )}
 
-        {/* ── Add STT dialog (reuses compiler form fields) ── */}
+        {/* ── Add STT dialog (aligned with compiler dialog) ── */}
         {addSttDialogOpen && (
           <div className="modalOverlay" onClick={() => setAddSttDialogOpen(false)}>
             <div className="modalContent" onClick={(e) => e.stopPropagation()}>
@@ -5815,29 +5854,125 @@ export function App() {
                 <div className="dialogLabel">{t("llm.provider")}</div>
                 <ProviderSearchSelect
                   value={compilerProviderSlug}
-                  onChange={(v) => setCompilerProviderSlug(v)}
+                  onChange={(slug) => {
+                    setCompilerProviderSlug(slug);
+                    if (slug === "__custom__") {
+                      setCompilerApiType("openai");
+                      setCompilerBaseUrl("");
+                      setCompilerApiKeyEnv("CUSTOM_STT_API_KEY");
+                      setCompilerApiKeyValue("");
+                    } else {
+                      const p = providers.find((x) => x.slug === slug);
+                      if (p) {
+                        setCompilerApiType((p.api_type as any) || "openai");
+                        setCompilerBaseUrl(p.default_base_url || "");
+                        const suggested = p.api_key_env_suggestion || envKeyFromSlug(p.slug);
+                        const used = new Set(Object.keys(envDraft || {}));
+                        for (const ep of [...savedEndpoints, ...savedCompilerEndpoints, ...savedSttEndpoints]) { if (ep.api_key_env) used.add(ep.api_key_env); }
+                        setCompilerApiKeyEnv(nextEnvKeyName(suggested, used));
+                        if (isLocalProvider(p)) {
+                          setCompilerApiKeyValue(localProviderPlaceholderKey(p));
+                        } else {
+                          setCompilerApiKeyValue("");
+                        }
+                      }
+                    }
+                  }}
                   options={providers.map((p) => ({ value: p.slug, label: p.name }))}
-                  placeholder={t("llm.selectProvider")}
+                  extraOptions={[{ value: "__custom__", label: t("llm.customProvider") }]}
                 />
               </div>
               <div className="dialogSection">
-                <div className="dialogLabel">{t("llm.model")}</div>
-                <input className="textInput" value={compilerModel} onChange={(e) => setCompilerModel(e.target.value)} placeholder="gpt-4o-transcribe / paraformer-v2" />
+                <div className="dialogLabel">{t("llm.baseUrl")}</div>
+                <input value={compilerBaseUrl} onChange={(e) => setCompilerBaseUrl(e.target.value)} placeholder="https://api.example.com/v1" />
+                <div className="cardHint" style={{ fontSize: 11, marginTop: 2 }}>{t("llm.baseUrlHint")}</div>
               </div>
               <div className="dialogSection">
                 <div className="dialogLabel">{t("llm.apiKeyEnv")}</div>
-                <input className="textInput" value={compilerApiKeyEnv} onChange={(e) => setCompilerApiKeyEnv(e.target.value)} placeholder="OPENAI_API_KEY" />
+                <input value={compilerApiKeyEnv} onChange={(e) => setCompilerApiKeyEnv(e.target.value)} placeholder="MY_API_KEY" />
               </div>
               <div className="dialogSection">
-                <div className="dialogLabel">API Key</div>
-                <input className="textInput" type="password" value={compilerApiKeyValue} onChange={(e) => setCompilerApiKeyValue(e.target.value)} placeholder="sk-..." />
+                <div className="dialogLabel">API Key {isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug)) && <span style={{ color: "var(--muted)", fontSize: 11, fontWeight: 400 }}>({t("llm.localNoKey")})</span>}</div>
+                <input value={compilerApiKeyValue} onChange={(e) => setCompilerApiKeyValue(e.target.value)} placeholder={isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug)) ? t("llm.localKeyPlaceholder") : "sk-..."} type="password" />
+                {isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug)) && (
+                  <div className="help" style={{ marginTop: 4, paddingLeft: 2, color: "var(--brand)" }}>{t("llm.localHint")}</div>
+                )}
               </div>
+              {/* Model name — always visible; fetch is optional */}
+              <div className="dialogSection">
+                <div className="dialogLabel">{t("status.model")}</div>
+                <SearchSelect value={compilerModel} onChange={(v) => setCompilerModel(v)} options={compilerModels.map((m) => m.id)} placeholder={compilerModels.length > 0 ? t("llm.searchModel") : t("llm.modelPlaceholder")} disabled={!!busy} />
+                {compilerModels.length === 0 && (
+                  <div className="help" style={{ marginTop: 4, paddingLeft: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ opacity: 0.7 }}>{t("llm.modelManualHint")}</span>
+                    <button onClick={doFetchCompilerModels} className="btnSmall" disabled={(!compilerApiKeyValue.trim() && !isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug))) || !compilerBaseUrl.trim() || !!busy}
+                      style={{ fontSize: 11, padding: "2px 10px", borderRadius: 6 }}>
+                      {t("llm.fetchModels")}
+                    </button>
+                  </div>
+                )}
+                {compilerModels.length > 0 && (
+                  <div className="help" style={{ marginTop: 4, paddingLeft: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ opacity: 0.6 }}>{t("llm.modelFetched", { count: compilerModels.length })}</span>
+                    <button onClick={doFetchCompilerModels} className="btnSmall" disabled={(!compilerApiKeyValue.trim() && !isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug))) || !compilerBaseUrl.trim() || !!busy}
+                      style={{ fontSize: 11, padding: "2px 10px", borderRadius: 6 }}>
+                      {t("llm.refetch")}
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="dialogSection">
+                <div className="dialogLabel">{t("llm.endpointName")} <span style={{ color: "var(--muted)", fontSize: 11 }}>({t("common.optional")})</span></div>
+                <input value={compilerEndpointName} onChange={(e) => setCompilerEndpointName(e.target.value)} placeholder={`stt-${compilerProviderSlug || "custom"}-${compilerModel || "model"}`} />
+              </div>
+              </div>
+
+              {/* 连接测试结果 */}
+              {connTestResult && (
+                <div className={`connTestResult ${connTestResult.ok ? "connTestOk" : "connTestFail"}`}>
+                  {connTestResult.ok
+                    ? `${t("llm.testSuccess")} · ${connTestResult.latencyMs}ms · ${t("llm.testModelCount", { count: connTestResult.modelCount ?? 0 })}`
+                    : `${t("llm.testFailed")}：${connTestResult.error} (${connTestResult.latencyMs}ms)`}
+                </div>
+              )}
+
               <div className="dialogFooter">
                 <button className="btnSmall" onClick={() => { setAddSttDialogOpen(false); setConnTestResult(null); }}>{t("common.cancel")}</button>
-                <button className="btnPrimary" style={{ padding: "8px 20px", borderRadius: 8 }} onClick={async () => { const ok = await doSaveSttEndpoint(); if (ok) { setAddSttDialogOpen(false); setConnTestResult(null); } }} disabled={!compilerModel.trim() || !compilerApiKeyEnv.trim() || !compilerApiKeyValue.trim() || (!currentWorkspaceId && dataMode !== "remote") || !!busy}>
-                  {t("llm.addStt")}
-                </button>
-              </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    className="btnSmall"
+                    style={{ padding: "8px 16px", borderRadius: 8 }}
+                    disabled={(!compilerApiKeyValue.trim() && !isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug))) || !compilerBaseUrl.trim() || connTesting}
+                    onClick={() => { const _sp = providers.find((p) => p.slug === compilerProviderSlug); doTestConnection({
+                      testApiType: compilerApiType,
+                      testBaseUrl: compilerBaseUrl,
+                      testApiKey: compilerApiKeyValue.trim() || (isLocalProvider(_sp) ? localProviderPlaceholderKey(_sp) : ""),
+                      testProviderSlug: compilerProviderSlug || null,
+                    }); }}
+                  >
+                    {connTesting ? t("llm.testTesting") : t("llm.testConnection")}
+                  </button>
+                  {(() => {
+                    const _isSttLocal = isLocalProvider(providers.find((p) => p.slug === compilerProviderSlug));
+                    const sMissing: string[] = [];
+                    if (!compilerModel.trim()) sMissing.push(t("status.model"));
+                    if (!_isSttLocal && !compilerApiKeyValue.trim()) sMissing.push("API Key");
+                    if (!currentWorkspaceId && dataMode !== "remote") sMissing.push(t("workspace.title") || "工作区");
+                    const sBtnDisabled = sMissing.length > 0 || !!busy;
+                    return (
+                      <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                        <button className="btnPrimary" style={{ padding: "8px 20px", borderRadius: 8 }} onClick={async () => { const ok = await doSaveSttEndpoint(); if (ok) { setAddSttDialogOpen(false); setConnTestResult(null); } }} disabled={sBtnDisabled}>
+                          {t("llm.addStt")}
+                        </button>
+                        {sBtnDisabled && !busy && sMissing.length > 0 && (
+                          <span style={{ fontSize: 11, color: "var(--muted)", maxWidth: 220, textAlign: "right" }}>
+                            {t("common.missingFields") || "缺少"}: {sMissing.join(", ")}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
             </div>
           </div>
