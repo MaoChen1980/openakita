@@ -25,6 +25,16 @@ def _lazy_import():
     global _sentence_transformers_available, _chromadb
 
     if _sentence_transformers_available is None:
+        # 模块可能在服务运行期间安装，路径尚未注入 sys.path。
+        # 在导入前尝试刷新一次（idempotent，不会重复添加已有路径）。
+        import sys
+        if "sentence_transformers" not in sys.modules:
+            try:
+                from openakita.runtime_env import inject_module_paths_runtime
+                inject_module_paths_runtime()
+            except Exception:
+                pass
+
         try:
             import sentence_transformers  # noqa: F401
 

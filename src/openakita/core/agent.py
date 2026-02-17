@@ -648,10 +648,12 @@ class Agent:
             logger.debug(f"[BrowserMCP] LLM config injection skipped/failed: {e}")
 
         self._initialized = True
+        total_mcp = self.mcp_catalog.server_count + self._builtin_mcp_count
         logger.info(
             f"Agent '{self.name}' initialized with "
             f"{self.skill_registry.count} skills, "
-            f"{self.mcp_catalog.server_count} MCP servers"
+            f"{total_mcp} MCP servers"
+            f"{f' (builtin: {self._builtin_mcp_count})' if self._builtin_mcp_count else ''}"
         )
 
     def _init_handlers(self) -> None:
@@ -1238,15 +1240,21 @@ class Agent:
         # 初始化浏览器服务 (作为内置工具，不是 MCP)
         # 注意: 不自动启动浏览器，由 browser_open 工具控制启动时机和模式
         try:
-            from ..tools.browser_mcp import BrowserMCP
+            # 先检查 playwright 是否可用，避免假阳性日志
+            from ..tools._import_helper import import_or_hint
+            pw_hint = import_or_hint("playwright")
+            if pw_hint:
+                logger.warning(f"浏览器自动化不可用: {pw_hint}")
+            else:
+                from ..tools.browser_mcp import BrowserMCP
 
-            self.browser_mcp = BrowserMCP(headless=False)  # 默认可见模式
-            # 不在这里 await self.browser_mcp.start()，让 LLM 通过 browser_open 控制
+                self.browser_mcp = BrowserMCP(headless=False)  # 默认可见模式
+                # 不在这里 await self.browser_mcp.start()，让 LLM 通过 browser_open 控制
 
-            # 注意: 浏览器工具已在 BASE_TOOLS 中定义，不需要注册到 MCP catalog
-            # 这样 LLM 就会直接使用 browser_navigate 等工具名，而不是 MCP 格式
-            self._builtin_mcp_count += 1
-            logger.info("Started builtin browser service (Playwright)")
+                # 注意: 浏览器工具已在 BASE_TOOLS 中定义，不需要注册到 MCP catalog
+                # 这样 LLM 就会直接使用 browser_navigate 等工具名，而不是 MCP 格式
+                self._builtin_mcp_count += 1
+                logger.info("Started builtin browser service (Playwright)")
         except Exception as e:
             logger.warning(f"Failed to start browser service: {e}")
 

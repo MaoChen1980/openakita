@@ -105,12 +105,22 @@ def is_orchestration_enabled() -> bool:
     """检查是否启用多 Agent 协同模式"""
     if not settings.orchestration_enabled:
         return False
-    try:
-        import zmq  # noqa: F401
-        return True
-    except ImportError:
-        logger.warning("pyzmq 未安装，多 Agent 协同模式自动禁用。安装: pip install pyzmq")
+
+    # 模块可能在服务运行期间安装，尝试刷新路径
+    import sys
+    if "zmq" not in sys.modules:
+        try:
+            from openakita.runtime_env import inject_module_paths_runtime
+            inject_module_paths_runtime()
+        except Exception:
+            pass
+
+    from openakita.tools._import_helper import import_or_hint
+    hint = import_or_hint("zmq")
+    if hint:
+        logger.warning(f"多 Agent 协同模式自动禁用: {hint}")
         return False
+    return True
 
 
 # ==================== IM 通道依赖自动安装 ====================

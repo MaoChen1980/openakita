@@ -242,7 +242,7 @@ export type ChatAskUser = {
 };
 
 export type ChatAttachment = {
-  type: "image" | "file" | "voice";
+  type: "image" | "file" | "voice" | "video" | "document";
   name: string;
   url?: string;
   previewUrl?: string;

@@ -119,6 +119,8 @@ def load_endpoints_config(
     stt_endpoints = _parse_endpoint_list("stt_endpoints")
     if stt_endpoints:
         logger.info(f"Loaded {len(stt_endpoints)} STT endpoints")
+    else:
+        logger.debug("No STT endpoints configured")
 
     # 解析全局设置
     settings = data.get("settings", {})

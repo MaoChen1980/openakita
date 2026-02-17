@@ -8745,6 +8745,7 @@ export function App() {
           <ChatView
             serviceRunning={serviceStatus?.running ?? false} apiBaseUrl={apiBaseUrl}
             endpoints={chatEndpoints}
+            visible={view === "chat"}
             onStartService={async () => {
               const effectiveWsId = currentWorkspaceId || workspaces[0]?.id || null;
               if (!effectiveWsId) {

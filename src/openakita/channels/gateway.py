@@ -667,17 +667,27 @@ class MessageGateway:
         asyncio.create_task(self._preload_whisper_async())
 
         # 启动所有适配器
+        started = []
+        failed = []
         for name, adapter in self._adapters.items():
             try:
                 await adapter.start()
+                started.append(name)
                 logger.info(f"Started adapter: {name}")
             except Exception as e:
+                failed.append(name)
                 logger.error(f"Failed to start adapter {name}: {e}")
 
         # 启动消息处理循环
         self._processing_task = asyncio.create_task(self._process_loop())
 
-        logger.info(f"MessageGateway started with {len(self._adapters)} adapters")
+        if failed:
+            logger.info(
+                f"MessageGateway started with {len(started)}/{len(self._adapters)} adapters"
+                f" (failed: {', '.join(failed)})"
+            )
+        else:
+            logger.info(f"MessageGateway started with {len(started)} adapters")
 
     async def _preload_whisper_async(self) -> None:
         """异步预加载 Whisper 模型"""

@@ -1195,11 +1195,13 @@ export function ChatView({
   endpoints,
   onStartService,
   apiBaseUrl = "http://127.0.0.1:18900",
+  visible = true,
 }: {
   serviceRunning: boolean;
   endpoints: EndpointSummary[];
   onStartService: () => void;
   apiBaseUrl?: string;
+  visible?: boolean;
 }) {
   const { t } = useTranslation();
 
@@ -1369,16 +1371,39 @@ export function ChatView({
   }, []);
 
   // ── 自动滚到底部 ──
+  // 当 visible=false (display:none) 时 scrollIntoView 无效，
+  // 所以需要在变为可见时重新触发滚动。
+  const needsScrollOnVisible = useRef(false);
+
   useEffect(() => {
     if (!messagesEndRef.current) return;
+    if (!visible) {
+      // 不可见时标记待滚动，等变为可见后再执行
+      needsScrollOnVisible.current = true;
+      return;
+    }
     if (isInitialScrollRef.current) {
-      // Initial load: instant scroll so user immediately sees the latest messages
-      messagesEndRef.current.scrollIntoView({ behavior: "auto" });
+      // Initial load / conversation switch: instant scroll
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+      });
       isInitialScrollRef.current = false;
     } else {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages]);
+    needsScrollOnVisible.current = false;
+  }, [messages, visible]);
+
+  // 从隐藏变为可见时，补一次即时滚动到底部
+  useEffect(() => {
+    if (visible && needsScrollOnVisible.current && messagesEndRef.current) {
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+      });
+      needsScrollOnVisible.current = false;
+      isInitialScrollRef.current = false;
+    }
+  }, [visible]);
 
   // ── 思维链: 流式结束后自动折叠 ──
   useEffect(() => {
