@@ -2069,6 +2069,22 @@ class ReasoningEngine:
 
     # ==================== 取消收尾工具 ====================
 
+    def _reset_structural_cooldown_after_farewell(self):
+        """farewell 调用失败后清除 structural cooldown，防止毒化后续正常请求。"""
+        try:
+            llm_client = getattr(self._brain, "_llm_client", None)
+            if not llm_client:
+                return
+            providers = getattr(llm_client, "_providers", {})
+            for name, provider in providers.items():
+                if not provider.is_healthy and provider.error_category == "structural":
+                    provider.reset_cooldown()
+                    logger.info(
+                        f"[CancelFarewell] Reset structural cooldown for endpoint {name}"
+                    )
+        except Exception as exc:
+            logger.debug(f"[CancelFarewell] Failed to reset cooldown: {exc}")
+
     @staticmethod
     def _sanitize_messages_for_farewell(messages: list[dict]) -> list[dict]:
         """
@@ -2167,6 +2183,7 @@ class ReasoningEngine:
                 f"[ReAct][CancelFarewell] LLM farewell 失败: {type(e).__name__}: {e}",
                 exc_info=True,
             )
+            self._reset_structural_cooldown_after_farewell()
         return farewell_text
 
     # ==================== 取消收尾（流式） ====================
@@ -2248,6 +2265,7 @@ class ReasoningEngine:
                 f"{type(e).__name__}: {e}",
                 exc_info=True,
             )
+            self._reset_structural_cooldown_after_farewell()
 
         logger.info(f"[ReAct-Stream][CancelFarewell] 最终输出文本: {farewell_text[:120]}")
         chunk_size = 20
