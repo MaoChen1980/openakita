@@ -73,7 +73,9 @@
     "api_key_env_suggestion": "KIMI_API_KEY",
     "supports_model_list": true,
     "supports_capability_api": false,
-    "registry_class": "KimiChinaRegistry"
+    "registry_class": "KimiChinaRegistry",
+    "default_context_window": 150000,
+    "default_max_tokens": 8192
   },
   {
     "name": "Kimi（月之暗面·国际区）",
@@ -85,7 +87,9 @@
     "api_key_env_suggestion": "KIMI_API_KEY",
     "supports_model_list": true,
     "supports_capability_api": false,
-    "registry_class": "KimiInternationalRegistry"
+    "registry_class": "KimiInternationalRegistry",
+    "default_context_window": 150000,
+    "default_max_tokens": 8192
   },
   {
     "name": "MiniMax（中国区）",
@@ -97,7 +101,9 @@
     "api_key_env_suggestion": "MINIMAX_API_KEY",
     "supports_model_list": true,
     "supports_capability_api": false,
-    "registry_class": "MiniMaxChinaRegistry"
+    "registry_class": "MiniMaxChinaRegistry",
+    "default_context_window": 150000,
+    "default_max_tokens": 8192
   },
   {
     "name": "MiniMax（国际区）",
@@ -109,7 +115,9 @@
     "api_key_env_suggestion": "MINIMAX_API_KEY",
     "supports_model_list": true,
     "supports_capability_api": false,
-    "registry_class": "MiniMaxInternationalRegistry"
+    "registry_class": "MiniMaxInternationalRegistry",
+    "default_context_window": 150000,
+    "default_max_tokens": 8192
   },
   {
     "name": "DeepSeek",
@@ -161,7 +169,9 @@
     "api_key_env_suggestion": "ARK_API_KEY",
     "supports_model_list": true,
     "supports_capability_api": false,
-    "registry_class": "VolcEngineRegistry"
+    "registry_class": "VolcEngineRegistry",
+    "default_context_window": 150000,
+    "default_max_tokens": 8192
   },
   {
     "name": "智谱 AI (Zhipu·中国区)",
@@ -169,6 +179,7 @@
     "api_type": "openai",
     "default_base_url": "https://open.bigmodel.cn/api/paas/v4",
     "coding_plan_base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+    "coding_plan_api_type": "anthropic",
     "api_key_env_suggestion": "ZHIPU_API_KEY",
     "supports_model_list": true,
     "supports_capability_api": false,
@@ -180,6 +191,7 @@
     "api_type": "openai",
     "default_base_url": "https://api.z.ai/api/paas/v4",
     "coding_plan_base_url": "https://api.z.ai/api/coding/paas/v4",
+    "coding_plan_api_type": "anthropic",
     "api_key_env_suggestion": "ZHIPU_API_KEY",
     "supports_model_list": true,
     "supports_capability_api": false,

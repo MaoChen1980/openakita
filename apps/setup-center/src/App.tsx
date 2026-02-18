@@ -61,10 +61,12 @@ type ProviderInfo = {
   api_key_env_suggestion: string;
   supports_model_list: boolean;
   supports_capability_api: boolean;
-  requires_api_key?: boolean;  // default true; false for local providers like Ollama
-  is_local?: boolean;          // true for local providers (Ollama, LM Studio, etc.)
-  coding_plan_base_url?: string;   // Coding Plan 专用 API 地址
-  coding_plan_api_type?: string;   // Coding Plan 模式下的协议类型
+  requires_api_key?: boolean;
+  is_local?: boolean;
+  coding_plan_base_url?: string;
+  coding_plan_api_type?: string;
+  default_context_window?: number;  // 订阅/编程类端点建议上下文（如 200000）
+  default_max_tokens?: number;      // 建议最大输出 token
 };
 
 // 内置 Provider 列表（打包模式下 venv 不可用时作为回退）
@@ -1933,30 +1935,31 @@ export function App() {
 
   useEffect(() => {
     if (!selectedProvider) return;
-    // Coding Plan 模式下使用专用 URL 和协议类型
+    // Coding Plan 固定为 Anthropic 兼容协议，URL 与协议一致
     if (codingPlanMode && selectedProvider.coding_plan_base_url) {
-      setApiType((selectedProvider.coding_plan_api_type as "openai" | "anthropic") || (selectedProvider.api_type as "openai" | "anthropic") || "openai");
+      setApiType("anthropic");
       setBaseUrl(selectedProvider.coding_plan_base_url);
+      setAddEpContextWindow(150000);
+      setAddEpMaxTokens((selectedProvider as ProviderInfo).default_max_tokens ?? 8192);
     } else {
       const t = (selectedProvider.api_type as "openai" | "anthropic") || "openai";
       setApiType(t);
       setBaseUrl(selectedProvider.default_base_url || "");
+      setAddEpContextWindow((selectedProvider as ProviderInfo).default_context_window ?? 150000);
+      setAddEpMaxTokens((selectedProvider as ProviderInfo).default_max_tokens ?? 0);
     }
     const suggested = selectedProvider.api_key_env_suggestion || envKeyFromSlug(selectedProvider.slug);
     const used = new Set(Object.keys(envDraft || {}));
     for (const ep of savedEndpoints) {
       if (ep.api_key_env) used.add(ep.api_key_env);
     }
-    // When provider changes, auto-switch env var name to match provider (unless user manually edited it).
     if (!apiKeyEnvTouched) {
       setApiKeyEnv(nextEnvKeyName(suggested, used));
     }
-    // Endpoint name should follow provider+model by default (unless user manually edited it).
     const autoName = suggestEndpointName(selectedProvider.slug, selectedModelId);
     if (!endpointNameTouched) {
       setEndpointName(autoName);
     }
-    // 本地服务商（Ollama / LM Studio 等）不需要真实 API Key，自动填入 placeholder
     if (isLocalProvider(selectedProvider) && !apiKeyValue.trim()) {
       setApiKeyValue(localProviderPlaceholderKey(selectedProvider));
     }
@@ -5823,7 +5826,7 @@ export function App() {
                         if (cp) {
                           if (on && cp.coding_plan_base_url) {
                             setCompilerBaseUrl(cp.coding_plan_base_url);
-                            setCompilerApiType((cp.coding_plan_api_type as "openai" | "anthropic") || (cp.api_type as "openai" | "anthropic") || "openai");
+                            setCompilerApiType("anthropic");
                           } else {
                             setCompilerBaseUrl(cp.default_base_url || "");
                             setCompilerApiType((cp.api_type as "openai" | "anthropic") || "openai");
