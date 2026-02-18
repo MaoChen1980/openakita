@@ -2074,26 +2074,43 @@ class ReasoningEngine:
         """
         清理 working_messages 使其可安全发送给 LLM 的 farewell 调用。
 
-        问题：如果最后一条 assistant 消息包含 tool_calls（工具被中断还未产出 tool result），
+        问题：assistant 消息包含 tool_calls 但缺少对应的 tool result 时，
         LLM API 会返回 400：'tool_calls must be followed by tool messages'。
+        这可能出现在尾部（中断时最后一轮未完成）或中间（rollback 后残留）。
 
-        策略：从尾部开始，移除所有未闭合的 assistant(tool_calls) + tool 对，
-        或为未闭合的 tool_calls 补充虚拟 tool result。
+        策略：全量扫描，收集所有 tool_call_id 及其 tool result 匹配情况，
+        移除所有未闭合的 assistant(tool_calls) 及其孤立的 tool result。
         """
         if not messages:
             return messages
 
-        result = list(messages)
-        while result:
-            last = result[-1]
-            role = last.get("role", "")
-            if role == "tool":
-                result.pop()
-                continue
-            if role == "assistant" and last.get("tool_calls"):
-                result.pop()
-                continue
-            break
+        answered_tool_ids: set[str] = set()
+        for msg in messages:
+            if msg.get("role") == "tool" and msg.get("tool_call_id"):
+                answered_tool_ids.add(msg["tool_call_id"])
+
+        result: list[dict] = []
+        skip_tool_call_ids: set[str] = set()
+
+        for msg in messages:
+            role = msg.get("role", "")
+
+            if role == "assistant" and msg.get("tool_calls"):
+                tc_ids = [
+                    tc.get("id", "") for tc in msg["tool_calls"] if tc.get("id")
+                ]
+                missing = [tid for tid in tc_ids if tid not in answered_tool_ids]
+                if missing:
+                    skip_tool_call_ids.update(tc_ids)
+                    continue
+                result.append(msg)
+            elif role == "tool":
+                tc_id = msg.get("tool_call_id", "")
+                if tc_id in skip_tool_call_ids:
+                    continue
+                result.append(msg)
+            else:
+                result.append(msg)
 
         if not result:
             result = [{"role": "user", "content": "（对话上下文不可用）"}]
@@ -2120,6 +2137,10 @@ class ReasoningEngine:
             "不要调用任何工具。"
         )
         farewell_messages = self._sanitize_messages_for_farewell(list(working_messages))
+        logger.info(
+            f"[ReAct][CancelFarewell] sanitized: before={len(working_messages)}, "
+            f"after={len(farewell_messages)}"
+        )
         farewell_messages.append({"role": "user", "content": cancel_msg})
 
         farewell_text = "✅ 好的，已停止当前任务。"
@@ -2183,6 +2204,10 @@ class ReasoningEngine:
             "不要调用任何工具。"
         )
         farewell_messages = self._sanitize_messages_for_farewell(list(working_messages))
+        logger.info(
+            f"[ReAct-Stream][CancelFarewell] sanitized: before={len(working_messages)}, "
+            f"after={len(farewell_messages)}"
+        )
         farewell_messages.append({"role": "user", "content": cancel_msg})
 
         farewell_text = "✅ 好的，已停止当前任务。"
@@ -2256,8 +2281,12 @@ class ReasoningEngine:
         """
         queue: asyncio.Queue = asyncio.Queue()
 
-        # 获取 cancel_event
-        state = self._state.current_task
+        # 获取当前 session 对应的 cancel_event（避免跨会话误取消）
+        state = (
+            self._state.get_task_for_session(conversation_id)
+            if conversation_id
+            else None
+        ) or self._state.current_task
         cancel_event = state.cancel_event if state else asyncio.Event()
 
         async def _do_reason():

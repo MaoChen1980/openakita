@@ -922,25 +922,12 @@ class MessageGateway:
                 #
                 # agent_handler 是函数闭包，_current_session_id 在 Agent 实例上，
                 # 需要通过 _agent_ref 间接获取。
-                # session_key 格式: "telegram:1241684312:tg_1241684312"
-                # _current_session_id 格式: "telegram_1241684312_20260219_xxx"
-                # 两者都包含 channel 和 raw_user_id，通过提取 user_id 进行匹配。
                 _agent_ref = getattr(self.agent_handler, "_agent_ref", None) if self.agent_handler else None
-                _agent_session = getattr(_agent_ref, "_current_session_id", None) if _agent_ref else None
-
-                _session_matches = False
-                if _agent_session:
-                    _interrupt_parts = session_key.split(":")
-                    _interrupt_chat_id = _interrupt_parts[1] if len(_interrupt_parts) >= 2 else ""
-                    _interrupt_channel = _interrupt_parts[0] if _interrupt_parts else ""
-                    _session_matches = (
-                        bool(_interrupt_chat_id)
-                        and _agent_session.startswith(f"{_interrupt_channel}_")
-                        and f"_{_interrupt_chat_id}_" in _agent_session
-                    )
+                _resolved_sid = self._resolve_task_session_id(session_key, _agent_ref)
+                _session_matches = _resolved_sid is not None
 
                 logger.debug(
-                    f"[Interrupt] Session check: agent_session={_agent_session!r}, "
+                    f"[Interrupt] Session check: resolved_sid={_resolved_sid!r}, "
                     f"interrupt_key={session_key!r}, matches={_session_matches}"
                 )
 
@@ -948,13 +935,10 @@ class MessageGateway:
                     msg_type = self.agent_handler.classify_interrupt(user_text)
 
                     if msg_type == "stop":
-                        _cancel_session_id = self._resolve_task_session_id(
-                            session_key, _agent_ref
-                        )
-                        if _cancel_session_id:
+                        if _resolved_sid:
                             self.agent_handler.cancel_current_task(
                                 f"用户发送停止指令: {user_text}",
-                                session_id=_cancel_session_id,
+                                session_id=_resolved_sid,
                             )
                         else:
                             logger.warning(
@@ -966,15 +950,12 @@ class MessageGateway:
                             )
                         logger.info(
                             f"[Interrupt] STOP command, cancelling task for {session_key} "
-                            f"(resolved={_cancel_session_id}): {user_text}"
+                            f"(resolved={_resolved_sid}): {user_text}"
                         )
-                        # 不入中断队列: cancel_event 已触发取消流程，
-                        # 入队会导致 _process_pending_interrupts 二次处理
                         await self._send_feedback(message, "✅ 收到，正在停止当前任务…")
                     elif msg_type == "skip":
-                        _skip_sid = self._resolve_task_session_id(session_key, _agent_ref)
                         ok = self.agent_handler.skip_current_step(
-                            f"用户发送跳过指令: {user_text}", session_id=_skip_sid,
+                            f"用户发送跳过指令: {user_text}", session_id=_resolved_sid,
                         )
                         if ok:
                             await self._send_feedback(message, "⏭️ 收到，正在跳过当前步骤…")
@@ -984,10 +965,9 @@ class MessageGateway:
                             f"[Interrupt] SKIP handled directly (not queued) for {session_key}: {user_text}"
                         )
                     else:
-                        _insert_sid = self._resolve_task_session_id(session_key, _agent_ref)
                         try:
                             ok = await self.agent_handler.insert_user_message(
-                                user_text, session_id=_insert_sid,
+                                user_text, session_id=_resolved_sid,
                             )
                             if ok:
                                 await self._send_feedback(message, "💬 收到，已将消息注入当前任务。")
@@ -1053,9 +1033,10 @@ class MessageGateway:
 
         session_key 格式:  "telegram:1241684312:tg_1241684312"
                             channel : chat_id  : user_id
-        task key 格式:     "telegram_1241684312_20260219031213_xxx"
-                            channel  _ chat_id  _ timestamp      _ uuid
-        两者共享 channel 和 chat_id。
+
+        task key 可能是两种格式（取决于 _resolve_conversation_id 的返回）:
+          a) session.id 格式: "telegram_1241684312_20260219031213_xxx"（下划线分隔）
+          b) gateway session_key 格式: "telegram:1241684312:tg_1241684312"（冒号分隔）
         """
         if not agent_ref:
             return None
@@ -1067,16 +1048,31 @@ class MessageGateway:
         chat_id = parts[1] if len(parts) >= 2 else ""
         if not channel or not chat_id:
             return None
-        prefix = f"{channel}_"
-        chat_id_seg = f"_{chat_id}_"
+
         tasks = getattr(agent_state, "_tasks", {})
+
+        if session_key in tasks:
+            return session_key
+
+        prefix_underscore = f"{channel}_"
+        chat_id_seg_underscore = f"_{chat_id}_"
+        prefix_colon = f"{channel}:"
+        chat_id_seg_colon = f":{chat_id}:"
+
         for key in tasks:
             task = tasks[key]
-            if key.startswith(prefix) and chat_id_seg in key:
-                if task.is_active:
-                    return key
+            matched = (
+                (key.startswith(prefix_underscore) and chat_id_seg_underscore in key)
+                or (key.startswith(prefix_colon) and chat_id_seg_colon in key)
+            )
+            if matched and task.is_active:
+                return key
         for key in tasks:
-            if key.startswith(prefix) and chat_id_seg in key:
+            matched = (
+                (key.startswith(prefix_underscore) and chat_id_seg_underscore in key)
+                or (key.startswith(prefix_colon) and chat_id_seg_colon in key)
+            )
+            if matched:
                 return key
         return None
 
