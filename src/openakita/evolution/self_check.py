@@ -896,7 +896,10 @@ ID: {result.test_id}
             from ..memory import MemoryManager, MemoryType
 
             # 获取记忆管理器
-            memory_manager = MemoryManager(settings.project_root / "data")
+            memory_manager = MemoryManager(
+                data_dir=settings.project_root / "data" / "memory",
+                memory_md_path=settings.memory_path,
+            )
 
             # 提取 ERROR 类型记忆
             error_memories = memory_manager.search_memories(
