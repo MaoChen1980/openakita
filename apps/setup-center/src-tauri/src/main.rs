@@ -367,7 +367,7 @@ fn module_definitions() -> Vec<(&'static str, &'static str, &'static str, &'stat
     // 仅体积大(>50MB)或有特殊二进制依赖的包才需要模块化安装。
     // 其余轻量包(文档处理/图像处理/桌面自动化/IM适配器等)已直接打包进 PyInstaller bundle。
     vec![
-        ("vector-memory", "向量记忆增强", "语义搜索与向量记忆 (sentence-transformers + chromadb，含 PyTorch)", &["sentence-transformers", "chromadb"], 2500, "core"),
+        ("vector-memory", "向量记忆增强", "语义搜索与向量记忆 (sentence-transformers + chromadb，含 PyTorch)", &["sentence-transformers", "chromadb", "regex>=2023.6.3"], 2500, "core"),
         ("browser", "浏览器自动化", "Playwright 浏览器 + browser-use AI 代理 (含 Chromium ~150MB)", &["playwright", "browser-use", "langchain-openai"], 350, "core"),
         ("whisper", "语音识别", "OpenAI Whisper 语音转文字 (含 PyTorch)", &["openai-whisper", "static-ffmpeg"], 2500, "core"),
         ("orchestration", "多Agent协同", "ZeroMQ 多 Agent 协同通信", &["pyzmq"], 10, "core"),

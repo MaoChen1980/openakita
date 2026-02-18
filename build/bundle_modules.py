@@ -25,8 +25,9 @@ MODULE_DEFS = {
     "vector-memory": {
         "description": "Vector memory enhancement (semantic search)",
         "packages": [
-            "sentence-transformers>=2.2.0",
+            "sentence-transformers>=2.2.0,<3.0",
             "chromadb>=0.4.0",
+            "regex>=2023.6.3,<2025",
         ],
         "model_script": """
 import os
