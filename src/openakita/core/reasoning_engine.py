@@ -2030,6 +2030,17 @@ class ReasoningEngine:
             {"type": "text_delta", "content": "..."} 事件
         """
         cancel_reason = (state.cancel_reason if state else "") or "用户请求停止"
+
+        # 将用户的原始停止指令文字通过 SSE 回传给前端，
+        # 确保前端一定能显示用户的插入消息（兜底 handleInsertMessage 的 setMessages 竞争问题）
+        user_text = ""
+        if cancel_reason.startswith("用户发送停止指令: "):
+            user_text = cancel_reason[len("用户发送停止指令: "):]
+        elif cancel_reason.startswith("用户发送跳过指令: "):
+            user_text = cancel_reason[len("用户发送跳过指令: "):]
+        if user_text:
+            yield {"type": "user_insert", "content": user_text}
+
         cancel_msg = (
             f"[系统通知] 用户发送了停止指令「{cancel_reason}」，"
             "请立即停止当前操作，简要告知用户已停止以及当前进度（1~2 句话即可）。"
@@ -2040,8 +2051,7 @@ class ReasoningEngine:
         farewell_text = "✅ 好的，已停止当前任务。"
         try:
             farewell_response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self._brain.messages_create,
+                self._brain.messages_create_async(
                     model=current_model,
                     max_tokens=200,
                     system=system_prompt,
@@ -2182,8 +2192,7 @@ class ReasoningEngine:
 
         tracer = get_tracer()
         with tracer.llm_span(model=current_model) as span:
-            response = await asyncio.to_thread(
-                self._brain.messages_create,
+            response = await self._brain.messages_create_async(
                 use_thinking=use_thinking,
                 thinking_depth=thinking_depth,
                 model=current_model,

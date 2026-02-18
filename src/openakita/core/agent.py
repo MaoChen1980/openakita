@@ -3810,7 +3810,7 @@ NEXT: 建议的下一步（如有）"""
         当 cancel_event 先于 LLM 返回被 set() 时，抛出 UserCancelledError。
         """
         llm_task = asyncio.create_task(
-            asyncio.to_thread(self.brain.messages_create, **kwargs)
+            self.brain.messages_create_async(**kwargs)
         )
         cancel_waiter = asyncio.create_task(cancel_event.wait())
 
@@ -3865,11 +3865,12 @@ NEXT: 建议的下一步（如有）"""
         working_messages.append({"role": "user", "content": cancel_msg})
 
         # 短超时 LLM 调用，让模型生成有上下文的收尾
+        # 使用 async 版本直接在主事件循环中调用 LLM，避免 asyncio.to_thread
+        # 创建新事件循环导致 httpx 连接池竞争（前一个被取消的请求仍占用连接）
         farewell_text = default_farewell
         try:
             response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self.brain.messages_create,
+                self.brain.messages_create_async(
                     model=current_model,
                     max_tokens=200,
                     system=system_prompt,

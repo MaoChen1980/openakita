@@ -390,6 +390,36 @@ class Brain:
         # 转换响应: LLMClient -> Anthropic Message
         return self._convert_response_to_anthropic(response)
 
+    async def messages_create_async(self, use_thinking: bool = None, thinking_depth: str | None = None, **kwargs) -> AnthropicMessage:
+        """异步版本的 messages_create，直接 await LLMClient.chat()。
+
+        用于已处在事件循环中的场景（如取消收尾），避免 asyncio.to_thread + asyncio.run
+        创建新事件循环导致 httpx 连接池竞争。
+        """
+        if use_thinking is None:
+            use_thinking = self.is_thinking_enabled()
+
+        llm_messages = self._convert_messages_to_llm(kwargs.get("messages", []))
+        system = kwargs.get("system", "")
+        llm_tools = self._convert_tools_to_llm(kwargs.get("tools", []))
+        max_tokens = kwargs.get("max_tokens", self.max_tokens)
+        conversation_id = kwargs.get("conversation_id")
+
+        req_id = self._dump_llm_request(system, llm_messages, llm_tools, caller="messages_create_async")
+
+        response = await self._llm_client.chat(
+            messages=llm_messages,
+            system=system,
+            tools=llm_tools,
+            max_tokens=max_tokens,
+            enable_thinking=use_thinking,
+            thinking_depth=thinking_depth,
+            conversation_id=conversation_id,
+        )
+
+        self._dump_llm_response(response, caller="messages_create_async", request_id=req_id)
+        return self._convert_response_to_anthropic(response)
+
     # ========================================================================
     # 格式转换方法
     # ========================================================================

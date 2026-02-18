@@ -60,6 +60,7 @@ type StreamEvent =
   | { type: "plan_completed" }
   | { type: "plan_cancelled" }
   | { type: "ask_user"; question: string; options?: { id: string; label: string }[]; allow_multiple?: boolean; questions?: { id: string; prompt: string; options?: { id: string; label: string }[]; allow_multiple?: boolean }[] }
+  | { type: "user_insert"; content: string }
   | { type: "agent_switch"; agentName: string; reason: string }
   | { type: "artifact"; artifact_type: string; file_url: string; path: string; name: string; caption: string; size?: number }
   | { type: "error"; message: string }
@@ -1802,9 +1803,22 @@ export function ChatView({
 
             switch (event.type) {
               case "heartbeat":
-                // 后端心跳：保持连接活跃，不更新消息内容
-                // idle timer 已在 reader.read() 层自动重置
-                continue; // skip message update below
+                continue;
+              case "user_insert": {
+                // 后端回传用户的插入消息（如停止/跳过指令），确保显示为用户气泡。
+                // 检查是否已存在（handleInsertMessage 可能已先行添加），避免重复。
+                const insertContent = (event.content || "").trim();
+                if (insertContent) {
+                  setMessages((prev) => {
+                    const alreadyExists = prev.some(
+                      (m) => m.role === "user" && m.content === insertContent && Date.now() - m.timestamp < 10000
+                    );
+                    if (alreadyExists) return prev;
+                    return [...prev, { id: genId(), role: "user" as const, content: insertContent, timestamp: Date.now() }];
+                  });
+                }
+                continue;
+              }
               case "context_compressed":
                 pendingCompressedInfo = { beforeTokens: event.before_tokens, afterTokens: event.after_tokens };
                 break;

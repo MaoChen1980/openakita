@@ -55,9 +55,9 @@ class ContextManager:
         """更新 cancel_event（每次任务开始时由 Agent 设置）"""
         self._cancel_event = event
 
-    async def _cancellable_to_thread(self, func, *args, **kwargs):
-        """包装 asyncio.to_thread 使其可被 cancel_event 中断"""
-        coro = asyncio.to_thread(func, *args, **kwargs)
+    async def _cancellable_llm(self, **kwargs):
+        """可被 cancel_event 中断的 LLM 调用（直接 await，不创建线程）"""
+        coro = self._brain.messages_create_async(**kwargs)
         if not self._cancel_event:
             return await coro
         task = asyncio.create_task(coro)
@@ -400,8 +400,7 @@ class ContextManager:
             )
 
         try:
-            response = await self._cancellable_to_thread(
-                self._brain.messages_create,
+            response = await self._cancellable_llm(
                 model=self._brain.model,
                 max_tokens=target_tokens,
                 system=system_prompt,
@@ -512,8 +511,7 @@ class ContextManager:
             chunk_target = max(int(target_tokens / len(chunks)), 100)
 
             try:
-                response = await self._cancellable_to_thread(
-                    self._brain.messages_create,
+                response = await self._cancellable_llm(
                     model=self._brain.model,
                     max_tokens=chunk_target,
                     system=(
