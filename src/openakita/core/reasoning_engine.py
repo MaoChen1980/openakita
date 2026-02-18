@@ -522,7 +522,9 @@ class ReasoningEngine:
                 logger.info(f"[ReAct] Task cancelled at iteration start: {state.cancel_reason}")
                 self._save_react_trace(react_trace, conversation_id, session_type, "cancelled", _trace_started_at)
                 tracer.end_trace(metadata={"result": "cancelled", "iterations": iteration})
-                return "✅ 任务已停止。"
+                return await self._cancel_farewell(
+                    working_messages, _build_effective_system_prompt(), current_model, state
+                )
 
             # 任务监控
             if task_monitor:
@@ -566,9 +568,18 @@ class ReasoningEngine:
                     )
 
             # ==================== REASON 阶段 ====================
+            if state.cancelled:
+                self._save_react_trace(react_trace, conversation_id, session_type, "cancelled", _trace_started_at)
+                tracer.end_trace(metadata={"result": "cancelled", "iterations": iteration + 1})
+                return await self._cancel_farewell(
+                    working_messages, _build_effective_system_prompt(), current_model, state
+                )
             logger.info(f"[ReAct] Iter {iteration+1}/{max_iterations} — REASON (model={current_model})")
             if state.status != TaskStatus.REASONING:
-                state.transition(TaskStatus.REASONING)
+                try:
+                    state.transition(TaskStatus.REASONING)
+                except ValueError:
+                    pass
 
             _thinking_t0 = time.time()  # 思维链: 记录 thinking 开始时间
             try:
@@ -593,9 +604,8 @@ class ReasoningEngine:
                     e, task_monitor, state, working_messages, current_model
                 )
                 if retry_result == "retry":
-                    # sleep 可被 cancel_event 中断
                     _sleep = asyncio.create_task(asyncio.sleep(2))
-                    _cw = asyncio.create_task(cancel_event.wait())
+                    _cw = asyncio.create_task(state.cancel_event.wait())
                     _done, _pend = await asyncio.wait({_sleep, _cw}, return_when=asyncio.FIRST_COMPLETED)
                     for _t in _pend:
                         _t.cancel()
@@ -720,7 +730,10 @@ class ReasoningEngine:
                         f"tools: {list(set(executed_tool_names))} ==="
                     )
                     self._save_react_trace(react_trace, conversation_id, session_type, "completed", _trace_started_at)
-                    state.transition(TaskStatus.COMPLETED)
+                    try:
+                        state.transition(TaskStatus.COMPLETED)
+                    except ValueError:
+                        pass
                     tracer.end_trace(metadata={
                         "result": "completed",
                         "iterations": iteration + 1,
@@ -732,7 +745,10 @@ class ReasoningEngine:
                     await _emit_progress("🔄 任务尚未完成，继续处理...")
                     logger.info(f"[ReAct] Iter {iteration+1} — VERIFY: incomplete, continuing loop")
                     react_trace.append(_iter_trace)
-                    state.transition(TaskStatus.VERIFYING)
+                    try:
+                        state.transition(TaskStatus.VERIFYING)
+                    except ValueError:
+                        pass
                     (
                         working_messages,
                         no_tool_call_count,
@@ -746,7 +762,10 @@ class ReasoningEngine:
                 # ==================== ACT 阶段 ====================
                 tool_names = [tc.get("name", "?") for tc in decision.tool_calls]
                 logger.info(f"[ReAct] Iter {iteration+1} — ACT: {tool_names}")
-                state.transition(TaskStatus.ACTING)
+                try:
+                    state.transition(TaskStatus.ACTING)
+                except ValueError:
+                    pass
 
                 # ---- ask_user 拦截 ----
                 # 如果 LLM 调用了 ask_user，立即中断循环，将问题返回给用户
@@ -798,7 +817,10 @@ class ReasoningEngine:
                     else:
                         final_text = text_part or "（等待用户回复）"
 
-                    state.transition(TaskStatus.WAITING_USER)
+                    try:
+                        state.transition(TaskStatus.WAITING_USER)
+                    except ValueError:
+                        pass
 
                     # ---- IM 模式：等待用户回复（超时 + 追问） ----
                     user_reply = await self._wait_for_user_reply(
@@ -830,7 +852,10 @@ class ReasoningEngine:
                             "role": "user",
                             "content": _build_ask_user_tool_results(f"用户回复：{user_reply}"),
                         })
-                        state.transition(TaskStatus.REASONING)
+                        try:
+                            state.transition(TaskStatus.REASONING)
+                        except ValueError:
+                            pass
                         continue  # 继续 ReAct 循环
 
                     elif user_reply is None and self._state.current_session and (
@@ -852,7 +877,10 @@ class ReasoningEngine:
                                 "否则终止当前任务并告知用户你需要什么信息。"
                             ),
                         })
-                        state.transition(TaskStatus.REASONING)
+                        try:
+                            state.transition(TaskStatus.REASONING)
+                        except ValueError:
+                            pass
                         continue  # 继续 ReAct 循环，让 LLM 自行决策
 
                     else:
@@ -883,7 +911,9 @@ class ReasoningEngine:
                     react_trace.append(_iter_trace)
                     self._save_react_trace(react_trace, conversation_id, session_type, "cancelled", _trace_started_at)
                     tracer.end_trace(metadata={"result": "cancelled", "iterations": iteration + 1})
-                    return "✅ 任务已停止。"
+                    return await self._cancel_farewell(
+                        working_messages, _build_effective_system_prompt(), current_model, state
+                    )
 
                 # === IM 进度: 描述即将执行的工具 ===
                 for tc in (decision.tool_calls or []):
@@ -927,7 +957,17 @@ class ReasoningEngine:
                     f"[ReAct] Iter {iteration+1} — OBSERVE: "
                     f"{len(tool_results)} results from {executed or []}"
                 )
-                state.transition(TaskStatus.OBSERVING)
+                if state.cancelled:
+                    working_messages.append({"role": "user", "content": tool_results})
+                    self._save_react_trace(react_trace, conversation_id, session_type, "cancelled", _trace_started_at)
+                    tracer.end_trace(metadata={"result": "cancelled", "iterations": iteration + 1})
+                    return await self._cancel_farewell(
+                        working_messages, _build_effective_system_prompt(), current_model, state
+                    )
+                try:
+                    state.transition(TaskStatus.OBSERVING)
+                except ValueError:
+                    pass
 
                 # 收集工具结果到 trace
                 _iter_trace["tool_results"] = [
@@ -957,7 +997,9 @@ class ReasoningEngine:
                 if state.cancelled:
                     self._save_react_trace(react_trace, conversation_id, session_type, "cancelled", _trace_started_at)
                     tracer.end_trace(metadata={"result": "cancelled", "iterations": iteration + 1})
-                    return "✅ 任务已停止。"
+                    return await self._cancel_farewell(
+                        working_messages, _build_effective_system_prompt(), current_model, state
+                    )
 
                 # 添加工具结果
                 working_messages.append({
@@ -974,7 +1016,10 @@ class ReasoningEngine:
                     if cleaned_text and cleaned_text.strip():
                         logger.info(f"[LoopGuard] stop_reason=end_turn after {consecutive_tool_rounds} rounds")
                         self._save_react_trace(react_trace, conversation_id, session_type, "completed_end_turn", _trace_started_at)
-                        state.transition(TaskStatus.COMPLETED)
+                        try:
+                            state.transition(TaskStatus.COMPLETED)
+                        except ValueError:
+                            pass
                         tracer.end_trace(metadata={
                             "result": "completed_end_turn",
                             "iterations": iteration + 1,
@@ -1001,14 +1046,20 @@ class ReasoningEngine:
                 if loop_result == "terminate":
                     cleaned = strip_thinking_tags(decision.text_content)
                     self._save_react_trace(react_trace, conversation_id, session_type, "loop_terminated", _trace_started_at)
-                    state.transition(TaskStatus.FAILED)
+                    try:
+                        state.transition(TaskStatus.FAILED)
+                    except ValueError:
+                        pass
                     tracer.end_trace(metadata={"result": "loop_terminated", "iterations": iteration + 1})
                     return cleaned or "⚠️ 检测到工具调用陷入死循环，任务已自动终止。请重新描述您的需求。"
                 if loop_result == "disable_force":
                     max_no_tool_retries = 0
 
         self._save_react_trace(react_trace, conversation_id, session_type, "max_iterations", _trace_started_at)
-        state.transition(TaskStatus.FAILED)
+        try:
+            state.transition(TaskStatus.FAILED)
+        except ValueError:
+            pass
         tracer.end_trace(metadata={"result": "max_iterations", "iterations": max_iterations})
         return "已达到最大工具调用次数，请重新描述您的需求。"
 
@@ -1301,7 +1352,7 @@ class ReasoningEngine:
 
                     if retry_result == "retry":
                         _sleep = asyncio.create_task(asyncio.sleep(2))
-                        _cw = asyncio.create_task(cancel_event.wait())
+                        _cw = asyncio.create_task(state.cancel_event.wait())
                         _done, _pend = await asyncio.wait({_sleep, _cw}, return_when=asyncio.FIRST_COMPLETED)
                         for _t in _pend:
                             _t.cancel()
@@ -2014,6 +2065,56 @@ class ReasoningEngine:
                     shutil.rmtree(date_dir, ignore_errors=True)
         except Exception:
             pass
+
+    # ==================== 取消收尾（非流式） ====================
+
+    async def _cancel_farewell(
+        self,
+        working_messages: list[dict],
+        system_prompt: str,
+        current_model: str,
+        state: TaskState | None = None,
+    ) -> str:
+        """非流式场景下的取消收尾：注入中断上下文，发起轻量 LLM 调用，返回收尾文本。"""
+        cancel_reason = (state.cancel_reason if state else "") or "用户请求停止"
+        logger.info(
+            f"[ReAct][CancelFarewell] 进入收尾流程: cancel_reason={cancel_reason!r}, "
+            f"model={current_model}, msg_count={len(working_messages)}"
+        )
+
+        cancel_msg = (
+            f"[系统通知] 用户发送了停止指令「{cancel_reason}」，"
+            "请立即停止当前操作，简要告知用户已停止以及当前进度（1~2 句话即可）。"
+            "不要调用任何工具。"
+        )
+        farewell_messages = list(working_messages)
+        farewell_messages.append({"role": "user", "content": cancel_msg})
+
+        farewell_text = "✅ 好的，已停止当前任务。"
+        try:
+            farewell_response = await asyncio.wait_for(
+                self._brain.messages_create_async(
+                    model=current_model,
+                    max_tokens=200,
+                    system=system_prompt,
+                    tools=[],
+                    messages=farewell_messages,
+                ),
+                timeout=5.0,
+            )
+            for block in farewell_response.content:
+                if block.type == "text" and block.text.strip():
+                    farewell_text = block.text.strip()
+                    break
+            logger.info(f"[ReAct][CancelFarewell] LLM farewell 成功: {farewell_text[:120]}")
+        except (TimeoutError, asyncio.TimeoutError):
+            logger.warning("[ReAct][CancelFarewell] LLM farewell 超时 (5s)，使用默认文本")
+        except Exception as e:
+            logger.error(
+                f"[ReAct][CancelFarewell] LLM farewell 失败: {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+        return farewell_text
 
     # ==================== 取消收尾（流式） ====================
 
