@@ -185,38 +185,51 @@ class MCPClient:
             else:
                 return await self._connect_stdio(server_name, config)
 
-        except Exception as e:
+        except BaseException as e:
             logger.error(f"Failed to connect to {server_name}: {e}")
             return False
 
     async def _connect_stdio(self, server_name: str, config: MCPServerConfig) -> bool:
         """通过 stdio 连接到 MCP 服务器"""
-        # 创建 stdio 连接
         server_params = StdioServerParameters(
             command=config.command,
             args=config.args,
             env=config.env or None,
         )
 
-        # 启动客户端并保持连接（把 context manager 保存起来，disconnect 时关闭）
-        stdio_cm = stdio_client(server_params)
-        read, write = await stdio_cm.__aenter__()
+        stdio_cm = None
+        client_cm = None
+        try:
+            stdio_cm = stdio_client(server_params)
+            read, write = await stdio_cm.__aenter__()
 
-        client_cm = ClientSession(read, write)
-        client = await client_cm.__aenter__()
-        await client.initialize()
+            client_cm = ClientSession(read, write)
+            client = await client_cm.__aenter__()
+            await client.initialize()
 
-        # 获取可用功能
-        await self._discover_capabilities(server_name, client)
+            await self._discover_capabilities(server_name, client)
 
-        self._connections[server_name] = {
-            "client": client,
-            "transport": "stdio",
-            "_client_cm": client_cm,
-            "_stdio_cm": stdio_cm,
-        }
-        logger.info(f"Connected to MCP server via stdio: {server_name}")
-        return True
+            self._connections[server_name] = {
+                "client": client,
+                "transport": "stdio",
+                "_client_cm": client_cm,
+                "_stdio_cm": stdio_cm,
+            }
+            logger.info(f"Connected to MCP server via stdio: {server_name}")
+            return True
+        except BaseException as e:
+            logger.error(f"Failed to connect to {server_name} via stdio: {e}")
+            try:
+                if client_cm:
+                    await client_cm.__aexit__(None, None, None)
+            except Exception:
+                pass
+            try:
+                if stdio_cm:
+                    await stdio_cm.__aexit__(None, None, None)
+            except Exception:
+                pass
+            return False
 
     async def _connect_streamable_http(self, server_name: str, config: MCPServerConfig) -> bool:
         """通过 Streamable HTTP 连接到 MCP 服务器"""
@@ -231,25 +244,40 @@ class MCPClient:
             logger.error(f"No URL configured for streamable HTTP server: {server_name}")
             return False
 
-        # 创建 Streamable HTTP 连接
-        http_cm = streamablehttp_client(url=config.url)
-        read, write, _ = await http_cm.__aenter__()
+        http_cm = None
+        client_cm = None
+        try:
+            http_cm = streamablehttp_client(url=config.url)
+            read, write, _ = await http_cm.__aenter__()
 
-        client_cm = ClientSession(read, write)
-        client = await client_cm.__aenter__()
-        await client.initialize()
+            client_cm = ClientSession(read, write)
+            client = await client_cm.__aenter__()
+            await client.initialize()
 
-        # 获取可用功能
-        await self._discover_capabilities(server_name, client)
+            await self._discover_capabilities(server_name, client)
 
-        self._connections[server_name] = {
-            "client": client,
-            "transport": "streamable_http",
-            "_client_cm": client_cm,
-            "_http_cm": http_cm,
-        }
-        logger.info(f"Connected to MCP server via streamable HTTP: {server_name} ({config.url})")
-        return True
+            self._connections[server_name] = {
+                "client": client,
+                "transport": "streamable_http",
+                "_client_cm": client_cm,
+                "_http_cm": http_cm,
+            }
+            logger.info(f"Connected to MCP server via streamable HTTP: {server_name} ({config.url})")
+            return True
+        except BaseException as e:
+            logger.error(f"Failed to connect to {server_name} via streamable HTTP: {e}")
+            # Clean up partially opened context managers
+            try:
+                if client_cm:
+                    await client_cm.__aexit__(None, None, None)
+            except Exception:
+                pass
+            try:
+                if http_cm:
+                    await http_cm.__aexit__(None, None, None)
+            except Exception:
+                pass
+            return False
 
     async def _discover_capabilities(self, server_name: str, client: Any) -> None:
         """发现 MCP 服务器的能力（工具、资源、提示词）"""
@@ -350,14 +378,12 @@ class MCPClient:
 
         try:
             conn = self._connections[server_name]
-            # connect() 保存的是一个包含 client 与 CM 的 dict；这里取出真正的 client
             client = conn.get("client") if isinstance(conn, dict) else conn
             if client is None:
                 return MCPCallResult(success=False, error=f"Invalid connection for server: {server_name}")
 
             result = await client.call_tool(tool_name, arguments)
 
-            # 解析结果
             content = []
             for item in result.content:
                 if hasattr(item, "text"):
@@ -370,10 +396,11 @@ class MCPClient:
                 data=content[0] if len(content) == 1 else content,
             )
 
-        except Exception as e:
+        except BaseException as e:
+            logger.error(f"MCP tool call failed ({server_name}:{tool_name}): {type(e).__name__}: {e}")
             return MCPCallResult(
                 success=False,
-                error=str(e),
+                error=f"{type(e).__name__}: {e}",
             )
 
     async def read_resource(
@@ -416,8 +443,9 @@ class MCPClient:
                 data=content[0] if len(content) == 1 else content,
             )
 
-        except Exception as e:
-            return MCPCallResult(success=False, error=str(e))
+        except BaseException as e:
+            logger.error(f"MCP read_resource failed ({server_name}:{uri}): {type(e).__name__}: {e}")
+            return MCPCallResult(success=False, error=f"{type(e).__name__}: {e}")
 
     async def get_prompt(
         self,
@@ -462,8 +490,9 @@ class MCPClient:
 
             return MCPCallResult(success=True, data=messages)
 
-        except Exception as e:
-            return MCPCallResult(success=False, error=str(e))
+        except BaseException as e:
+            logger.error(f"MCP get_prompt failed ({server_name}:{prompt_name}): {type(e).__name__}: {e}")
+            return MCPCallResult(success=False, error=f"{type(e).__name__}: {e}")
 
     def list_servers(self) -> list[str]:
         """列出所有配置的服务器"""
