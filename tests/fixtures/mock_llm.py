@@ -102,6 +102,10 @@ class MockLLMClient:
         """Set a fallback response when the queue is empty."""
         self._default_response = MockResponse(content=content)
 
+    def reset_all_cooldowns(self, **kwargs: Any) -> None:
+        """No-op: mock has no cooldown state."""
+        pass
+
     async def chat(
         self,
         messages: list[Any],
