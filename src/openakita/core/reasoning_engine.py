@@ -2041,7 +2041,7 @@ class ReasoningEngine:
         _tc_count = sum(len(t.get("tool_calls", [])) for t in (react_trace or []))
         _tr_count = sum(len(t.get("tool_results", [])) for t in (react_trace or []))
         logger.debug(
-            f"[ReAct] _save_react_trace: status={status}, "
+            f"[ReAct] _save_react_trace: result={result}, "
             f"iterations={len(react_trace or [])}, "
             f"tool_calls={_tc_count}, tool_results={_tr_count}"
         )
