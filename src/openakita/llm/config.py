@@ -18,8 +18,26 @@ logger = logging.getLogger(__name__)
 
 # 确保 .env 文件被加载
 def _load_env():
-    """加载 .env 文件"""
-    # 尝试从项目根目录加载
+    """加载 .env 文件
+
+    搜索顺序：CWD → CWD 的父级（最多 3 层）→ 包文件所在目录向上（最多 5 层）。
+    pip install 后用户从项目目录运行 openakita，.env 在 CWD 下，
+    必须优先从 CWD 搜索，否则只会在 site-packages 里找。
+    """
+    # 1) 从 CWD 向上搜索（pip install 场景）
+    cwd = Path.cwd()
+    current = cwd
+    for _ in range(3):
+        env_path = current / ".env"
+        if env_path.exists():
+            load_dotenv(env_path)
+            return
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+    # 2) 从包文件向上搜索（开发 / editable install 场景）
     current = Path(__file__).parent
     for _ in range(5):
         env_path = current / ".env"
@@ -33,23 +51,41 @@ _load_env()
 
 
 def get_default_config_path() -> Path:
-    """获取默认配置文件路径"""
-    # 优先使用环境变量
+    """获取默认配置文件路径
+
+    搜索顺序：
+    1. 环境变量 LLM_ENDPOINTS_CONFIG
+    2. CWD 及其父级（最多 3 层）下的 data/llm_endpoints.json
+    3. 包文件所在目录向上（最多 5 层）下的 data/llm_endpoints.json
+    4. 兜底返回 CWD/data/llm_endpoints.json（即使不存在）
+    """
+    # 1) 环境变量优先
     env_path = os.environ.get("LLM_ENDPOINTS_CONFIG")
     if env_path:
         return Path(env_path)
 
-    # 默认路径：项目根目录下的 data/llm_endpoints.json
-    # 从当前文件向上查找
+    # 2) 从 CWD 向上搜索（pip install 场景：openakita init 在 CWD 创建 data/）
+    cwd = Path.cwd()
+    current = cwd
+    for _ in range(3):
+        config_path = current / "data" / "llm_endpoints.json"
+        if config_path.exists():
+            return config_path
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+    # 3) 从包文件向上搜索（开发 / editable install 场景）
     current = Path(__file__).parent
-    for _ in range(5):  # 最多向上 5 层
+    for _ in range(5):
         config_path = current / "data" / "llm_endpoints.json"
         if config_path.exists():
             return config_path
         current = current.parent
 
-    # 如果找不到，返回默认位置
-    return Path(__file__).parent.parent.parent.parent / "data" / "llm_endpoints.json"
+    # 4) 兜底：返回 CWD 下的默认位置（让调用方统一处理不存在的情况）
+    return cwd / "data" / "llm_endpoints.json"
 
 
 def load_endpoints_config(
