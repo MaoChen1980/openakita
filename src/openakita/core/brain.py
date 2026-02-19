@@ -625,6 +625,14 @@ class Brain:
                                             )
                                         )
                                     )
+                                else:
+                                    logger.warning(
+                                        f"[Brain] video_url is not a data URL, "
+                                        f"passing through as-is: {url[:80]}..."
+                                    )
+                                    vid = VideoContent.from_url(url)
+                                    if vid:
+                                        blocks.append(VideoBlock(video=vid))
 
                         elif part_type == "input_audio":
                             audio_data = part.get("input_audio", {})

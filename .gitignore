@@ -105,10 +105,10 @@ skills/*
 plugins/*
 !plugins/.gitkeep
 
-# Tests
-tests/
-test_*.py
-*_test.py
+# Tests - only ignore test outputs, not test source code
+tests/__pycache__/
+tests/**/__pycache__/
+.pytest_cache/
 
 # Identity (only keep examples and personas)
 identity/*

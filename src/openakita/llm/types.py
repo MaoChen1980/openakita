@@ -89,8 +89,15 @@ class VideoContent:
     def from_base64(cls, data: str, media_type: str = "video/mp4") -> "VideoContent":
         return cls(media_type=media_type, data=data)
 
+    @classmethod
+    def from_url(cls, url: str) -> "VideoContent":
+        """从 URL 创建（存储 URL，由下游转换器处理）"""
+        return cls(media_type="url", data=url)
+
     def to_data_url(self) -> str:
         """转换为 data URL 格式"""
+        if self.media_type == "url":
+            return self.data
         return f"data:{self.media_type};base64,{self.data}"
 
 

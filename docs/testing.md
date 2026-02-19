@@ -1,529 +1,246 @@
-# 测试与 CI 指南（当前仓库实情版）
+# 测试指南
 
-本文档以仓库当前实现为准，目标是让你能：
-- 本地一键复现 CI
-- 了解哪些测试是纯单测/模拟，哪些需要外部凭据
-- 明确工程的测试分层与覆盖范围
+本文档以仓库当前实现为准，覆盖测试分层、运行方式、CI 集成和开发流程。
 
 ---
 
-## CI 流程（GitHub Actions）
+## 测试分层架构
 
-CI 配置文件：`.github/workflows/ci.yml`，当前分 3 个 job。
-
-### 1) `lint`（Ubuntu / Python 3.11）
-
-安装：
-
-- `ruff`、`mypy`
-- `pip install -e .`
-
-执行：
-
-```bash
-ruff check src/
-mypy src/ --ignore-missing-imports
+```
+L5 质量评估  │ 统计通过率, 手动/每周     │ tests/quality/
+L4 E2E 测试  │ 录制回放/真实 LLM, <15min │ tests/e2e/
+L3 集成测试  │ Mock LLM, <3min          │ tests/integration/
+L2 组件测试  │ Mock LLM, <2min          │ tests/component/
+L1 单元测试  │ 纯逻辑, <30s             │ tests/unit/
 ```
 
-说明：
-- `mypy` 当前作为“尽力而为”检查（见 `pyproject.toml`：`ignore_errors = true`），用于尽早暴露明显问题；不以“全量类型正确”为门槛。
-
-### 2) `test`（多 OS / 多版本）
-
-矩阵：
-- OS：Ubuntu / Windows / macOS
-- Python：3.11 / 3.12
-
-安装：
-
-```bash
-pip install -e ".[dev]"
-```
-
-执行：
-
-```bash
-pytest tests/ -v --cov=src/openakita --cov-report=xml
-```
-
-覆盖率：
-- 产物：`coverage.xml`
-- 上传：仅 Ubuntu + Python 3.11 的矩阵分支会上传到 Codecov
-
-### 3) `build`（Ubuntu / Python 3.11）
-
-依赖：`lint`、`test`
-
-执行：
-
-```bash
-python -m build
-```
-
-并上传 `dist/` 作为构建产物。
+| 层 | 触发条件 | 耗时 | LLM 费用 |
+|----|---------|------|---------|
+| L1 单元测试 | 每次 commit/PR | <30s | 0 |
+| L2 组件测试 | 每次 commit/PR | <2min | 0 |
+| L3 集成测试 | 每次 commit/PR | <3min | 0 |
+| L4 E2E (回放) | 每次 PR / 每日 | <5min | 0 (回放模式) |
+| L4 E2E (录制) | 手动 / 每周 | <15min | ~$0.5 |
+| L5 质量评估 | 手动 / 每周 | <30min | ~$2 |
 
 ---
 
-## 本地复现 CI（推荐命令）
+## 目录结构
+
+```
+tests/
+├── conftest.py                    # 全局 fixtures (mock_llm, test_session, etc.)
+├── fixtures/
+│   ├── mock_llm.py                # MockLLMClient + LLMRecorder + ReplayClient
+│   ├── factories.py               # 测试数据工厂
+│   └── recordings/                # LLM 响应录制文件
+│       └── .gitkeep
+├── unit/                          # L1: 纯逻辑, <30s
+│   ├── test_budget.py             # Token 预算估算
+│   ├── test_session.py            # Session 状态机
+│   ├── test_capabilities.py       # 模型能力匹配
+│   ├── test_judge.py              # Judge 判定规则
+│   ├── test_catalog.py            # 工具目录
+│   └── test_memory_types.py       # Memory 数据模型
+├── component/                     # L2: Mock LLM, <2min
+│   ├── test_context_manager.py    # 上下文压缩
+│   ├── test_reasoning_engine.py   # ReAct / AgentState
+│   ├── test_tool_executor.py      # 工具执行 / 结果截断
+│   ├── test_prompt_compiler.py    # Prompt 编译 / 系统提示词构建
+│   ├── test_llm_client.py         # LLM 类型 / MockLLMClient
+│   └── test_memory_manager.py     # 记忆存取
+├── integration/                   # L3: Mock LLM, <3min
+│   ├── test_api_chat.py           # /api/chat SSE
+│   ├── test_api_config.py         # /api/config
+│   ├── test_gateway.py            # 消息类型 / Gateway
+│   ├── test_session_lifecycle.py  # SessionManager 生命周期
+│   ├── test_im_adapters.py        # IM 适配器协议合规 (6 个适配器)
+│   └── test_setup_wizard.py       # 安装向导 (目录/配置生成)
+├── e2e/                           # L4: 录制回放/真实 LLM, <15min
+│   ├── test_multiturn.py          # 多轮对话上下文
+│   ├── test_memory_e2e.py         # 记忆跨会话持久化
+│   ├── test_tool_orchestration.py # 多步工具编排
+│   ├── test_interrupt_e2e.py      # 中断/取消/跳过全链路
+│   ├── test_cli.py                # CLI 命令
+│   └── test_setup_e2e.py          # 安装配置全流程
+├── quality/                       # L5: 统计通过率, 手动/每周
+│   ├── test_tool_selection.py     # 工具选择准确率
+│   └── test_response_quality.py   # 回答质量评分 (LLM-as-Judge)
+└── legacy/                        # 迁移自原 tests/ 根目录
+    ├── test_cancel.py
+    ├── test_memory_system.py
+    ├── test_memory_interaction.py
+    ├── test_module_deps.py
+    ├── test_new_features.py
+    ├── test_orchestration.py
+    ├── test_refactoring.py
+    ├── test_scheduler_detailed.py
+    └── test_telegram_simple.py
+```
+
+---
+
+## 核心基础设施
+
+### MockLLMClient (tests/fixtures/mock_llm.py)
+
+可编程的 LLM 模拟，支持：
+- `preset_response(content, tool_calls)` — 预设单次返回
+- `preset_sequence(responses)` — 预设多轮 ReAct 序列
+- `call_log` / `total_calls` — 调用记录
+- `MockBrain` — 包装 MockLLMClient 匹配 Brain 接口
+
+### LLMRecorder / ReplayLLMClient
+
+- `LLMRecorder(real_client, dir)` — 录制真实 LLM 交互到 JSON
+- `ReplayLLMClient(dir)` — 从 JSON 回放，基于 messages hash 匹配
+
+### Factories (tests/fixtures/factories.py)
+
+- `create_test_session(chat_id, channel, messages)`
+- `create_channel_message(channel, text, images, voices)`
+- `create_mock_agent()` — 轻量 Mock Agent
+- `create_mock_gateway()` — Mock MessageGateway
+- `create_tool_definition(name, category, schema)`
+- `create_endpoint_config(name, provider, model)`
+- `build_conversation(turns)` — 从 `(role, content)` 元组构建对话
+
+### conftest.py 提供的 Fixtures
+
+| Fixture | 描述 |
+|---------|------|
+| `mock_llm_client` | 带默认回复的 MockLLMClient |
+| `mock_brain` | 基于 mock_llm_client 的 MockBrain |
+| `test_session` | 空的 Session |
+| `tmp_workspace` | 临时工作空间 (data/memory/logs/identity) |
+| `test_settings` | 指向临时目录的 Settings |
+| `mock_response_factory` | 创建 MockResponse 的工厂函数 |
+
+---
+
+## 本地运行
 
 ### 安装开发依赖
 
 ```bash
-python -m pip install -U pip
 pip install -e ".[dev]"
 ```
 
-### Lint / Type Check
-
-```bash
-ruff check src/
-mypy src/ --ignore-missing-imports
-```
-
-### 运行测试（与 CI 一致）
+### 运行全部测试
 
 ```bash
 pytest tests/ -v
 ```
 
-带覆盖率：
+### 分层运行
 
 ```bash
-pytest tests/ -v --cov=src/openakita --cov-report=xml
+# L1 单元测试 (最快)
+pytest tests/unit/ -v
+
+# L2 组件测试
+pytest tests/component/ -v
+
+# L3 集成测试
+pytest tests/integration/ -v
+
+# L4 E2E 测试
+pytest tests/e2e/ -v
+
+# L5 质量评估
+pytest tests/quality/ -v
+
+# Legacy 测试
+pytest tests/legacy/ -v -k "not TestVectorStore"
+```
+
+### 带覆盖率
+
+```bash
+pytest tests/ -v --cov=src/openakita --cov-report=html
 ```
 
 ---
 
-## 测试分层与目录结构（真实结构）
+## CI 流程 (GitHub Actions)
 
-当前 pytest 用例主要分布在：
+配置文件：`.github/workflows/ci.yml`
 
-```text
-tests/
-├── llm/
-│   ├── unit/          # 纯单测：能力推断、配置解析、消息格式、类型结构等
-│   ├── integration/   # Provider/Registry/Routing 的集成层测试（目前多使用 mock，不依赖真实 API）
-│   ├── fault/         # 故障/容错：超时、failover、降级策略
-│   ├── regression/    # 回归/兼容：Brain、媒体处理、memory 注入等关键路径
-│   └── e2e/           # 端到端：对话、工具、多模态、调度等（当前以可复现/离线为优先）
-├── test_memory_system.py
-├── test_new_features.py
-├── test_orchestration.py
-├── test_scheduler_detailed.py
-└── test_telegram_simple.py    # 需要真实凭据：默认跳过
+### 分层 CI Jobs
+
+| Job | 触发 | 依赖 |
+|-----|------|------|
+| `unit_tests` | 每次 Push/PR | - |
+| `component_tests` | 每次 Push/PR | unit_tests |
+| `integration_tests` | 每次 Push/PR | component_tests |
+| `e2e_tests` | main 分支 / 手动 | integration_tests |
+| `quality_tests` | main 分支 / 手动 | e2e_tests |
+| `python_test` | 每次 Push/PR | - (跨平台兼容性) |
+
+### E2E 录制/回放
+
+```bash
+# 回放模式 (CI 默认)
+LLM_TEST_MODE=replay pytest tests/e2e/ -v
+
+# 录制模式 (本地手动)
+LLM_TEST_MODE=record pytest tests/e2e/ -v
 ```
 
 ---
 
-## 需要外部凭据/环境的测试
+## 需要外部凭据的测试
 
-目标原则：
-- 默认 CI 只跑 **离线可复现** 的测试（mock、纯逻辑、无网络依赖）
-- 真实外部依赖（IM、真实 LLM key）尽量 **默认 skip**，避免把 CI 稳定性绑在外部服务上
+默认 CI 只跑离线可复现的测试。
 
-### Telegram 集成测试（默认跳过）
-
-文件：`tests/test_telegram_simple.py`
-
-行为：如果没有 `TELEGRAM_BOT_TOKEN`，模块会在导入时直接 skip。
-
-需要的环境变量：
-- `TELEGRAM_BOT_TOKEN`（必需）
-- `TELEGRAM_CHAT_ID`（部分用例需要）
-
-本地启用示例：
+### Telegram 集成测试 (默认跳过)
 
 ```bash
 export TELEGRAM_BOT_TOKEN="..."
 export TELEGRAM_CHAT_ID="..."
-pytest tests/test_telegram_simple.py -v
+pytest tests/legacy/test_telegram_simple.py -v
 ```
-
-### `--api-keys` 选项（当前是预留能力）
-
-`tests/llm/conftest.py` 里预留了 `--api-keys` 参数与 `api_keys` marker（不加参数时自动 skip 被标记用例）。
-
-现状：仓库中该 marker 的覆盖还不完整（很多用例仍使用 mock、或用其它方式进行 skip）。
-
-建议标准化口径（后续可落地到文档+代码）：
-- 默认 CI：不启用 `--api-keys`
-- 手动/夜间任务：显式 `pytest --api-keys ...` 跑真实 key 的用例
 
 ---
 
-## 功能/烟囱测试脚本（不在 CI，适合本地冒烟）
+## 新功能开发流程
 
-脚本：`scripts/run_tests.py`
+### 测试检查清单 (PR 模板)
 
-用途：做工具可用性与关键行为的“冒烟验证”（Shell/File/QA/Prompt&Memory）。
+每个新功能 PR 必须回答：
 
-运行：
+- [ ] 新增了哪些测试文件/测试用例?
+- [ ] 纯逻辑部分是否有 L1 单元测试? (函数输入输出、边界值)
+- [ ] 组件交互是否有 L2 测试? (Mock LLM、验证调用链)
+- [ ] 如果涉及 API/通道，是否有 L3 集成测试?
+- [ ] 是否录制了 LLM 响应用于 E2E 回放?
+- [ ] 修复 bug 时是否先写了复现该 bug 的测试?
 
-```bash
-python scripts/run_tests.py
-```
+### 变更类型 → 最低测试要求
 
-说明：其中 QA 会初始化 `Agent()`，在某些环境下可能触发真实 LLM 路径；因此它更适合本地/部署后验证，而非默认 CI。
+| 变更类型 | 最低测试要求 |
+|---------|-----------|
+| 新增纯逻辑函数 | L1 单元测试，覆盖正常路径 + 至少 1 个边界 |
+| 新增组件/模块 | L2 组件测试，Mock 依赖，验证关键交互 |
+| 新增 API 端点 | L3 集成测试 (httpx AsyncClient)，验证请求/响应格式 |
+| 新增 IM 适配器 | L3 集成测试，Mock webhook/消息，验证消息转换 |
+| 新增 LLM 交互行为 | L4 E2E，录制一次真实交互，加入回放测试 |
+| 修复 bug | 先写复现测试 (红)，再修复代码使其变绿 |
 
 ---
 
-## 排障建议（测试失败时）
-
-常用命令：
+## 排障建议
 
 ```bash
 # 单文件
-pytest tests/test_memory_system.py -v
+pytest tests/unit/test_budget.py -v
 
 # 单用例
-pytest tests/test_memory_system.py::TestMemoryManager::test_34_get_injection_context_includes_memory_md -v
+pytest tests/unit/test_budget.py::TestEstimateTokens::test_pure_english -v
 
 # 打印 stdout / 日志
-pytest tests/test_memory_system.py -v -s
-```
+pytest tests/component/test_context_manager.py -v -s
 
-# Testing Guide
-
-OpenAkita includes a comprehensive testing framework with 300+ test cases.
-
-## Test Categories
-
-| Category | Count | Description |
-|----------|-------|-------------|
-| QA/Basic | 30 | Math, programming knowledge |
-| QA/Reasoning | 35 | Logic, code comprehension |
-| QA/Multi-turn | 35 | Context memory, instruction following |
-| Tools/Shell | 40 | Command execution |
-| Tools/File | 30 | File operations |
-| Tools/API | 30 | HTTP requests |
-| Search/Web | 40 | Web search |
-| Search/Code | 30 | Code search |
-| Search/Docs | 30 | Documentation search |
-| **Total** | **300** | |
-
-## Running Tests
-
-### All Tests
-
-```bash
-# Run all tests
-pytest tests/ -v
-
-# With coverage report
-pytest tests/ --cov=src/openakita --cov-report=html
-```
-
-### Specific Categories
-
-```bash
-# Only QA tests
-pytest tests/test_qa.py -v
-
-# Only tool tests
-pytest tests/test_tools.py -v
-
-# Only search tests
-pytest tests/test_search.py -v
-```
-
-### Self-Check Mode
-
-```bash
-# Quick check (core functionality)
-openakita selfcheck --quick
-
-# Full check (all 300 tests)
-openakita selfcheck --full
-
-# With auto-fix on failure
-openakita selfcheck --fix
-```
-
-## Test Structure
-
-### Test File Organization
-
-```
-tests/
-├── test_qa.py            # Q&A tests
-├── test_tools.py         # Tool tests
-├── test_search.py        # Search tests
-├── test_integration.py   # Integration tests
-└── fixtures/
-    ├── sample_files/     # Test files
-    └── mock_responses/   # Mock API responses
-```
-
-### Test Case Format
-
-```python
-# tests/test_qa.py
-import pytest
-from openakita.testing.runner import TestRunner
-
-class TestBasicQA:
-    """Basic question-answering tests."""
-    
-    @pytest.mark.asyncio
-    async def test_math_addition(self, agent):
-        """Agent can perform basic math."""
-        response = await agent.process("What is 2 + 2?")
-        assert "4" in response
-    
-    @pytest.mark.asyncio
-    async def test_programming_knowledge(self, agent):
-        """Agent knows programming concepts."""
-        response = await agent.process("What is a Python decorator?")
-        assert "function" in response.lower()
-```
-
-## Built-in Test Runner
-
-### TestRunner Class
-
-```python
-from openakita.testing.runner import TestRunner, TestCase
-
-runner = TestRunner()
-
-# Add test cases
-runner.add_case(TestCase(
-    id="qa_math_001",
-    category="qa/basic",
-    input="What is 15 * 7?",
-    expected_contains=["105"],
-    timeout=30
-))
-
-# Run tests
-results = await runner.run_all()
-print(f"Passed: {results.passed}/{results.total}")
-```
-
-### Test Case Definition
-
-```python
-@dataclass
-class TestCase:
-    id: str                    # Unique identifier
-    category: str              # Test category
-    input: str                 # User input
-    expected_contains: list    # Expected substrings in output
-    expected_not_contains: list = None  # Should not appear
-    timeout: int = 60          # Timeout in seconds
-    requires_tools: list = None  # Required tools
-    setup: Callable = None     # Setup function
-    teardown: Callable = None  # Teardown function
-```
-
-## Judge System
-
-The judge evaluates test results:
-
-```python
-from openakita.testing.judge import Judge
-
-judge = Judge()
-
-verdict = judge.evaluate(
-    expected="The answer is 42",
-    actual="Based on my calculation, the answer is 42.",
-    criteria=["exact_match", "contains", "semantic"]
-)
-
-print(verdict.passed)  # True
-print(verdict.score)   # 0.95
-print(verdict.reason)  # "Contains expected value"
-```
-
-### Evaluation Criteria
-
-| Criteria | Description |
-|----------|-------------|
-| `exact_match` | Output exactly matches expected |
-| `contains` | Output contains expected substring |
-| `not_contains` | Output does not contain string |
-| `semantic` | Semantically similar (uses LLM) |
-| `regex` | Matches regular expression |
-| `json_valid` | Output is valid JSON |
-| `code_runs` | Code in output executes successfully |
-
-## Auto-Fix System
-
-When tests fail, OpenAkita can attempt automatic fixes:
-
-```python
-from openakita.testing.fixer import Fixer
-
-fixer = Fixer()
-
-# Analyze failure
-analysis = await fixer.analyze(
-    test_case=failed_test,
-    actual_output=output,
-    error_message=error
-)
-
-# Attempt fix
-if analysis.fixable:
-    fix = await fixer.generate_fix(analysis)
-    await fixer.apply_fix(fix)
-    
-    # Re-run test
-    result = await runner.run_case(failed_test)
-```
-
-### Fix Categories
-
-| Category | Auto-Fix Support |
-|----------|------------------|
-| Missing import | ✅ Yes |
-| Syntax error | ✅ Yes |
-| Type mismatch | ✅ Yes |
-| Logic error | ⚠️ Sometimes |
-| Design flaw | ❌ No |
-
-## Writing Tests
-
-### Best Practices
-
-1. **One assertion per test** when possible
-2. **Use descriptive names** that explain what's tested
-3. **Include edge cases** (empty input, large data, etc.)
-4. **Mock external services** to ensure reproducibility
-5. **Set appropriate timeouts** for async operations
-
-### Example: Tool Test
-
-```python
-@pytest.mark.asyncio
-async def test_file_write_read(self, agent, tmp_path):
-    """Agent can write and read files."""
-    test_file = tmp_path / "test.txt"
-    content = "Hello, World!"
-    
-    # Write file
-    response = await agent.process(
-        f"Write '{content}' to {test_file}"
-    )
-    assert test_file.exists()
-    
-    # Read file
-    response = await agent.process(
-        f"Read the contents of {test_file}"
-    )
-    assert content in response
-```
-
-### Example: Multi-turn Test
-
-```python
-@pytest.mark.asyncio
-async def test_context_memory(self, agent):
-    """Agent remembers context across turns."""
-    # First turn
-    await agent.process("My name is Alice")
-    
-    # Second turn - should remember
-    response = await agent.process("What is my name?")
-    assert "Alice" in response
-```
-
-## CI/CD Integration
-
-### GitHub Actions
-
-```yaml
-# .github/workflows/test.yml
-name: Tests
-
-on: [push, pull_request]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      
-      - name: Install dependencies
-        run: pip install -e ".[dev]"
-      
-      - name: Run tests
-        run: pytest tests/ -v --cov=src/openakita
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
-```
-
-## Debugging Tests
-
-### Enable Debug Logging
-
-```bash
-LOG_LEVEL=DEBUG pytest tests/test_qa.py -v -s
-```
-
-### Run Single Test
-
-```bash
-pytest tests/test_qa.py::TestBasicQA::test_math_addition -v
-```
-
-### Interactive Debugging
-
-```python
-@pytest.mark.asyncio
-async def test_with_debug(self, agent):
-    import pdb; pdb.set_trace()
-    response = await agent.process("Test input")
-```
-
-## Performance Testing
-
-```python
-import time
-
-@pytest.mark.asyncio
-async def test_response_time(self, agent):
-    """Response should be under 5 seconds."""
-    start = time.time()
-    await agent.process("Simple question")
-    elapsed = time.time() - start
-    assert elapsed < 5.0
-```
-
-## Test Data
-
-### Sample Files
-
-Test files are in `tests/fixtures/sample_files/`:
-
-```
-sample_files/
-├── text/
-│   ├── simple.txt
-│   └── unicode.txt
-├── code/
-│   ├── python_sample.py
-│   └── javascript_sample.js
-└── data/
-    ├── sample.json
-    └── sample.csv
-```
-
-### Mock Responses
-
-Mock API responses in `tests/fixtures/mock_responses/`:
-
-```python
-# Loaded automatically in tests
-MOCK_CLAUDE_RESPONSE = {
-    "content": [{"type": "text", "text": "Mock response"}],
-    "stop_reason": "end_turn"
-}
+# 调试模式
+LOG_LEVEL=DEBUG pytest tests/integration/test_api_chat.py -v -s
 ```
