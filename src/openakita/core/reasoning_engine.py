@@ -38,6 +38,8 @@ from .tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
 
+_SSE_RESULT_PREVIEW_CHARS = 32000
+
 
 class DecisionType(Enum):
     """LLM 决策类型"""
@@ -592,6 +594,7 @@ class ReasoningEngine:
                     conversation_id=conversation_id,
                     thinking_mode=thinking_mode,
                     thinking_depth=thinking_depth,
+                    iteration=iteration,
                 )
 
                 if task_monitor:
@@ -1316,6 +1319,7 @@ class ReasoningEngine:
                         conversation_id=conversation_id,
                         thinking_mode=thinking_mode,
                         thinking_depth=thinking_depth,
+                        iteration=_iteration,
                     ):
                         if hb_event["type"] == "heartbeat":
                             yield {"type": "heartbeat"}
@@ -1545,7 +1549,7 @@ class ReasoningEngine:
                                 r = str(r) if r else ""
                             except Exception as exc:
                                 r = f"Tool error: {exc}"
-                            yield {"type": "tool_call_end", "tool": t_name, "result": r[:8000], "id": t_id}
+                            yield {"type": "tool_call_end", "tool": t_name, "result": r[:_SSE_RESULT_PREVIEW_CHARS], "id": t_id}
                             # chain_text: 结果摘要
                             _ask_result_summary = self._summarize_tool_result(t_name, r)
                             if _ask_result_summary:
@@ -1669,9 +1673,9 @@ class ReasoningEngine:
 
                         # 跳过时发送 tool_call_skipped 事件通知前端
                         if _stream_skipped:
-                            yield {"type": "tool_call_end", "tool": tool_name, "result": result_text[:8000], "id": tool_id, "skipped": True}
+                            yield {"type": "tool_call_end", "tool": tool_name, "result": result_text[:_SSE_RESULT_PREVIEW_CHARS], "id": tool_id, "skipped": True}
                         else:
-                            yield {"type": "tool_call_end", "tool": tool_name, "result": result_text[:8000], "id": tool_id}
+                            yield {"type": "tool_call_end", "tool": tool_name, "result": result_text[:_SSE_RESULT_PREVIEW_CHARS], "id": tool_id}
 
                         if _stream_cancelled:
                             tool_results_for_msg.append({
@@ -2298,6 +2302,7 @@ class ReasoningEngine:
         conversation_id: str | None = None,
         thinking_mode: str | None = None,
         thinking_depth: str | None = None,
+        iteration: int = 0,
     ):
         """
         包装 _reason()，在等待 LLM 响应期间每隔 HEARTBEAT_INTERVAL 秒
@@ -2328,6 +2333,7 @@ class ReasoningEngine:
                     conversation_id=conversation_id,
                     thinking_mode=thinking_mode,
                     thinking_depth=thinking_depth,
+                    iteration=iteration,
                 )
                 await queue.put(("result", decision))
             except Exception as exc:
@@ -2391,6 +2397,7 @@ class ReasoningEngine:
         conversation_id: str | None = None,
         thinking_mode: str | None = None,
         thinking_depth: str | None = None,
+        iteration: int = 0,
     ) -> Decision:
         """
         推理阶段: 调用 LLM，返回结构化 Decision。
