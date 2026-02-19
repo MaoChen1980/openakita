@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     # Agent 配置
     agent_name: str = Field(default="OpenAkita", description="Agent 名称")
-    max_iterations: int = Field(default=100, description="Ralph 循环最大迭代次数")
+    max_iterations: int = Field(default=300, description="Ralph 循环最大迭代次数")
     auto_confirm: bool = Field(default=False, description="是否自动确认危险操作")
 
     # 自检配置
@@ -167,6 +167,11 @@ class Settings(BaseSettings):
         description="Embedding 模型运行设备 (cpu 或 cuda)",
     )
 
+    # === 记忆系统配置 ===
+    memory_history_days: int = Field(default=30, description="记忆保留天数")
+    memory_max_history_files: int = Field(default=1000, description="最大历史文件数")
+    memory_max_history_size_mb: int = Field(default=500, description="历史文件最大总大小(MB)")
+
     # GitHub
     github_token: str = Field(default="", description="GitHub Token")
 
@@ -279,7 +284,7 @@ class Settings(BaseSettings):
     )
 
     # === 活人感引擎配置 ===
-    proactive_enabled: bool = Field(default=False, description="是否启用活人感模式")
+    proactive_enabled: bool = Field(default=True, description="是否启用活人感模式")
     proactive_max_daily_messages: int = Field(default=3, description="每日最多主动消息数")
     proactive_min_interval_minutes: int = Field(default=120, description="两条主动消息最短间隔（分钟）")
     proactive_quiet_hours_start: int = Field(default=23, description="安静时段开始（小时，0-23）")

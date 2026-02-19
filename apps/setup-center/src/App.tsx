@@ -3284,7 +3284,7 @@ export function App() {
           "TELEGRAM_REQUIRE_PAIRING", "TELEGRAM_PAIRING_CODE", "TELEGRAM_WEBHOOK_URL",
           "FEISHU_ENABLED", "FEISHU_APP_ID", "FEISHU_APP_SECRET",
           "WEWORK_ENABLED", "WEWORK_CORP_ID",
-          "WEWORK_TOKEN", "WEWORK_ENCODING_AES_KEY", "WEWORK_CALLBACK_PORT",
+          "WEWORK_TOKEN", "WEWORK_ENCODING_AES_KEY", "WEWORK_CALLBACK_PORT", "WEWORK_CALLBACK_HOST",
           "DINGTALK_ENABLED", "DINGTALK_CLIENT_ID", "DINGTALK_CLIENT_SECRET",
           "ONEBOT_ENABLED", "ONEBOT_WS_URL", "ONEBOT_ACCESS_TOKEN",
           "QQBOT_ENABLED", "QQBOT_APP_ID", "QQBOT_APP_SECRET", "QQBOT_SANDBOX", "QQBOT_MODE", "QQBOT_WEBHOOK_PORT", "QQBOT_WEBHOOK_PATH",
@@ -3308,7 +3308,7 @@ export function App() {
         ];
       case "agent":
         return [
-          "AGENT_NAME", "MAX_ITERATIONS", "AUTO_CONFIRM",
+          "AGENT_NAME", "MAX_ITERATIONS", "AUTO_CONFIRM", "SELFCHECK_AUTOFIX",
           "THINKING_MODE",
           "PROGRESS_TIMEOUT_SECONDS", "HARD_TIMEOUT_SECONDS",
           "DATABASE_PATH", "LOG_LEVEL",
@@ -4732,11 +4732,19 @@ export function App() {
   const [quickImExpanded, setQuickImExpanded] = useState(false);
 
   const QUICK_ENV_DEFAULTS: Record<string, string> = {
+    // ── Agent (aligned with config.py Settings defaults) ──
     AGENT_NAME: "OpenAkita",
     MAX_ITERATIONS: "300",
     THINKING_MODE: "auto",
     AUTO_CONFIRM: "false",
+    SELFCHECK_AUTOFIX: "true",
+    FORCE_TOOL_CALL_MAX_RETRIES: "1",
+    TOOL_MAX_PARALLEL: "1",
     DATABASE_PATH: "data/agent.db",
+    // ── Timeout ──
+    PROGRESS_TIMEOUT_SECONDS: "600",
+    HARD_TIMEOUT_SECONDS: "0",
+    // ── Persona & Proactive ──
     PERSONA_NAME: "default",
     PROACTIVE_ENABLED: "true",
     PROACTIVE_MAX_DAILY_MESSAGES: "3",
@@ -4746,11 +4754,14 @@ export function App() {
     PROACTIVE_IDLE_THRESHOLD_HOURS: "24",
     STICKER_ENABLED: "true",
     STICKER_DATA_DIR: "data/sticker",
+    // ── Tools ──
     MCP_ENABLED: "true",
     MCP_BROWSER_ENABLED: "true",
     DESKTOP_ENABLED: "true",
+    // ── Voice ──
     WHISPER_MODEL: "base",
     WHISPER_LANGUAGE: "zh",
+    // ── Logging ──
     LOG_LEVEL: "INFO",
     LOG_DIR: "logs",
     LOG_FILE_PREFIX: "openakita",
@@ -4759,20 +4770,26 @@ export function App() {
     LOG_RETENTION_DAYS: "30",
     LOG_TO_CONSOLE: "true",
     LOG_TO_FILE: "true",
+    // ── Memory ──
     EMBEDDING_MODEL: "shibing624/text2vec-base-chinese",
     EMBEDDING_DEVICE: "cpu",
     MODEL_DOWNLOAD_SOURCE: "auto",
     MEMORY_HISTORY_DAYS: "30",
     MEMORY_MAX_HISTORY_FILES: "1000",
     MEMORY_MAX_HISTORY_SIZE_MB: "500",
+    // ── Scheduler ──
     SCHEDULER_ENABLED: "true",
     SCHEDULER_TIMEZONE: "Asia/Shanghai",
     SCHEDULER_MAX_CONCURRENT: "5",
+    SCHEDULER_TASK_TIMEOUT: "600",
+    // ── Session ──
     SESSION_TIMEOUT_MINUTES: "30",
     SESSION_MAX_HISTORY: "50",
     SESSION_STORAGE_PATH: "data/sessions",
+    // ── Multi-Agent ──
     ORCHESTRATION_ENABLED: "false",
     ORCHESTRATION_MODE: "single",
+    // ── IM Channels ──
     TELEGRAM_ENABLED: "false",
     FEISHU_ENABLED: "false",
     WEWORK_ENABLED: "false",
@@ -4862,7 +4879,7 @@ export function App() {
             "TELEGRAM_REQUIRE_PAIRING", "TELEGRAM_PAIRING_CODE", "TELEGRAM_WEBHOOK_URL",
             "FEISHU_ENABLED", "FEISHU_APP_ID", "FEISHU_APP_SECRET",
             "WEWORK_ENABLED", "WEWORK_CORP_ID",
-            "WEWORK_TOKEN", "WEWORK_ENCODING_AES_KEY", "WEWORK_CALLBACK_PORT",
+            "WEWORK_TOKEN", "WEWORK_ENCODING_AES_KEY", "WEWORK_CALLBACK_PORT", "WEWORK_CALLBACK_HOST",
             "DINGTALK_ENABLED", "DINGTALK_CLIENT_ID", "DINGTALK_CLIENT_SECRET",
             "ONEBOT_ENABLED", "ONEBOT_WS_URL", "ONEBOT_ACCESS_TOKEN",
             "QQBOT_ENABLED", "QQBOT_APP_ID", "QQBOT_APP_SECRET", "QQBOT_SANDBOX", "QQBOT_MODE", "QQBOT_WEBHOOK_PORT", "QQBOT_WEBHOOK_PATH",
@@ -6304,7 +6321,7 @@ export function App() {
       "TELEGRAM_REQUIRE_PAIRING", "TELEGRAM_PAIRING_CODE", "TELEGRAM_WEBHOOK_URL",
       "FEISHU_ENABLED", "FEISHU_APP_ID", "FEISHU_APP_SECRET",
       "WEWORK_ENABLED", "WEWORK_CORP_ID",
-      "WEWORK_TOKEN", "WEWORK_ENCODING_AES_KEY", "WEWORK_CALLBACK_PORT",
+      "WEWORK_TOKEN", "WEWORK_ENCODING_AES_KEY", "WEWORK_CALLBACK_PORT", "WEWORK_CALLBACK_HOST",
       "DINGTALK_ENABLED", "DINGTALK_CLIENT_ID", "DINGTALK_CLIENT_SECRET",
       "ONEBOT_ENABLED", "ONEBOT_WS_URL", "ONEBOT_ACCESS_TOKEN",
       "QQBOT_ENABLED", "QQBOT_APP_ID", "QQBOT_APP_SECRET", "QQBOT_SANDBOX", "QQBOT_MODE", "QQBOT_WEBHOOK_PORT", "QQBOT_WEBHOOK_PATH",
@@ -6821,7 +6838,7 @@ export function App() {
 
   function renderAgentSystem() {
     const keysAgent = [
-      "AGENT_NAME", "MAX_ITERATIONS", "AUTO_CONFIRM",
+      "AGENT_NAME", "MAX_ITERATIONS", "AUTO_CONFIRM", "SELFCHECK_AUTOFIX",
       "THINKING_MODE",
       "PROGRESS_TIMEOUT_SECONDS", "HARD_TIMEOUT_SECONDS",
       "DATABASE_PATH", "LOG_LEVEL", "LOG_DIR", "LOG_FILE_PREFIX",
@@ -7090,6 +7107,7 @@ export function App() {
       "WEWORK_TOKEN",
       "WEWORK_ENCODING_AES_KEY",
       "WEWORK_CALLBACK_PORT",
+      "WEWORK_CALLBACK_HOST",
       "DINGTALK_ENABLED",
       "DINGTALK_CLIENT_ID",
       "DINGTALK_CLIENT_SECRET",

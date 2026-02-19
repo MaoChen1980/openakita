@@ -188,10 +188,12 @@ class AnthropicProvider(LLMProvider):
         # Anthropic API 强制要求 max_tokens（不传会 400 报错），
         # 与 OpenAI 兼容 API 不同（可选参数，不传则用模型默认上限）。
         # 因此这里必须传一个值。使用端点配置的 max_tokens 或请求指定的值。
+        thinking_enabled = request.enable_thinking and self.config.has_capability("thinking")
+        messages = self._serialize_messages(request.messages, thinking_enabled)
         body = {
             "model": self.config.model,
             "max_tokens": request.max_tokens or self.config.max_tokens or 16384,
-            "messages": [msg.to_dict() for msg in request.messages],
+            "messages": messages,
         }
 
         if request.system:
@@ -214,7 +216,7 @@ class AnthropicProvider(LLMProvider):
 
         # Anthropic 扩展思考 (Extended Thinking)
         # 仅在端点声明了 thinking 能力时才添加，避免对不支持的模型发送无效参数
-        if request.enable_thinking and self.config.has_capability("thinking"):
+        if thinking_enabled:
             depth_budget_map = {
                 "low": 2048,
                 "medium": 8192,
@@ -233,6 +235,40 @@ class AnthropicProvider(LLMProvider):
                 body["max_tokens"] = budget + 4096
 
         return body
+
+    @staticmethod
+    def _serialize_messages(messages: list, thinking_enabled: bool) -> list[dict]:
+        """序列化消息列表，确保 thinking 模式下格式合规。
+
+        当 thinking 启用时，某些 Anthropic 兼容代理（如云雾 AI 转发 Kimi/Qwen 等）
+        要求所有含 tool_use 的 assistant 消息都包含 thinking 块，否则返回 400:
+        "thinking is enabled but reasoning_content is missing in assistant tool call message"
+
+        对话历史中可能存在没有 thinking 块的 assistant 消息（例如 failover 前由
+        非 thinking 端点生成，或 thinking 是中途开启的），这里为它们补一个占位
+        thinking 块以满足 API 校验。
+        """
+        result = []
+        for msg in messages:
+            msg_dict = msg.to_dict()
+            if not thinking_enabled or msg_dict.get("role") != "assistant":
+                result.append(msg_dict)
+                continue
+
+            content = msg_dict.get("content")
+            if not isinstance(content, list):
+                result.append(msg_dict)
+                continue
+
+            has_tool_use = any(b.get("type") == "tool_use" for b in content)
+            has_thinking = any(b.get("type") == "thinking" for b in content)
+
+            if has_tool_use and not has_thinking:
+                content.insert(0, {"type": "thinking", "thinking": "..."})
+                msg_dict["content"] = content
+
+            result.append(msg_dict)
+        return result
 
     def _parse_response(self, data: dict) -> LLMResponse:
         """解析响应

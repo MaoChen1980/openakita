@@ -252,8 +252,11 @@ class OpenAIProvider(LLMProvider):
     def _build_request_body(self, request: LLMRequest) -> dict:
         """构建请求体"""
         # 转换消息格式（传递 provider 以正确处理视频等多媒体内容）
+        thinking_enabled = request.enable_thinking and self.config.has_capability("thinking")
         messages = convert_messages_to_openai(
-            request.messages, request.system, provider=self.config.provider
+            request.messages, request.system,
+            provider=self.config.provider,
+            enable_thinking=thinking_enabled,
         )
 
         body = {

@@ -25,6 +25,7 @@ def convert_messages_to_openai(
     messages: list[Message],
     system: str = "",
     provider: str = "openai",
+    enable_thinking: bool = False,
 ) -> list[dict]:
     """
     将内部消息格式转换为 OpenAI 格式
@@ -38,6 +39,7 @@ def convert_messages_to_openai(
         messages: 内部格式消息列表
         system: 系统提示
         provider: 服务商标识（用于多媒体处理，如 moonshot 支持视频）
+        enable_thinking: 是否启用思考模式
     """
     result = []
 
@@ -51,7 +53,9 @@ def convert_messages_to_openai(
         )
 
     for msg in messages:
-        converted = _convert_single_message_to_openai(msg, provider=provider)
+        converted = _convert_single_message_to_openai(
+            msg, provider=provider, enable_thinking=enable_thinking,
+        )
         if converted:
             if isinstance(converted, list):
                 result.extend(converted)
@@ -62,7 +66,9 @@ def convert_messages_to_openai(
 
 
 def _convert_single_message_to_openai(
-    msg: Message, provider: str = "openai"
+    msg: Message,
+    provider: str = "openai",
+    enable_thinking: bool = False,
 ) -> dict | list[dict] | None:
     """转换单条消息"""
     if isinstance(msg.content, str):
@@ -118,6 +124,11 @@ def _convert_single_message_to_openai(
                 # 否则尝试从文本中提取 <thinking> 标签
                 elif text_content:
                     reasoning_content, text_content = _extract_thinking_content(text_content)
+
+                # thinking 启用且有工具调用但无 reasoning_content 时，
+                # 注入占位符避免 API 返回 400
+                if not reasoning_content and enable_thinking and tool_uses:
+                    reasoning_content = "..."
 
                 if reasoning_content:
                     assistant_msg["reasoning_content"] = reasoning_content

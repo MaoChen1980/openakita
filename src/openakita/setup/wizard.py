@@ -574,6 +574,13 @@ Press Ctrl+C at any time to cancel.
         use_pairing = Confirm.ask("Require pairing code for new users?", default=True)
         self.config["TELEGRAM_REQUIRE_PAIRING"] = "true" if use_pairing else "false"
 
+        # Webhook（可选）
+        webhook_url = Prompt.ask(
+            "Webhook URL (leave empty for long-polling)", default=""
+        )
+        if webhook_url:
+            self.config["TELEGRAM_WEBHOOK_URL"] = webhook_url
+
         # 代理配置（大陆用户常用）
         use_proxy = Confirm.ask("Use a proxy for Telegram? (recommended in mainland China)", default=False)
         if use_proxy:
@@ -619,6 +626,10 @@ Press Ctrl+C at any time to cancel.
         port = Prompt.ask("Callback port", default="9880")
         if port != "9880":
             self.config["WEWORK_CALLBACK_PORT"] = port
+
+        host = Prompt.ask("Callback bind host", default="0.0.0.0")
+        if host != "0.0.0.0":
+            self.config["WEWORK_CALLBACK_HOST"] = host
 
     def _configure_dingtalk(self):
         """配置钉钉"""
@@ -667,6 +678,20 @@ Press Ctrl+C at any time to cancel.
 
         use_sandbox = Confirm.ask("Enable sandbox mode (测试环境)?", default=True)
         self.config["QQBOT_SANDBOX"] = "true" if use_sandbox else "false"
+
+        # 接入模式
+        console.print("\nAccess mode:\n")
+        console.print("  [1] WebSocket (default, no public IP needed)")
+        console.print("  [2] Webhook (requires public IP/domain)\n")
+        mode_choice = Prompt.ask("Select mode", choices=["1", "2"], default="1")
+        if mode_choice == "2":
+            self.config["QQBOT_MODE"] = "webhook"
+            port = Prompt.ask("Webhook port", default="9890")
+            self.config["QQBOT_WEBHOOK_PORT"] = port
+            path = Prompt.ask("Webhook path", default="/qqbot/callback")
+            self.config["QQBOT_WEBHOOK_PATH"] = path
+        else:
+            self.config["QQBOT_MODE"] = "websocket"
 
     def _configure_memory(self):
         """配置记忆系统"""
@@ -802,7 +827,7 @@ Press Ctrl+C at any time to cancel.
         if not configure_advanced:
             # 使用默认值
             self.config.setdefault("MAX_TOKENS", "0")
-            self.config.setdefault("MAX_ITERATIONS", "100")
+            self.config.setdefault("MAX_ITERATIONS", "300")
             self.config.setdefault("LOG_LEVEL", "INFO")
             console.print("[dim]Using default advanced settings.[/dim]\n")
             return
@@ -947,21 +972,33 @@ Press Ctrl+C at any time to cancel.
             "",
             "# ========== Agent Configuration ==========",
             "AGENT_NAME=OpenAkita",
-            f"MAX_ITERATIONS={self.config.get('MAX_ITERATIONS', '100')}",
-            "AUTO_CONFIRM=false",
-            "# FORCE_TOOL_CALL_MAX_RETRIES=1",
-            "# TOOL_MAX_PARALLEL=1",
+            f"MAX_ITERATIONS={self.config.get('MAX_ITERATIONS', '300')}  # ReAct 循环最大迭代次数",
+            "AUTO_CONFIRM=false  # 工具调用是否自动确认（无需人工审批）",
+            "SELFCHECK_AUTOFIX=true  # Agent 自检发现问题后是否自动修复",
+            "FORCE_TOOL_CALL_MAX_RETRIES=1  # LLM 未返回工具调用时的强制重试次数",
+            "TOOL_MAX_PARALLEL=1  # 并行工具调用最大数量",
+            "# ALLOW_PARALLEL_TOOLS_WITH_INTERRUPT_CHECKS=false",
             "",
             "# ========== Timeout ==========",
-            "# PROGRESS_TIMEOUT_SECONDS=600",
-            "# HARD_TIMEOUT_SECONDS=0",
+            "PROGRESS_TIMEOUT_SECONDS=600  # 任务无进展超时（秒），0=不限",
+            "HARD_TIMEOUT_SECONDS=0  # 任务硬超时（秒），0=不限",
             "",
             "# ========== Paths & Logging ==========",
             "DATABASE_PATH=data/agent.db",
             f"LOG_LEVEL={self.config.get('LOG_LEVEL', 'INFO')}",
-            "# LOG_DIR=logs",
-            "# LOG_TO_CONSOLE=true",
-            "# LOG_TO_FILE=true",
+            "LOG_DIR=logs  # 日志文件目录",
+            "LOG_FILE_PREFIX=openakita  # 日志文件名前缀",
+            "LOG_MAX_SIZE_MB=10  # 单个日志文件最大大小（MB）",
+            "LOG_BACKUP_COUNT=30  # 日志文件保留份数",
+            "LOG_RETENTION_DAYS=30  # 日志文件保留天数",
+            "LOG_TO_CONSOLE=true  # 是否输出到控制台",
+            "LOG_TO_FILE=true  # 是否写入文件",
+            "# LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            "",
+            "# ========== Tools ==========",
+            "MCP_ENABLED=true  # 启用 MCP 工具服务器",
+            "MCP_BROWSER_ENABLED=true  # 启用浏览器自动化",
+            "DESKTOP_ENABLED=true  # 启用桌面自动化（截屏/键鼠）",
             "",
         ])
 
@@ -1017,6 +1054,11 @@ Press Ctrl+C at any time to cancel.
                 f"TELEGRAM_BOT_TOKEN={self.config.get('TELEGRAM_BOT_TOKEN', '')}",
                 f"TELEGRAM_REQUIRE_PAIRING={self.config.get('TELEGRAM_REQUIRE_PAIRING', 'true')}",
             ])
+            if self.config.get("TELEGRAM_WEBHOOK_URL"):
+                lines.append(f"TELEGRAM_WEBHOOK_URL={self.config['TELEGRAM_WEBHOOK_URL']}")
+            else:
+                lines.append("# TELEGRAM_WEBHOOK_URL=")
+            lines.append("# TELEGRAM_PAIRING_CODE=")
             if self.config.get("TELEGRAM_PROXY"):
                 lines.append(f"TELEGRAM_PROXY={self.config['TELEGRAM_PROXY']}")
             else:
@@ -1025,6 +1067,8 @@ Press Ctrl+C at any time to cancel.
             lines.extend([
                 "TELEGRAM_ENABLED=false",
                 "# TELEGRAM_BOT_TOKEN=",
+                "# TELEGRAM_WEBHOOK_URL=",
+                "# TELEGRAM_PAIRING_CODE=",
                 "# TELEGRAM_PROXY=",
             ])
         lines.append("")
@@ -1049,15 +1093,17 @@ Press Ctrl+C at any time to cancel.
                 f"WEWORK_CORP_ID={self.config.get('WEWORK_CORP_ID', '')}",
                 f"WEWORK_TOKEN={self.config.get('WEWORK_TOKEN', '')}",
                 f"WEWORK_ENCODING_AES_KEY={self.config.get('WEWORK_ENCODING_AES_KEY', '')}",
+                f"WEWORK_CALLBACK_PORT={self.config.get('WEWORK_CALLBACK_PORT', '9880')}",
+                f"WEWORK_CALLBACK_HOST={self.config.get('WEWORK_CALLBACK_HOST', '0.0.0.0')}",
             ])
-            if self.config.get("WEWORK_CALLBACK_PORT"):
-                lines.append(f"WEWORK_CALLBACK_PORT={self.config['WEWORK_CALLBACK_PORT']}")
         else:
             lines.extend([
                 "WEWORK_ENABLED=false",
                 "# WEWORK_CORP_ID=",
                 "# WEWORK_TOKEN=",
                 "# WEWORK_ENCODING_AES_KEY=",
+                "# WEWORK_CALLBACK_PORT=9880",
+                "# WEWORK_CALLBACK_HOST=0.0.0.0",
             ])
         lines.append("")
 
@@ -1095,13 +1141,23 @@ Press Ctrl+C at any time to cancel.
                 f"QQBOT_APP_ID={self.config.get('QQBOT_APP_ID', '')}",
                 f"QQBOT_APP_SECRET={self.config.get('QQBOT_APP_SECRET', '')}",
                 f"QQBOT_SANDBOX={self.config.get('QQBOT_SANDBOX', 'true')}",
+                f"QQBOT_MODE={self.config.get('QQBOT_MODE', 'websocket')}",
             ])
+            if self.config.get("QQBOT_MODE") == "webhook":
+                lines.append(f"QQBOT_WEBHOOK_PORT={self.config.get('QQBOT_WEBHOOK_PORT', '9890')}")
+                lines.append(f"QQBOT_WEBHOOK_PATH={self.config.get('QQBOT_WEBHOOK_PATH', '/qqbot/callback')}")
+            else:
+                lines.append("# QQBOT_WEBHOOK_PORT=9890")
+                lines.append("# QQBOT_WEBHOOK_PATH=/qqbot/callback")
         else:
             lines.extend([
                 "QQBOT_ENABLED=false",
                 "# QQBOT_APP_ID=",
                 "# QQBOT_APP_SECRET=",
                 "# QQBOT_SANDBOX=true",
+                "# QQBOT_MODE=websocket",
+                "# QQBOT_WEBHOOK_PORT=9890",
+                "# QQBOT_WEBHOOK_PATH=/qqbot/callback",
             ])
         lines.append("")
 
@@ -1120,22 +1176,25 @@ Press Ctrl+C at any time to cancel.
             "",
         ])
 
-        # 活人感模式
+        # 活人感模式 —— 启用后 Agent 会主动发消息（问候、跟进、闲聊等），模拟真人互动节奏
         lines.append("# ========== Proactive (Living Presence) ==========")
         if self.config.get("PROACTIVE_ENABLED") == "true":
             lines.extend([
-                "PROACTIVE_ENABLED=true",
-                f"PROACTIVE_MAX_DAILY_MESSAGES={self.config.get('PROACTIVE_MAX_DAILY_MESSAGES', '3')}",
-                f"PROACTIVE_MIN_INTERVAL_MINUTES={self.config.get('PROACTIVE_MIN_INTERVAL_MINUTES', '120')}",
-                f"PROACTIVE_QUIET_HOURS_START={self.config.get('PROACTIVE_QUIET_HOURS_START', '23')}",
-                f"PROACTIVE_QUIET_HOURS_END={self.config.get('PROACTIVE_QUIET_HOURS_END', '7')}",
-                "# PROACTIVE_IDLE_THRESHOLD_HOURS=24",
+                "PROACTIVE_ENABLED=true  # 启用活人感模式",
+                f"PROACTIVE_MAX_DAILY_MESSAGES={self.config.get('PROACTIVE_MAX_DAILY_MESSAGES', '3')}  # 每日最多主动消息数",
+                f"PROACTIVE_MIN_INTERVAL_MINUTES={self.config.get('PROACTIVE_MIN_INTERVAL_MINUTES', '120')}  # 两条主动消息最短间隔（分钟）",
+                f"PROACTIVE_QUIET_HOURS_START={self.config.get('PROACTIVE_QUIET_HOURS_START', '23')}  # 免打扰时段开始（24h）",
+                f"PROACTIVE_QUIET_HOURS_END={self.config.get('PROACTIVE_QUIET_HOURS_END', '7')}  # 免打扰时段结束（24h）",
+                f"PROACTIVE_IDLE_THRESHOLD_HOURS={self.config.get('PROACTIVE_IDLE_THRESHOLD_HOURS', '24')}  # 用户空闲多久后触发主动问候",
             ])
         else:
             lines.extend([
-                "PROACTIVE_ENABLED=false",
-                "# PROACTIVE_MAX_DAILY_MESSAGES=3",
-                "# PROACTIVE_MIN_INTERVAL_MINUTES=120",
+                "PROACTIVE_ENABLED=false  # 启用活人感模式（主动问候/跟进/闲聊）",
+                "# PROACTIVE_MAX_DAILY_MESSAGES=3  # 每日最多主动消息数",
+                "# PROACTIVE_MIN_INTERVAL_MINUTES=120  # 两条主动消息最短间隔（分钟）",
+                "# PROACTIVE_QUIET_HOURS_START=23  # 免打扰时段开始（24h）",
+                "# PROACTIVE_QUIET_HOURS_END=7  # 免打扰时段结束（24h）",
+                "# PROACTIVE_IDLE_THRESHOLD_HOURS=24  # 用户空闲多久后触发主动问候",
             ])
         lines.append("")
 
@@ -1143,11 +1202,11 @@ Press Ctrl+C at any time to cancel.
         lines.extend([
             "# ========== Memory System ==========",
             f"EMBEDDING_MODEL={self.config.get('EMBEDDING_MODEL', 'shibing624/text2vec-base-chinese')}",
-            f"EMBEDDING_DEVICE={self.config.get('EMBEDDING_DEVICE', 'cpu')}",
-            f"MODEL_DOWNLOAD_SOURCE={self.config.get('MODEL_DOWNLOAD_SOURCE', 'auto')}",
-            "MEMORY_HISTORY_DAYS=30",
-            "# MEMORY_MAX_HISTORY_FILES=1000",
-            "# MEMORY_MAX_HISTORY_SIZE_MB=500",
+            f"EMBEDDING_DEVICE={self.config.get('EMBEDDING_DEVICE', 'cpu')}  # 嵌入模型运行设备: cpu / cuda / mps",
+            f"MODEL_DOWNLOAD_SOURCE={self.config.get('MODEL_DOWNLOAD_SOURCE', 'auto')}  # 模型下载源: auto / huggingface / modelscope",
+            "MEMORY_HISTORY_DAYS=30  # 记忆保留天数",
+            "MEMORY_MAX_HISTORY_FILES=1000  # 最大历史文件数",
+            "MEMORY_MAX_HISTORY_SIZE_MB=500  # 历史文件最大总大小（MB）",
             "",
         ])
 
@@ -1156,17 +1215,17 @@ Press Ctrl+C at any time to cancel.
             "# ========== Scheduler ==========",
             f"SCHEDULER_ENABLED={self.config.get('SCHEDULER_ENABLED', 'true')}",
             f"SCHEDULER_TIMEZONE={self.config.get('SCHEDULER_TIMEZONE', 'Asia/Shanghai')}",
-            "# SCHEDULER_MAX_CONCURRENT=5",
-            "# SCHEDULER_TASK_TIMEOUT=600",
+            "SCHEDULER_MAX_CONCURRENT=5  # 最大并发调度任务数",
+            "SCHEDULER_TASK_TIMEOUT=600  # 单个调度任务超时（秒）",
             "",
         ])
 
         # 会话
         lines.extend([
             "# ========== Session ==========",
-            f"SESSION_TIMEOUT_MINUTES={self.config.get('SESSION_TIMEOUT_MINUTES', '30')}",
-            f"SESSION_MAX_HISTORY={self.config.get('SESSION_MAX_HISTORY', '50')}",
-            "# SESSION_STORAGE_PATH=data/sessions",
+            f"SESSION_TIMEOUT_MINUTES={self.config.get('SESSION_TIMEOUT_MINUTES', '30')}  # 会话超时（分钟）",
+            f"SESSION_MAX_HISTORY={self.config.get('SESSION_MAX_HISTORY', '50')}  # 每个会话保留的最大消息条数",
+            "SESSION_STORAGE_PATH=data/sessions  # 会话持久化存储路径",
             "",
         ])
 
@@ -1174,12 +1233,12 @@ Press Ctrl+C at any time to cancel.
         lines.append("# ========== Multi-Agent Orchestration ==========")
         if self.config.get("ORCHESTRATION_ENABLED") == "true":
             lines.extend([
-                "ORCHESTRATION_ENABLED=true",
-                f"ORCHESTRATION_MODE={self.config.get('ORCHESTRATION_MODE', 'single')}",
-                "ORCHESTRATION_BUS_ADDRESS=tcp://127.0.0.1:5555",
-                "ORCHESTRATION_PUB_ADDRESS=tcp://127.0.0.1:5556",
-                "ORCHESTRATION_MIN_WORKERS=1",
-                "ORCHESTRATION_MAX_WORKERS=5",
+                "ORCHESTRATION_ENABLED=true  # 启用多 Agent 协作",
+                f"ORCHESTRATION_MODE={self.config.get('ORCHESTRATION_MODE', 'single')}  # 编排模式: single / parallel / pipeline",
+                "ORCHESTRATION_BUS_ADDRESS=tcp://127.0.0.1:5555  # ZeroMQ 请求总线地址",
+                "ORCHESTRATION_PUB_ADDRESS=tcp://127.0.0.1:5556  # ZeroMQ 发布地址",
+                "ORCHESTRATION_MIN_WORKERS=1  # 最小 Worker 数",
+                "ORCHESTRATION_MAX_WORKERS=5  # 最大 Worker 数",
             ])
         else:
             lines.extend([
@@ -1236,30 +1295,39 @@ Press Ctrl+C at any time to cancel.
             task = progress.add_task("Testing API connection...", total=None)
 
             try:
-                # 动态导入避免循环依赖
                 import httpx
 
                 api_key = self.config.get("ANTHROPIC_API_KEY", "")
                 base_url = self.config.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+                model = self.config.get("DEFAULT_MODEL", "claude-sonnet-4-20250514")
+                is_anthropic = "anthropic.com" in base_url
 
-                # 简单的 API 测试
-                headers = {
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                }
+                if is_anthropic:
+                    headers = {
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    }
+                    url = f"{base_url.rstrip('/')}/v1/messages"
+                    body: dict = {
+                        "model": model,
+                        "max_tokens": 10,
+                        "messages": [{"role": "user", "content": "Hi"}],
+                    }
+                else:
+                    headers = {
+                        "Authorization": f"Bearer {api_key}",
+                        "content-type": "application/json",
+                    }
+                    url = f"{base_url.rstrip('/')}/chat/completions"
+                    body = {
+                        "model": model,
+                        "max_tokens": 10,
+                        "messages": [{"role": "user", "content": "Hi"}],
+                    }
 
-                # 尝试发送一个简单请求
                 with httpx.Client(timeout=30) as client:
-                    response = client.post(
-                        f"{base_url.rstrip('/')}/v1/messages",
-                        headers=headers,
-                        json={
-                            "model": self.config.get("DEFAULT_MODEL", "claude-sonnet-4-20250514"),
-                            "max_tokens": 10,
-                            "messages": [{"role": "user", "content": "Hi"}],
-                        },
-                    )
+                    response = client.post(url, headers=headers, json=body)
 
                     if response.status_code == 200:
                         progress.update(
