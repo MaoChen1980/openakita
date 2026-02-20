@@ -1021,6 +1021,7 @@ function MessageBubble({
   onSkipStep?: () => void;
   onImagePreview?: (url: string, name: string) => void;
 }) {
+  const { t } = useTranslation();
   const isUser = msg.role === "user";
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start", marginBottom: 16 }}>
@@ -1257,6 +1258,7 @@ function FlatMessageItem({
   onSkipStep?: () => void;
   onImagePreview?: (url: string, name: string) => void;
 }) {
+  const { t } = useTranslation();
   const isUser = msg.role === "user";
   const isSystem = msg.role === "system";
 
