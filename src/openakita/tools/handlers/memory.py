@@ -90,6 +90,9 @@ class MemoryHandler:
 
     def _search_memory(self, params: dict) -> str:
         """搜索记忆（优先使用 RetrievalEngine 多路召回，fallback 到子串匹配）"""
+        import logging
+
+        _logger = logging.getLogger(__name__)
         from ...memory.types import MemoryType
 
         query = params["query"]
@@ -103,12 +106,14 @@ class MemoryHandler:
                     recent_messages=getattr(self.agent.memory_manager, "_recent_messages", None),
                 )
                 if candidates:
+                    _logger.info(f"[search_memory] RetrievalEngine returned {len(candidates)} candidates for '{query[:50]}'")
                     output = f"找到 {len(candidates)} 条相关记忆:\n\n"
                     for c in candidates[:10]:
                         output += f"- [{c.source_type}] {c.content[:200]}\n\n"
                     return output
-            except Exception:
-                pass
+                _logger.debug(f"[search_memory] RetrievalEngine returned 0 candidates, falling back to substring")
+            except Exception as e:
+                _logger.warning(f"[search_memory] RetrievalEngine failed, falling back to substring: {e}")
 
         mem_type = None
         if type_filter:

@@ -831,7 +831,8 @@ class MemoryStorage:
             )
             row = cur.fetchone()
             return (row[0] if row[0] is not None else -1) + 1
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to get max turn_index for {session_id}: {e}")
             return 0
 
     def get_recent_turns(self, session_id: str, limit: int = 20) -> list[dict]:
@@ -848,7 +849,8 @@ class MemoryStorage:
             rows = self._rows_to_dicts(cur, json_fields=["tool_calls", "tool_results"])
             rows.reverse()
             return rows
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to get recent turns for {session_id}: {e}")
             return []
 
     # ======================================================================
