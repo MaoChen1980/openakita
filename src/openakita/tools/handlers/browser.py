@@ -46,7 +46,11 @@ class BrowserHandler:
     async def handle(self, tool_name: str, params: dict[str, Any]) -> str:
         """处理工具调用"""
         if not hasattr(self.agent, "browser_mcp") or not self.agent.browser_mcp:
-            return "❌ 浏览器 MCP 未启动。请确保已安装 playwright: pip install playwright && playwright install chromium"
+            from openakita.runtime_env import IS_FROZEN
+            if IS_FROZEN:
+                return "❌ 浏览器服务未启动。请尝试重启应用，如仍有问题请查看日志排查原因。"
+            else:
+                return "❌ 浏览器 MCP 未启动。请安装: pip install playwright && playwright install chromium"
 
         # 提取实际工具名（处理 mcp__browser-use__browser_navigate 格式）
         actual_tool_name = tool_name

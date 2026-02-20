@@ -410,16 +410,36 @@ class BrowserMCP:
         # 确定是否 headless
         headless = not visible if visible is not None else self.headless
 
-        # 确保 Playwright 能找到通过设置中心安装的浏览器二进制
-        # install_module() 将 Chromium 下载到 ~/.openakita/modules/browser/browsers/
+        # 确保 Playwright 能找到 Chromium 浏览器二进制
+        # 查找优先级:
+        #   1. PLAYWRIGHT_BROWSERS_PATH 环境变量（用户手动指定）
+        #   2. PyInstaller 打包内置的 playwright-browsers/ 目录
+        #   3. ~/.openakita/modules/browser/browsers/（旧版外置模块安装路径，兼容）
+        #   4. playwright 默认路径（开发环境 / pip install playwright && playwright install）
         import os
         from pathlib import Path
 
         if "PLAYWRIGHT_BROWSERS_PATH" not in os.environ:
-            browsers_dir = Path.home() / ".openakita" / "modules" / "browser" / "browsers"
-            if browsers_dir.is_dir():
-                os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_dir)
-                logger.info(f"[Browser] Set PLAYWRIGHT_BROWSERS_PATH={browsers_dir}")
+            from openakita.runtime_env import IS_FROZEN
+            _found = False
+
+            if IS_FROZEN:
+                # 打包模式: 检查 _internal/playwright-browsers/ (PyInstaller 打包)
+                import sys
+                _meipass = getattr(sys, "_MEIPASS", None)
+                if _meipass:
+                    bundled_browsers = Path(_meipass) / "playwright-browsers"
+                    if bundled_browsers.is_dir():
+                        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(bundled_browsers)
+                        logger.info(f"[Browser] Using bundled Chromium: {bundled_browsers}")
+                        _found = True
+
+            if not _found:
+                # 兼容旧版外置模块安装路径
+                browsers_dir = Path.home() / ".openakita" / "modules" / "browser" / "browsers"
+                if browsers_dir.is_dir():
+                    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_dir)
+                    logger.info(f"[Browser] Using external Chromium: {browsers_dir}")
 
         try:
             # 延迟导入 playwright
@@ -663,9 +683,14 @@ class BrowserMCP:
         if not self._started:
             success = await self.start()
             if not success:
+                from openakita.runtime_env import IS_FROZEN
+                if IS_FROZEN:
+                    _err = "浏览器启动失败。请尝试重启应用，如仍有问题请检查系统是否有杀毒软件拦截。"
+                else:
+                    _err = "浏览器启动失败。请安装: pip install playwright && playwright install chromium"
                 return {
                     "success": False,
-                    "error": "Browser not started. Please install playwright: pip install playwright && playwright install chromium",
+                    "error": _err,
                 }
 
         try:
@@ -854,7 +879,11 @@ class BrowserMCP:
             except Exception:
                 pass
 
-            error_msg = "无法启动浏览器。请确保已安装 playwright: pip install playwright && playwright install chromium"
+            from openakita.runtime_env import IS_FROZEN
+            if IS_FROZEN:
+                error_msg = "无法启动浏览器。浏览器组件已内置，请尝试重启应用。如仍有问题，请检查杀毒软件是否拦截 Chromium 启动。"
+            else:
+                error_msg = "无法启动浏览器。请安装: pip install playwright && playwright install chromium"
             if hints:
                 error_msg += "\n\n" + "\n".join(hints)
 

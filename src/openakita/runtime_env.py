@@ -147,10 +147,14 @@ def inject_module_paths() -> None:
                 injected.append(Path(p).parent.name)
 
     # 来源 2：扫描 ~/.openakita/modules/*/site-packages（兜底）
+    # 跳过已内置到 core 包的模块，避免外部旧版本与内置版本冲突
+    _BUILTIN_MODULE_IDS = {"browser"}
     modules_base = _get_openakita_root() / "modules"
     if modules_base.exists():
         for module_dir in modules_base.iterdir():
             if not module_dir.is_dir():
+                continue
+            if module_dir.name in _BUILTIN_MODULE_IDS:
                 continue
             sp = module_dir / "site-packages"
             if sp.is_dir() and str(sp) not in sys.path:

@@ -366,11 +366,11 @@ fn module_definitions() -> Vec<(&'static str, &'static str, &'static str, &'stat
     //
     // 仅体积大(>50MB)或有特殊二进制依赖的包才需要模块化安装。
     // 其余轻量包(文档处理/图像处理/桌面自动化/IM适配器等)已直接打包进 PyInstaller bundle。
+    // browser (playwright + browser-use + langchain-openai) 已内置到 core 包，不再作为外置模块
     vec![
-        ("vector-memory", "向量记忆增强", "语义搜索与向量记忆 (sentence-transformers + chromadb，含 PyTorch)", &["sentence-transformers", "chromadb", "regex>=2023.6.3"], 2500, "core"),
-        ("browser", "浏览器自动化", "Playwright 浏览器 + browser-use AI 代理 (含 Chromium ~150MB)", &["playwright", "browser-use", "langchain-openai"], 350, "core"),
-        ("whisper", "语音识别", "OpenAI Whisper 语音转文字 (含 PyTorch)", &["openai-whisper", "static-ffmpeg"], 2500, "core"),
-        ("orchestration", "多Agent协同", "ZeroMQ 多 Agent 协同通信", &["pyzmq"], 10, "core"),
+        ("vector-memory", "向量记忆增强", "让 Akita 拥有长期记忆，能根据语义搜索历史对话。体积较大（约 2.5GB，含 PyTorch），安装耗时较长", &["sentence-transformers", "chromadb", "regex>=2023.6.3"], 2500, "core"),
+        ("whisper", "语音识别", "支持语音消息自动转文字，无需联网即可识别。体积较大（约 2.5GB，含 PyTorch），安装耗时较长", &["openai-whisper", "static-ffmpeg"], 2500, "core"),
+        ("orchestration", "多Agent协同", "多个 Akita 实例之间协同工作、分工合作。体积很小（约 10MB），秒装", &["pyzmq"], 10, "core"),
     ]
 }
 
@@ -469,47 +469,7 @@ async fn install_module(
     let run_pip_result = |output: std::process::Output, label: &str| -> Result<String, String> {
         if output.status.success() {
             // ── Post-install hooks (模块特定的额外安装步骤) ──
-            if module_id == "browser" {
-                let _ = app.emit("module-install-progress", serde_json::json!({
-                    "moduleId": &module_id, "status": "installing",
-                    "message": "正在下载 Chromium 浏览器引擎（约 150MB）...",
-                }));
-                let browsers_dir = modules_dir().join("browser").join("browsers");
-                let _ = fs::create_dir_all(&browsers_dir);
-                let mut pw = Command::new(&python_exe);
-                pw.env("PYTHONPATH", &target_dir);
-                pw.env("PLAYWRIGHT_BROWSERS_PATH", &browsers_dir);
-                // 国内 CDN 加速 Playwright 浏览器下载
-                pw.env("PLAYWRIGHT_DOWNLOAD_HOST", "https://cdn.npmmirror.com/binaries/playwright");
-                pw.args(["-m", "playwright", "install", "chromium"]);
-                apply_no_window(&mut pw);
-                match pw.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).output() {
-                    Ok(pw_out) if pw_out.status.success() => {
-                        let _ = app.emit("module-install-progress", serde_json::json!({
-                            "moduleId": &module_id, "status": "installing",
-                            "message": "Chromium 浏览器引擎下载完成",
-                        }));
-                    }
-                    Ok(pw_out) => {
-                        let err = String::from_utf8_lossy(&pw_out.stderr);
-                        let stdout_pw = String::from_utf8_lossy(&pw_out.stdout);
-                        let detail_pw = if err.trim().is_empty() { stdout_pw.to_string() } else { err.to_string() };
-                        let _ = app.emit("module-install-progress", serde_json::json!({
-                            "moduleId": &module_id, "status": "warning",
-                            "message": format!(
-                                "Chromium 下载失败，模块已安装但浏览器引擎缺失。可稍后手动执行: playwright install chromium\n{}",
-                                &detail_pw[..detail_pw.len().min(300)]
-                            ),
-                        }));
-                    }
-                    Err(e) => {
-                        let _ = app.emit("module-install-progress", serde_json::json!({
-                            "moduleId": &module_id, "status": "warning",
-                            "message": format!("playwright install 执行失败: {}", e),
-                        }));
-                    }
-                }
-            }
+            // 注: browser 模块已内置到 core 包，不再需要 post-install hook
 
             let marker = modules_dir().join(&module_id).join(".installed");
             let _ = fs::write(&marker, format!("installed_at={}", now_epoch_secs()));
@@ -577,6 +537,48 @@ async fn install_module(
         ]
     };
 
+    // 根据模块估算大小调整超时时间
+    // whisper/vector-memory 含 PyTorch(~2.5GB)，需要更长超时
+    let is_heavy_module = module_id == "whisper" || module_id == "vector-memory";
+    let base_timeout = if is_heavy_module { "600" } else { "120" };
+    let retry_timeout = if is_heavy_module { "300" } else { "60" };
+
+    // 对含 PyTorch 的大模块，先单独安装 torch 以获得更好的错误提示
+    if is_heavy_module {
+        let _ = app.emit("module-install-progress", serde_json::json!({
+            "moduleId": module_id,
+            "status": "installing",
+            "message": "正在预安装 PyTorch（约 2.5GB，可能需要较长时间）...",
+        }));
+        // 尝试用第一个镜像源预装 torch
+        let (first_mirror, ref first_host) = mirror_list[0];
+        let mut torch_cmd = Command::new(&python_exe);
+        torch_cmd.args(["-m", "pip", "install", "--target"]);
+        torch_cmd.arg(&target_dir);
+        torch_cmd.args(["-i", first_mirror]);
+        torch_cmd.args(["--trusted-host", first_host.as_str()]);
+        torch_cmd.args(["--timeout", "600"]);
+        torch_cmd.args(["--prefer-binary", "--no-cache-dir"]);
+        torch_cmd.arg("torch");
+        apply_no_window(&mut torch_cmd);
+        match torch_cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).output() {
+            Ok(out) if out.status.success() => {
+                let _ = app.emit("module-install-progress", serde_json::json!({
+                    "moduleId": module_id, "status": "installing",
+                    "message": "PyTorch 安装完成，继续安装其余组件...",
+                }));
+            }
+            Ok(out) => {
+                let err = String::from_utf8_lossy(&out.stderr);
+                let _ = app.emit("module-install-progress", serde_json::json!({
+                    "moduleId": module_id, "status": "warning",
+                    "message": format!("PyTorch 预安装失败（将在后续步骤重试）: {}", &err[..err.len().min(200)]),
+                }));
+            }
+            Err(_) => {}
+        }
+    }
+
     let mut last_err = String::from("所有镜像源均安装失败");
     for (idx, (mirror_url, ref trusted_host)) in mirror_list.iter().enumerate() {
         let _ = app.emit("module-install-progress", serde_json::json!({
@@ -594,8 +596,11 @@ async fn install_module(
         c.arg(&target_dir);
         c.args(["-i", mirror_url]);
         c.args(["--trusted-host", trusted_host.as_str()]);
-        let timeout = if idx == 0 { "120" } else { "60" };
+        let timeout = if idx == 0 { base_timeout } else { retry_timeout };
         c.args(["--timeout", timeout]);
+        // --prefer-binary: 优先使用预编译 wheel，避免在无编译工具链的打包环境中构建失败
+        // --no-cache-dir: 避免缓存损坏导致的安装失败
+        c.args(["--prefer-binary", "--no-cache-dir"]);
         for pkg in *packages { c.arg(*pkg); }
         apply_no_window(&mut c);
 
@@ -616,7 +621,15 @@ async fn install_module(
                     || combined_lower.contains("could not find a version")
                     || combined_lower.contains("conflicting dependencies")
                 {
-                    break; // 逻辑错误，不是源的问题
+                    // 逻辑错误，不是源的问题 - 但给用户更友好的提示
+                    if combined_lower.contains("no matching distribution") || combined_lower.contains("could not find a version") {
+                        last_err = format!(
+                            "找不到兼容的安装包。可能原因：Python 版本 ({}) 或系统平台不受支持。\n详情: {}",
+                            std::env::consts::ARCH,
+                            &combined[..combined.len().min(300)]
+                        );
+                    }
+                    break;
                 }
                 let _ = app.emit("module-install-progress", serde_json::json!({
                     "moduleId": module_id, "status": "retrying",
@@ -2326,7 +2339,10 @@ fn openakita_service_start(venv_dir: String, workspace_id: String) -> Result<Ser
         cmd.env("OPENAKITA_MODULE_PATHS", extra_path);
     }
 
-    // Playwright 浏览器二进制路径（install_module 安装到此目录）
+    // Playwright 浏览器二进制路径
+    // 优先级: 打包内置 > 旧版外置模块安装路径
+    // 注: browser 模块已内置到 core 包，Python 端会自动检测 _MEIPASS/playwright-browsers/
+    // 这里作为兜底，兼容旧版外置安装
     let browsers_dir = modules_dir().join("browser").join("browsers");
     if browsers_dir.exists() {
         cmd.env("PLAYWRIGHT_BROWSERS_PATH", &browsers_dir);

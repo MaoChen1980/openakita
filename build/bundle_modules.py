@@ -23,7 +23,7 @@ MODULES_DIR = PROJECT_ROOT / "build" / "modules"
 # Module definitions: module_id -> {packages, model_commands}
 MODULE_DEFS = {
     "vector-memory": {
-        "description": "Vector memory enhancement (semantic search)",
+        "description": "Long-term semantic memory (sentence-transformers + chromadb, ~2.5GB with PyTorch)",
         "packages": [
             "sentence-transformers>=2.2.0,<3.0",
             "chromadb>=0.4.0",
@@ -37,24 +37,17 @@ model = SentenceTransformer("shibing624/text2vec-base-chinese")
 print(f"Model downloaded to: {model._model_card_text if hasattr(model, '_model_card_text') else 'cache'}")
 """,
     },
-    "browser": {
-        "description": "Browser automation (playwright + browser-use)",
-        "packages": [
-            "playwright>=1.40.0",
-            "browser-use>=0.1.0",
-            "langchain-openai>=0.1.0",
-        ],
-        "post_install": [sys.executable, "-m", "playwright", "install", "chromium"],
-    },
+    # browser (playwright + browser-use + langchain-openai) 已内置到 core 包，
+    # 不再作为外置模块。构建前需运行 'playwright install chromium'。
     "whisper": {
-        "description": "Speech recognition (OpenAI Whisper)",
+        "description": "Offline speech-to-text (OpenAI Whisper, ~2.5GB with PyTorch)",
         "packages": [
             "openai-whisper>=20231117",
             "static-ffmpeg>=2.7",
         ],
     },
     "orchestration": {
-        "description": "Multi-Agent orchestration (ZeroMQ)",
+        "description": "Multi-Agent collaboration via ZeroMQ (~10MB)",
         "packages": [
             "pyzmq>=25.0.0",
         ],

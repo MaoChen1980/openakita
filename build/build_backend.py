@@ -65,19 +65,59 @@ def clean_dist():
         shutil.rmtree(pyinstaller_work)
 
 
+def ensure_playwright_chromium():
+    """Ensure Playwright Chromium is installed for bundling"""
+    try:
+        import playwright
+        pw_dir = Path(playwright.__file__).parent
+        local_browsers = pw_dir / ".local-browsers"
+        if local_browsers.exists():
+            print("  [OK] Playwright Chromium already installed (local-browsers)")
+            return
+
+        # Check default system path
+        if sys.platform == "win32":
+            pw_cache = Path.home() / "AppData" / "Local" / "ms-playwright"
+        elif sys.platform == "darwin":
+            pw_cache = Path.home() / "Library" / "Caches" / "ms-playwright"
+        else:
+            pw_cache = Path.home() / ".cache" / "ms-playwright"
+
+        chromium_found = False
+        if pw_cache.exists():
+            for d in pw_cache.iterdir():
+                if d.is_dir() and "chromium" in d.name.lower():
+                    chromium_found = True
+                    break
+
+        if chromium_found:
+            print(f"  [OK] Playwright Chromium found at {pw_cache}")
+        else:
+            print("  [INFO] Installing Playwright Chromium for bundling...")
+            run_cmd([sys.executable, "-m", "playwright", "install", "chromium"])
+    except ImportError:
+        print("  [WARN] playwright not installed, installing...")
+        run_cmd([sys.executable, "-m", "pip", "install", "playwright", "browser-use", "langchain-openai"])
+        print("  [INFO] Installing Playwright Chromium...")
+        run_cmd([sys.executable, "-m", "playwright", "install", "chromium"])
+
+
 def build_backend(mode: str):
     """Execute PyInstaller packaging"""
     print(f"\n{'='*60}")
     print(f"  OpenAkita Backend Build - Mode: {mode.upper()}")
     print(f"{'='*60}\n")
 
-    print("[1/4] Checking dependencies...")
+    print("[1/5] Checking dependencies...")
     check_pyinstaller()
 
-    print("\n[2/4] Cleaning old build...")
+    print("\n[2/5] Ensuring Playwright Chromium for bundling...")
+    ensure_playwright_chromium()
+
+    print("\n[3/5] Cleaning old build...")
     clean_dist()
 
-    print("\n[3/4] Running PyInstaller...")
+    print("\n[4/5] Running PyInstaller...")
     env = {"OPENAKITA_BUILD_MODE": mode}
     
     run_cmd(
@@ -92,7 +132,7 @@ def build_backend(mode: str):
         env=env,
     )
 
-    print("\n[4/4] Verifying build output...")
+    print("\n[5/5] Verifying build output...")
     
     # On macOS with onefile mode, PyInstaller outputs directly to dist/openakita-server (file)
     # We need to move it to dist/openakita-server/openakita-server (expected directory structure)

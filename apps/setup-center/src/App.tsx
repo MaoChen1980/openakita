@@ -966,7 +966,7 @@ export function App() {
   type ModuleInfo = { id: string; name: string; description: string; installed: boolean; bundled: boolean; sizeMb: number; category: string };
   const [obStep, setObStep] = useState<OnboardingStep>("ob-welcome");
   const [obModules, setObModules] = useState<ModuleInfo[]>([]);
-  const [obSelectedModules, setObSelectedModules] = useState<Set<string>>(new Set(["vector-memory", "browser", "whisper"]));
+  const [obSelectedModules, setObSelectedModules] = useState<Set<string>>(new Set());
   /** 卸载因“拒绝访问”失败时，可先停止后端再卸载的待处理模块 */
   const [moduleUninstallPending, setModuleUninstallPending] = useState<{ id: string; name: string } | null>(null);
   const obModulesDefaultsApplied = useRef(false);
@@ -7771,7 +7771,7 @@ export function App() {
               <div className="label">运行/验证（建议）</div>
               <div className="cardHint" style={{ marginTop: 8 }}>
                 - 点击右上角“状态面板”，检查服务/端点/skills 是否正常
-                <br />- 如启用 MCP Browser：确保已安装 Playwright 浏览器
+                <br />- 浏览器自动化 (Playwright) 已内置，无需额外安装
                 <br />- 如启用 Windows 桌面工具：确保安装 `openakita[windows]`
               </div>
             </div>
@@ -7871,18 +7871,9 @@ export function App() {
     try {
       const modules = await invoke<ModuleInfo[]>("detect_modules");
       setObModules(modules);
-      // 首次加载时，将未安装的默认推荐模块加入选中集合
+      // 外置模块默认不选中，用户按需手动勾选安装
       if (!obModulesDefaultsApplied.current) {
         obModulesDefaultsApplied.current = true;
-        const defaultIds = ["vector-memory", "browser", "whisper"];
-        setObSelectedModules(prev => {
-          const next = new Set(prev);
-          for (const id of defaultIds) {
-            const m = modules.find(mod => mod.id === id);
-            if (m && !m.installed && !m.bundled) next.add(id);
-          }
-          return next;
-        });
       }
     } catch (e) {
       console.warn("detect_modules failed:", e);

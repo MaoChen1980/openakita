@@ -192,6 +192,17 @@ hidden_imports_core = [
     "Crypto.Cipher.AES",
     "botpy",                    # QQ Bot (~5MB)
     "botpy.message",            # QQ Bot 消息模块
+    # -- 浏览器自动化 (原为外置模块，现直接打包以提高用户体验) --
+    "playwright",               # Playwright 浏览器自动化 (~20MB Python 包)
+    "playwright.async_api",
+    "playwright._impl",
+    "browser_use",              # browser-use AI 代理 (~5MB)
+    "langchain_openai",         # LangChain OpenAI adapter (~3MB)
+    "langchain_core",           # LangChain 核心 (browser-use 依赖)
+    "langchain_core.language_models",
+    "langchain_core.messages",
+    "langsmith",                # LangChain 依赖
+    "pydantic_settings",        # browser-use 依赖 (已在上面声明)
 ]
 
 hidden_imports_full = [
@@ -199,7 +210,7 @@ hidden_imports_full = [
     "sentence_transformers",
     "chromadb",
     "torch",
-    "playwright",
+    # playwright/browser_use/langchain_openai 已移至 core
     "zmq",
     "whisper",
 ]
@@ -257,13 +268,10 @@ excludes_core = [
     "torch",
     "torchvision",
     "torchaudio",
-    "playwright",
+    # playwright/browser_use/langchain_openai 已移至 core 打包，不再排除
     "zmq",
     "pyzmq",
     "whisper",
-    "browser_use",
-    "langchain",
-    "langchain_openai",
     # Heavy packages not needed for core (often pulled in from global site-packages)
     "cv2",                  # OpenCV (~122MB) — not a core dependency
     "opencv_python",
@@ -367,6 +375,69 @@ datas.append((_pip_dir, "pip"))
 
 # pip vendor dependencies (pip._vendor contains requests, urllib3 etc.)
 # Already included in pip directory, no extra handling needed
+
+# Playwright driver (node.js executable + browser protocol implementation)
+# playwright._impl._driver 在运行时通过 subprocess 启动 node 进程，
+# 必须将 driver 目录打包，否则 "playwright install" 可以完成但运行时找不到 driver。
+try:
+    import playwright
+    _pw_pkg_dir = Path(playwright.__file__).parent
+    _pw_driver_dir = _pw_pkg_dir / "driver"
+    if _pw_driver_dir.exists():
+        datas.append((str(_pw_driver_dir), "playwright/driver"))
+        print(f"[spec] Bundling Playwright driver: {_pw_driver_dir}")
+    else:
+        print(f"[spec] WARNING: Playwright driver dir not found: {_pw_driver_dir}")
+except ImportError:
+    print("[spec] WARNING: playwright not installed, driver not bundled")
+
+# Playwright Chromium browser binary (bundled to avoid user needing 'playwright install chromium')
+# 构建时需预先运行: playwright install chromium
+# Chromium 默认位于 PLAYWRIGHT_BROWSERS_PATH 或 playwright 包内的 .local-browsers
+try:
+    _pw_browsers_bundled = False
+    # 优先检查 playwright 包内的浏览器（playwright install --with-deps 后的位置）
+    _pw_local_browsers = _pw_pkg_dir / ".local-browsers"
+    if _pw_local_browsers.exists():
+        datas.append((str(_pw_local_browsers), "playwright/.local-browsers"))
+        _pw_browsers_bundled = True
+        print(f"[spec] Bundling Playwright local browsers: {_pw_local_browsers}")
+    else:
+        # 检查默认浏览器安装路径
+        import subprocess as _sp2
+        try:
+            _pw_browser_path = _sp2.check_output(
+                [sys.executable, "-c",
+                 "from playwright._impl._driver import compute_driver_executable; "
+                 "import os; print(os.environ.get('PLAYWRIGHT_BROWSERS_PATH', ''))"],
+                text=True, stderr=_sp2.DEVNULL
+            ).strip()
+        except Exception:
+            _pw_browser_path = ""
+
+        if not _pw_browser_path:
+            # 使用 playwright 默认路径
+            if sys.platform == "win32":
+                _pw_browser_path = str(Path.home() / "AppData" / "Local" / "ms-playwright")
+            elif sys.platform == "darwin":
+                _pw_browser_path = str(Path.home() / "Library" / "Caches" / "ms-playwright")
+            else:
+                _pw_browser_path = str(Path.home() / ".cache" / "ms-playwright")
+
+        _pw_browser_dir = Path(_pw_browser_path)
+        if _pw_browser_dir.exists():
+            # 只打包 chromium 目录（不打包其他浏览器）
+            for _chromium_dir in _pw_browser_dir.iterdir():
+                if _chromium_dir.is_dir() and "chromium" in _chromium_dir.name.lower():
+                    datas.append((str(_chromium_dir), f"playwright-browsers/{_chromium_dir.name}"))
+                    _pw_browsers_bundled = True
+                    print(f"[spec] Bundling Playwright Chromium: {_chromium_dir}")
+                    break
+
+    if not _pw_browsers_bundled:
+        print("[spec] WARNING: Playwright Chromium not found. Run 'playwright install chromium' before building.")
+except Exception as _pw_err:
+    print(f"[spec] WARNING: Failed to detect Playwright browsers: {_pw_err}")
 
 # Built-in system skills (64 core skills: tool wrappers, memory, planning, etc.)
 skills_dir = PROJECT_ROOT / "skills" / "system"

@@ -70,9 +70,11 @@ memory = [
     "chromadb>=0.4.0",
 ]
 
-# 浏览器自动化 (playwright)
+# 浏览器自动化 (playwright + browser-use) — 已内置到核心依赖打包
 automation = [
     "playwright>=1.40.0",
+    "browser-use>=0.11.8",
+    "langchain-openai>=1.0.0",
 ]
 
 # 多 Agent 协同 (pyzmq)
