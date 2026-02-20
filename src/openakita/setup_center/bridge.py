@@ -832,6 +832,11 @@ def main(argv: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
+    from openakita.runtime_env import IS_FROZEN, ensure_ssl_certs
+
+    if IS_FROZEN:
+        ensure_ssl_certs()
+
     try:
         main()
     except Exception as e:

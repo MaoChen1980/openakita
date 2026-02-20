@@ -143,6 +143,7 @@ hidden_imports_core = [
     "hpack",                    # h2 依赖: HTTP/2 头部压缩
     "hyperframe",               # h2 依赖: HTTP/2 帧协议
     "httpcore",                 # httpx 传输层
+    "certifi",                  # SSL CA bundle (httpx/urllib3 依赖)
     "psutil",                   # Process info (~1MB)
     "pyperclip",                # Clipboard (~50KB)
     "websockets",               # WebSocket protocol (~500KB)
@@ -339,6 +340,19 @@ excludes = excludes_core if BUILD_MODE == "core" else []
 # Non-Python files to be bundled
 
 datas = []
+
+# certifi CA bundle: httpx/urllib3/requests all rely on certifi to find cacert.pem.
+# PyInstaller's built-in hook may not always collect it correctly, causing
+# FileNotFoundError: [Errno 2] No such file or directory on ALL HTTPS requests
+# (and even HTTP, since httpx creates SSL context at AsyncClient.__init__ time).
+try:
+    import certifi
+    _certifi_pem = certifi.where()
+    _certifi_dir = str(Path(_certifi_pem).parent)
+    datas.append((_certifi_dir, "certifi"))
+    print(f"[spec] Bundling certifi CA bundle: {_certifi_pem}")
+except ImportError:
+    print("[spec] WARNING: certifi not installed, CA bundle not bundled")
 
 # rich._unicode_data: filename contains hyphen (unicode17-0-0.py), PyInstaller cannot
 # handle via hidden_imports, must be copied as data file

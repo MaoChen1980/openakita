@@ -409,11 +409,13 @@ async def list_models_api(body: ListModelsRequest):
 
         return {"models": models}
     except Exception as e:
-        logger.error(f"[Config API] list-models failed: {e}")
+        logger.error(f"[Config API] list-models failed: {e}", exc_info=True)
         # 将原始 Python 异常转为用户友好的提示
         raw = str(e).lower()
         friendly = str(e)
-        if "connect" in raw or "connection refused" in raw or "no route" in raw or "unreachable" in raw:
+        if "errno 2" in raw or "no such file" in raw:
+            friendly = "SSL 证书文件缺失，请重新安装或更新应用"
+        elif "connect" in raw or "connection refused" in raw or "no route" in raw or "unreachable" in raw:
             friendly = "无法连接到服务商，请检查 API 地址和网络连接"
         elif "401" in raw or "unauthorized" in raw or "invalid api key" in raw or "authentication" in raw:
             friendly = "API Key 无效或已过期，请检查后重试"

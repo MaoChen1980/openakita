@@ -125,6 +125,55 @@ def get_pip_command(packages: list[str]) -> list[str] | None:
     return [py, "-m", "pip", "install", *packages]
 
 
+def ensure_ssl_certs() -> None:
+    """确保 SSL 证书在 PyInstaller 环境下可用。
+
+    httpx/urllib3/requests 通过 certifi.where() 获取 CA 证书路径。
+    PyInstaller 打包后，certifi 的 cacert.pem 可能路径错误（仍指向
+    原始安装路径而非 _internal/ 目录），导致所有 HTTPS 请求抛出
+    FileNotFoundError: [Errno 2] No such file or directory。
+
+    此函数在打包环境下主动检测并修正 SSL_CERT_FILE 环境变量。
+    """
+    if not IS_FROZEN:
+        return
+
+    import os
+
+    if os.environ.get("SSL_CERT_FILE"):
+        return
+
+    # 方式 1: certifi 模块可用且路径有效
+    try:
+        import certifi
+        pem_path = certifi.where()
+        if Path(pem_path).exists():
+            os.environ["SSL_CERT_FILE"] = pem_path
+            logger.debug(f"SSL_CERT_FILE set from certifi: {pem_path}")
+            return
+    except ImportError:
+        pass
+
+    # 方式 2: 在 PyInstaller _internal/ 目录中查找
+    internal_dir = Path(sys.executable).parent
+    if internal_dir.name != "_internal":
+        internal_dir = internal_dir / "_internal"
+
+    for candidate in [
+        internal_dir / "certifi" / "cacert.pem",
+        internal_dir / "certifi" / "cert.pem",
+    ]:
+        if candidate.exists():
+            os.environ["SSL_CERT_FILE"] = str(candidate)
+            logger.debug(f"SSL_CERT_FILE set from bundled path: {candidate}")
+            return
+
+    logger.warning(
+        "SSL CA bundle not found in PyInstaller environment. "
+        "HTTPS requests may fail with [Errno 2] No such file or directory."
+    )
+
+
 def inject_module_paths() -> None:
     """将可选模块的 site-packages 目录注入 sys.path。
 

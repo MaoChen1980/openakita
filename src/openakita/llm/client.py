@@ -470,7 +470,8 @@ class LLMClient:
                 provider.mark_unhealthy(str(e))
                 logger.warning(
                     f"[LLM-Stream] endpoint={provider.name} unexpected_error={e}"
-                    + (f", trying next endpoint..." if i < len(eligible) - 1 else "")
+                    + (f", trying next endpoint..." if i < len(eligible) - 1 else ""),
+                    exc_info=True,
                 )
 
         hint = _friendly_error_hint(eligible)
@@ -986,7 +987,10 @@ class LLMClient:
                         )
 
                 except Exception as e:
-                    logger.error(f"[LLM] endpoint={provider.name} unexpected_error={e}")
+                    logger.error(
+                        f"[LLM] endpoint={provider.name} unexpected_error={e}",
+                        exc_info=True,
+                    )
                     provider.mark_unhealthy(str(e))
                     errors.append(f"{provider.name}: {e}")
                     failed_providers.append(provider)
