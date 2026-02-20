@@ -220,28 +220,37 @@ def get_pip_command(packages: list[str]) -> list[str] | None:
 def ensure_ssl_certs() -> None:
     """确保 SSL 证书在 PyInstaller 环境下可用。
 
-    httpx/urllib3/requests 通过 certifi.where() 获取 CA 证书路径。
-    PyInstaller 打包后，certifi 的 cacert.pem 可能路径错误（仍指向
-    原始安装路径而非 _internal/ 目录），导致所有 HTTPS 请求抛出
-    FileNotFoundError: [Errno 2] No such file or directory。
+    httpx 默认 trust_env=True，优先读取 SSL_CERT_FILE 环境变量。
+    Conda/Anaconda 安装后会在系统环境变量中设置 SSL_CERT_FILE 指向
+    Conda 自己的 cacert.pem（如 Anaconda3/Library/ssl/cacert.pem），
+    但在非 Conda 环境中该路径不存在，导致 httpx 创建 SSL 上下文时
+    抛出 FileNotFoundError: [Errno 2] No such file or directory。
 
-    此函数在打包环境下主动检测并修正 SSL_CERT_FILE 环境变量。
+    此函数检测并修正 SSL_CERT_FILE，确保它指向一个实际存在的证书文件。
     """
     if not IS_FROZEN:
         return
 
     import os
 
-    if os.environ.get("SSL_CERT_FILE"):
+    # 如果 SSL_CERT_FILE 已设置且文件确实存在，则无需干预
+    existing = os.environ.get("SSL_CERT_FILE", "").strip()
+    if existing and Path(existing).is_file():
         return
+
+    if existing:
+        logger.warning(
+            f"SSL_CERT_FILE points to non-existent file: {existing} "
+            f"(likely set by Conda/Anaconda). Overriding with bundled CA bundle."
+        )
 
     # 方式 1: certifi 模块可用且路径有效
     try:
         import certifi
         pem_path = certifi.where()
-        if Path(pem_path).exists():
+        if Path(pem_path).is_file():
             os.environ["SSL_CERT_FILE"] = pem_path
-            logger.debug(f"SSL_CERT_FILE set from certifi: {pem_path}")
+            logger.info(f"SSL_CERT_FILE set from certifi: {pem_path}")
             return
     except ImportError:
         pass
@@ -255,10 +264,18 @@ def ensure_ssl_certs() -> None:
         internal_dir / "certifi" / "cacert.pem",
         internal_dir / "certifi" / "cert.pem",
     ]:
-        if candidate.exists():
+        if candidate.is_file():
             os.environ["SSL_CERT_FILE"] = str(candidate)
-            logger.debug(f"SSL_CERT_FILE set from bundled path: {candidate}")
+            logger.info(f"SSL_CERT_FILE set from bundled path: {candidate}")
             return
+
+    # 方式 3: 清除无效的 SSL_CERT_FILE，让 httpx 回退到 certifi.where()
+    if existing:
+        del os.environ["SSL_CERT_FILE"]
+        logger.warning(
+            "Removed invalid SSL_CERT_FILE. httpx will fall back to certifi default."
+        )
+        return
 
     logger.warning(
         "SSL CA bundle not found in PyInstaller environment. "
