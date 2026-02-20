@@ -484,43 +484,77 @@ class TaskExecutor:
 
     async def _system_daily_memory(self) -> tuple[bool, str]:
         """
-        执行每日记忆整理
+        执行记忆整理
 
-        调用 MemoryManager.consolidate_daily()
+        优先复用 agent 上的 MemoryManager（参数完整），
+        仅在实例不存在时 fallback 新建。
+
+        使用 ConsolidationTracker 记录整理时间点，
+        确保处理的是"上次整理到当前时间"的记录。
         """
         try:
             from ..config import settings
-            from ..core.brain import Brain
-            from ..memory import MemoryManager
+            from .consolidation_tracker import ConsolidationTracker
 
-            # 创建 Brain（用于 LLM 摘要）
-            brain = Brain()
+            tracker = ConsolidationTracker(settings.project_root / "data" / "scheduler")
+            since, until = tracker.get_memory_consolidation_time_range()
 
-            # 创建 MemoryManager
-            memory_manager = MemoryManager(
-                data_dir=settings.project_root / "data" / "memory",
-                memory_md_path=settings.memory_path,
-                brain=brain,
-            )
+            if since:
+                logger.info(f"Memory consolidation time range: {since.isoformat()} → {until.isoformat()}")
+            else:
+                logger.info("Memory consolidation: first run, processing all records")
 
-            # 执行每日整理
-            result = await memory_manager.consolidate_daily()
+            mm = self.memory_manager
+            if not mm:
+                from ..core.brain import Brain
+                from ..memory import MemoryManager
 
-            # 格式化结果
-            summary = (
-                f"记忆整理完成:\n"
-                f"- 处理会话: {result.get('sessions_processed', 0)}\n"
-                f"- 提取记忆: {result.get('memories_extracted', 0)}\n"
-                f"- 新增记忆: {result.get('memories_added', 0)}\n"
-                f"- 去重: {result.get('duplicates_removed', 0)}\n"
-                f"- MEMORY.md: {'已刷新' if result.get('memory_md_refreshed') else '未刷新'}"
-            )
+                brain = Brain()
+                mm = MemoryManager(
+                    data_dir=settings.project_root / "data" / "memory",
+                    memory_md_path=settings.memory_path,
+                    brain=brain,
+                    embedding_model=settings.embedding_model,
+                    embedding_device=settings.embedding_device,
+                    model_download_source=settings.model_download_source,
+                    search_backend=settings.search_backend,
+                    embedding_api_provider=settings.embedding_api_provider,
+                    embedding_api_key=settings.embedding_api_key,
+                    embedding_api_model=settings.embedding_api_model,
+                )
+                logger.debug("Created fallback MemoryManager for consolidation")
 
-            logger.info(f"Daily memory consolidation completed: {result}")
+            result = await mm.consolidate_daily()
+
+            tracker.record_memory_consolidation(result)
+
+            v2_keys = ["unextracted_processed", "duplicates_removed", "memories_decayed"]
+            v1_keys = ["sessions_processed", "memories_extracted", "memories_added"]
+
+            if any(result.get(k) for k in v2_keys):
+                summary = (
+                    f"记忆整理完成 (v2):\n"
+                    f"- 提取: {result.get('unextracted_processed', 0)}\n"
+                    f"- 去重: {result.get('duplicates_removed', 0)}\n"
+                    f"- 衰减: {result.get('memories_decayed', 0)}\n"
+                    f"- 时间范围: {since.strftime('%m-%d %H:%M') if since else '全部'} → {until.strftime('%m-%d %H:%M')}"
+                )
+            else:
+                summary = (
+                    f"记忆整理完成:\n"
+                    f"- 处理会话: {result.get('sessions_processed', 0)}\n"
+                    f"- 提取记忆: {result.get('memories_extracted', 0)}\n"
+                    f"- 新增记忆: {result.get('memories_added', 0)}\n"
+                    f"- 去重: {result.get('duplicates_removed', 0)}\n"
+                    f"- MEMORY.md: {'已刷新' if result.get('memory_md_refreshed') else '未刷新'}\n"
+                    f"- 时间范围: {since.strftime('%m-%d %H:%M') if since else '全部'} → {until.strftime('%m-%d %H:%M')}"
+                )
+
+            logger.info(f"Memory consolidation completed: {result}")
             return True, summary
 
         except Exception as e:
-            logger.error(f"Daily memory consolidation failed: {e}")
+            logger.error(f"Memory consolidation failed: {e}")
             return False, str(e)
 
     async def _system_proactive_heartbeat(self, task: "ScheduledTask") -> tuple[bool, str]:
@@ -615,9 +649,10 @@ class TaskExecutor:
 
     async def _system_daily_selfcheck(self) -> tuple[bool, str]:
         """
-        执行每日系统自检
+        执行系统自检
 
-        调用 SelfChecker.run_daily_check()
+        使用 ConsolidationTracker 记录自检时间点，
+        确保分析的是"上次自检到当前时间"的日志。
         """
         try:
             from datetime import datetime
@@ -626,6 +661,15 @@ class TaskExecutor:
             from ..core.brain import Brain
             from ..evolution import SelfChecker
             from ..logging import LogCleaner
+            from .consolidation_tracker import ConsolidationTracker
+
+            tracker = ConsolidationTracker(settings.project_root / "data" / "scheduler")
+            since, until = tracker.get_selfcheck_time_range()
+
+            if since:
+                logger.info(f"Selfcheck time range: {since.isoformat()} → {until.isoformat()}")
+            else:
+                logger.info("Selfcheck: first run")
 
             # 1. 清理旧日志
             log_cleaner = LogCleaner(
@@ -634,10 +678,10 @@ class TaskExecutor:
             )
             cleanup_result = log_cleaner.cleanup()
 
-            # 2. 执行自检
+            # 2. 执行自检（传入时间范围）
             brain = Brain()
             checker = SelfChecker(brain=brain)
-            report = await checker.run_daily_check()
+            report = await checker.run_daily_check(since=since)
 
             # 2.1 生成 Markdown 报告文本（用于 IM 推送）
             report_md = None
@@ -674,8 +718,18 @@ class TaskExecutor:
                     with contextlib.suppress(Exception):
                         checker.mark_report_as_reported(getattr(report, "date", None))
 
-            # 3. 格式化结果
+            # 3. 记录自检时间
+            tracker.record_selfcheck({
+                "total_errors": report.total_errors,
+                "fix_success": report.fix_success,
+            })
+
+            # 4. 格式化结果
             push_info = push_target if pushed else "无可用通道（将在用户下次发消息时补推）"
+            time_range_info = (
+                f"{since.strftime('%m-%d %H:%M')} → {until.strftime('%m-%d %H:%M')}"
+                if since else "首次运行"
+            )
 
             summary = (
                 f"系统自检完成:\n"
@@ -686,11 +740,12 @@ class TaskExecutor:
                 f"- 修复成功: {report.fix_success}\n"
                 f"- 修复失败: {report.fix_failed}\n"
                 f"- 日志清理: 删除 {cleanup_result.get('by_age', 0) + cleanup_result.get('by_size', 0)} 个旧文件\n"
+                f"- 分析范围: {time_range_info}\n"
                 f"- 报告推送: {push_info}"
             )
 
             logger.info(
-                f"Daily selfcheck completed: {report.total_errors} errors, {report.fix_success} fixed"
+                f"Selfcheck completed: {report.total_errors} errors, {report.fix_success} fixed"
             )
             return True, summary
 

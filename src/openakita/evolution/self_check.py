@@ -585,22 +585,29 @@ ID: {result.test_id}
 - fix_instruction 要写清楚使用什么工具（shell/file），执行什么命令
 - 只输出 JSON 数组"""
 
-    async def run_daily_check(self) -> DailyReport:
+    async def run_daily_check(self, since: datetime | None = None) -> DailyReport:
         """
-        执行每日自检（LLM 驱动）
+        执行系统自检（LLM 驱动）
 
         流程:
-        1. 本地匹配提取 ERROR 日志
+        1. 本地匹配提取 ERROR 日志（从 since 时间开始）
         2. 生成错误摘要
         3. LLM 分析错误并决定修复策略
         4. 根据 LLM 决策执行修复
         5. 修复后自测验证
         6. 生成报告
 
+        Args:
+            since: 只分析此时间之后的日志和复盘记录。None 表示分析全部（首次运行）。
+
         Returns:
             DailyReport
         """
-        logger.info("Starting daily self-check (LLM-driven)...")
+        logger.info(
+            f"Starting self-check (LLM-driven)"
+            + (f", since={since.isoformat()}" if since else ", first run")
+            + "..."
+        )
 
         today = datetime.now().strftime("%Y-%m-%d")
         report = DailyReport(
@@ -610,9 +617,9 @@ ID: {result.test_id}
 
         # === 阶段 1: 收集所有问题信息（日志 + 记忆 + 复盘） ===
 
-        # 1.1 提取日志错误
+        # 1.1 提取日志错误（支持增量：only since last check）
         log_analyzer = LogAnalyzer(settings.log_dir_path)
-        errors = log_analyzer.extract_errors_only()
+        errors = log_analyzer.extract_errors_only(since=since)
         error_summary = ""
         patterns = {}
 
@@ -895,10 +902,13 @@ ID: {result.test_id}
         try:
             from ..memory import MemoryManager, MemoryType
 
-            # 获取记忆管理器
             memory_manager = MemoryManager(
                 data_dir=settings.project_root / "data" / "memory",
                 memory_md_path=settings.memory_path,
+                search_backend=settings.search_backend,
+                embedding_api_provider=settings.embedding_api_provider,
+                embedding_api_key=settings.embedding_api_key,
+                embedding_api_model=settings.embedding_api_model,
             )
 
             # 提取 ERROR 类型记忆

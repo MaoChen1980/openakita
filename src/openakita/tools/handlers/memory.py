@@ -28,6 +28,7 @@ class MemoryHandler:
     """
 
     TOOLS = [
+        "consolidate_memories",
         "add_memory",
         "search_memory",
         "get_memory_stats",
@@ -39,7 +40,9 @@ class MemoryHandler:
 
     async def handle(self, tool_name: str, params: dict[str, Any]) -> str:
         """处理工具调用"""
-        if tool_name == "add_memory":
+        if tool_name == "consolidate_memories":
+            return await self._consolidate_memories(params)
+        elif tool_name == "add_memory":
             return self._add_memory(params)
         elif tool_name == "search_memory":
             return self._search_memory(params)
@@ -49,6 +52,47 @@ class MemoryHandler:
             return self._search_conversation_traces(params)
         else:
             return f"❌ Unknown memory tool: {tool_name}"
+
+    async def _consolidate_memories(self, params: dict) -> str:
+        """手动触发记忆整理"""
+        try:
+            from ...config import settings
+            from ...scheduler.consolidation_tracker import ConsolidationTracker
+
+            tracker = ConsolidationTracker(settings.project_root / "data" / "scheduler")
+            since, until = tracker.get_memory_consolidation_time_range()
+
+            result = await self.agent.memory_manager.consolidate_daily()
+
+            tracker.record_memory_consolidation(result)
+
+            time_range = (
+                f"{since.strftime('%m-%d %H:%M')} → {until.strftime('%m-%d %H:%M')}"
+                if since else "全部记录"
+            )
+
+            v2_keys = ["unextracted_processed", "duplicates_removed", "memories_decayed"]
+            if any(result.get(k) for k in v2_keys):
+                return (
+                    f"✅ 记忆整理完成:\n"
+                    f"- 提取: {result.get('unextracted_processed', 0)} 条\n"
+                    f"- 去重: {result.get('duplicates_removed', 0)} 条\n"
+                    f"- 衰减: {result.get('memories_decayed', 0)} 条\n"
+                    f"- 时间范围: {time_range}"
+                )
+            else:
+                return (
+                    f"✅ 记忆整理完成:\n"
+                    f"- 处理会话: {result.get('sessions_processed', 0)}\n"
+                    f"- 提取记忆: {result.get('memories_extracted', 0)}\n"
+                    f"- 新增记忆: {result.get('memories_added', 0)}\n"
+                    f"- 去重: {result.get('duplicates_removed', 0)}\n"
+                    f"- 时间范围: {time_range}"
+                )
+
+        except Exception as e:
+            logger.error(f"Manual memory consolidation failed: {e}", exc_info=True)
+            return f"❌ 记忆整理失败: {e}"
 
     def _add_memory(self, params: dict) -> str:
         """添加记忆"""

@@ -227,6 +227,16 @@ class Settings(BaseSettings):
         default=600, description="定时任务执行超时时间（秒），默认 600 秒（10分钟）"
     )
 
+    # === 记忆整理配置 ===
+    memory_consolidation_onboarding_days: int = Field(
+        default=7,
+        description="新用户适应期天数，期间记忆整理频率提高（默认 7 天）",
+    )
+    memory_consolidation_onboarding_interval_hours: int = Field(
+        default=3,
+        description="适应期内记忆整理间隔（小时，默认 3 小时）",
+    )
+
     # === 通道配置 ===
     # Telegram
     telegram_enabled: bool = Field(default=False, description="是否启用 Telegram")

@@ -5,8 +5,10 @@
 - ScheduledTask: 任务定义
 - TaskScheduler: 调度器
 - 支持 once/interval/cron 三种触发类型
+- ConsolidationTracker: 整理时间追踪
 """
 
+from .consolidation_tracker import ConsolidationTracker
 from .executor import TaskExecutor
 from .scheduler import TaskScheduler
 from .task import ScheduledTask, TaskStatus, TriggerType
@@ -22,4 +24,5 @@ __all__ = [
     "CronTrigger",
     "TaskScheduler",
     "TaskExecutor",
+    "ConsolidationTracker",
 ]

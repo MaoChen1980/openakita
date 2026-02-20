@@ -772,7 +772,7 @@ class Agent:
         self.handler_registry.register(
             "memory",
             create_memory_handler(self),
-            ["add_memory", "search_memory", "get_memory_stats", "search_conversation_traces"],
+            ["consolidate_memories", "add_memory", "search_memory", "get_memory_stats", "search_conversation_traces"],
         )
 
         # 浏览器
@@ -1402,67 +1402,105 @@ class Agent:
         注册内置系统任务
 
         包括:
-        - 每日记忆整理（凌晨 3:00）
-        - 每日系统自检（凌晨 4:00）
+        - 记忆整理（凌晨 3:00，适应期内每 N 小时一次）
+        - 系统自检（凌晨 4:00）
+        - 活人感心跳（每 30 分钟）
         """
+        from ..config import settings
         from ..scheduler import ScheduledTask, TriggerType
+        from ..scheduler.consolidation_tracker import ConsolidationTracker
         from ..scheduler.task import TaskType
 
         if not self.task_scheduler:
             return
 
-        # 检查是否已存在（避免重复注册）
+        # 初始化整理时间追踪器
+        tracker = ConsolidationTracker(settings.project_root / "data" / "scheduler")
+        is_onboarding = tracker.is_onboarding(settings.memory_consolidation_onboarding_days)
+
+        if is_onboarding:
+            elapsed_days = tracker.get_onboarding_elapsed_days()
+            interval_h = settings.memory_consolidation_onboarding_interval_hours
+            logger.info(
+                f"Onboarding mode: day {elapsed_days:.1f}/{settings.memory_consolidation_onboarding_days}, "
+                f"memory consolidation every {interval_h}h"
+            )
+
         existing_tasks = self.task_scheduler.list_tasks()
         existing_ids = {t.id for t in existing_tasks}
 
-        # 任务 1: 每日记忆整理（凌晨 3:00）
-        if "system_daily_memory" not in existing_ids:
+        # 任务 1: 记忆整理
+        # 适应期: 改为 interval 模式（每 N 小时一次）
+        # 正常期: cron 模式（凌晨 3:00）
+        memory_task_id = "system_daily_memory"
+        existing_memory_task = self.task_scheduler.get_task(memory_task_id)
+
+        if is_onboarding:
+            interval_h = settings.memory_consolidation_onboarding_interval_hours
+            desired_trigger = TriggerType.INTERVAL
+            desired_config = {"interval_minutes": interval_h * 60}
+            desired_desc = f"适应期记忆整理（每 {interval_h} 小时）"
+        else:
+            desired_trigger = TriggerType.CRON
+            desired_config = {"cron": "0 3 * * *"}
+            desired_desc = "整理对话历史，提取记忆，刷新 MEMORY.md"
+
+        if memory_task_id not in existing_ids:
             memory_task = ScheduledTask(
-                id="system_daily_memory",
-                name="每日记忆整理",
-                trigger_type=TriggerType.CRON,
-                trigger_config={"cron": "0 3 * * *"},
+                id=memory_task_id,
+                name="记忆整理",
+                trigger_type=desired_trigger,
+                trigger_config=desired_config,
                 action="system:daily_memory",
-                prompt="执行每日记忆整理：整理当天对话历史，提取精华记忆，刷新 MEMORY.md",
-                description="整理当天对话，提取记忆，刷新 MEMORY.md",
+                prompt="执行记忆整理：整理对话历史，提取精华记忆，刷新 MEMORY.md",
+                description=desired_desc,
                 task_type=TaskType.TASK,
                 enabled=True,
-                deletable=False,  # 系统任务不允许删除
+                deletable=False,
             )
             await self.task_scheduler.add_task(memory_task)
-            logger.info("Registered system task: daily_memory (03:00)")
+            logger.info(f"Registered system task: daily_memory ({desired_desc})")
         else:
-            # 兼容迁移：历史版本可能漏存 action，导致不会走 _execute_system_task
-            existing_task = self.task_scheduler.get_task("system_daily_memory")
-            if existing_task:
-                changed = False
-                if existing_task.deletable:
-                    existing_task.deletable = False
+            changed = False
+            if existing_memory_task:
+                if existing_memory_task.deletable:
+                    existing_memory_task.deletable = False
                     changed = True
-                if not getattr(existing_task, "action", None):
-                    existing_task.action = "system:daily_memory"
+                if not getattr(existing_memory_task, "action", None):
+                    existing_memory_task.action = "system:daily_memory"
                     changed = True
+                # 适应期 ↔ 正常期切换时，更新触发器
+                if existing_memory_task.trigger_type != desired_trigger:
+                    existing_memory_task.trigger_type = desired_trigger
+                    existing_memory_task.trigger_config = desired_config
+                    existing_memory_task.description = desired_desc
+                    changed = True
+                    # 同步更新内存中的 trigger 实例
+                    from ..scheduler.triggers import Trigger
+                    new_trigger = Trigger.from_config(desired_trigger.value, desired_config)
+                    self.task_scheduler._triggers[memory_task_id] = new_trigger
+                    existing_memory_task.next_run = new_trigger.get_next_run_time()
+                    logger.info(f"Switched memory task trigger to {desired_trigger.value}: {desired_desc}")
                 if changed:
                     self.task_scheduler._save_tasks()
 
-        # 任务 2: 每日系统自检（凌晨 4:00）
+        # 任务 2: 系统自检（凌晨 4:00）
         if "system_daily_selfcheck" not in existing_ids:
             selfcheck_task = ScheduledTask(
                 id="system_daily_selfcheck",
-                name="每日系统自检",
+                name="系统自检",
                 trigger_type=TriggerType.CRON,
                 trigger_config={"cron": "0 4 * * *"},
                 action="system:daily_selfcheck",
-                prompt="执行每日系统自检：分析 ERROR 日志，尝试修复工具问题，生成报告",
+                prompt="执行系统自检：分析 ERROR 日志，尝试修复工具问题，生成报告",
                 description="分析 ERROR 日志、尝试修复工具问题、生成报告",
                 task_type=TaskType.TASK,
                 enabled=True,
-                deletable=False,  # 系统任务不允许删除
+                deletable=False,
             )
             await self.task_scheduler.add_task(selfcheck_task)
             logger.info("Registered system task: daily_selfcheck (04:00)")
         else:
-            # 兼容迁移：历史版本可能漏存 action，导致不会走 _execute_system_task
             existing_task = self.task_scheduler.get_task("system_daily_selfcheck")
             if existing_task:
                 changed = False

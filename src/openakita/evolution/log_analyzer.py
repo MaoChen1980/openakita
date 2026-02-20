@@ -106,6 +106,7 @@ class LogAnalyzer:
         self,
         date: str | None = None,
         log_file: Path | None = None,
+        since: datetime | None = None,
     ) -> list[LogEntry]:
         """
         只提取 ERROR/CRITICAL 级别日志
@@ -115,6 +116,7 @@ class LogAnalyzer:
         Args:
             date: 指定日期 (YYYY-MM-DD)，None 表示今天
             log_file: 指定日志文件，优先于 date
+            since: 只返回此时间之后的日志（用于增量分析）
 
         Returns:
             错误日志列表
@@ -188,7 +190,11 @@ class LogAnalyzer:
         except Exception as e:
             logger.error(f"Failed to parse log file {target_file}: {e}")
 
-        logger.info(f"Extracted {len(errors)} errors from {target_file.name}")
+        if since and errors:
+            errors = [e for e in errors if e.timestamp >= since]
+
+        logger.info(f"Extracted {len(errors)} errors from {target_file.name}"
+                     + (f" (since {since.isoformat()})" if since else ""))
         return errors
 
     def search_by_keyword(

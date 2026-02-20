@@ -10,6 +10,23 @@ Memory 工具定义
 
 MEMORY_TOOLS = [
     {
+        "name": "consolidate_memories",
+        "category": "Memory",
+        "description": "Manually trigger memory consolidation. Use when user explicitly asks to organize/consolidate/tidy up memories, or says '整理记忆'. This processes unextracted conversation turns, deduplicates, refreshes MEMORY.md and USER.md.",
+        "detail": """手动触发记忆整理。
+
+**适用场景**：
+- 用户说"整理一下记忆"、"帮我归纳一下"
+- 用户新安装后希望立即整理
+- 对话较多后主动整理
+
+**执行内容**：
+- 处理未提取的对话
+- 去重清理
+- 刷新 MEMORY.md / USER.md""",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "add_memory",
         "category": "Memory",
         "description": "Record important information to long-term memory for learning user preferences, successful patterns, and error lessons. When you need to: (1) Remember user preferences, (2) Save successful patterns, (3) Record lessons from errors. NOTE: For structured user profile fields (name, work_field, os, etc.), use update_user_profile instead. Use add_memory for free-form, unstructured information that doesn't fit profile fields.",
