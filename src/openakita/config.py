@@ -319,6 +319,16 @@ class Settings(BaseSettings):
         description="桌面客户端语言: zh(中文) | en(英文)",
     )
 
+    # === 桌面通知配置 ===
+    desktop_notify_enabled: bool = Field(
+        default=True,
+        description="任务完成时是否弹出系统桌面通知（Windows Toast / macOS / Linux notify-send）",
+    )
+    desktop_notify_sound: bool = Field(
+        default=True,
+        description="桌面通知是否播放系统提示音",
+    )
+
     # === 表情包配置 ===
     sticker_enabled: bool = Field(default=True, description="是否启用表情包功能")
     sticker_data_dir: str = Field(default="data/sticker", description="表情包数据目录")

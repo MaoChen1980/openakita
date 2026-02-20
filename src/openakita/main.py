@@ -984,6 +984,17 @@ def run(
                 )
             )
 
+        # 桌面通知
+        from .config import settings
+        from .core.desktop_notify import notify_task_completed
+        if settings.desktop_notify_enabled:
+            notify_task_completed(
+                task[:80],
+                success=result.success,
+                duration_seconds=result.duration_seconds,
+                sound=settings.desktop_notify_sound,
+            )
+
     asyncio.run(_run())
 
 

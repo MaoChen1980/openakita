@@ -322,12 +322,26 @@ class TaskExecutor:
         success: bool,
         message: str,
     ) -> None:
-        """发送任务结束通知"""
+        """发送任务结束通知（IM 通道 + 桌面通知）"""
+        # 桌面通知（独立于 IM 通道，始终尝试）
+        try:
+            from ..config import settings
+            if settings.desktop_notify_enabled:
+                from ..core.desktop_notify import notify_task_completed_async
+
+                await notify_task_completed_async(
+                    task.name,
+                    success=success,
+                    sound=settings.desktop_notify_sound,
+                )
+        except Exception as e:
+            logger.debug(f"Desktop notification failed for task {task.id}: {e}")
+
+        # IM 通道通知
         if not task.channel_id or not task.chat_id or not self.gateway:
             logger.debug(f"Task {task.id} has no notification channel configured")
             return
 
-        # 检查是否启用完成通知
         if not task.metadata.get("notify_on_complete", True):
             logger.debug(f"Task {task.id} has completion notification disabled")
             return
@@ -340,7 +354,6 @@ class TaskExecutor:
 {message}
 """
 
-            # 不转义特殊字符，让 Telegram adapter 处理格式
             await self.gateway.send(
                 channel=task.channel_id,
                 chat_id=task.chat_id,

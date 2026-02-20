@@ -1357,19 +1357,38 @@ export function ChatView({
   useEffect(() => {
     if (activeConvId && activeConvId !== prevConvIdRef.current) {
       if (skipConvLoadRef.current) {
-        // sendMessage 刚创建了新对话并已设置好 messages，不要从 localStorage 覆盖
         skipConvLoadRef.current = false;
       } else {
         try {
           const raw = localStorage.getItem(STORAGE_KEY_MSGS_PREFIX + activeConvId);
-          setMessages(raw ? JSON.parse(raw) : []);
+          if (raw) {
+            setMessages(JSON.parse(raw));
+          } else {
+            setMessages([]);
+            // localStorage empty — try to restore from backend session
+            if (serviceRunning) {
+              const convId = activeConvId;
+              fetch(`${apiBaseUrl}/api/sessions/${encodeURIComponent(convId)}/history`)
+                .then((r) => r.ok ? r.json() : null)
+                .then((data) => {
+                  if (!data?.messages?.length) return;
+                  const restored: ChatMessage[] = data.messages.map((m: { id: string; role: string; content: string; timestamp: number }) => ({
+                    id: m.id,
+                    role: m.role as "user" | "assistant" | "system",
+                    content: m.content,
+                    timestamp: m.timestamp,
+                  }));
+                  setMessages(restored);
+                })
+                .catch(() => {});
+            }
+          }
         } catch { setMessages([]); }
       }
-      // Switching conversations should also scroll instantly (not smooth)
       isInitialScrollRef.current = true;
     }
     prevConvIdRef.current = activeConvId;
-  }, [activeConvId]);
+  }, [activeConvId, serviceRunning, apiBaseUrl]);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const isInitialScrollRef = useRef(true); // first scroll should be instant, not smooth
@@ -1394,6 +1413,52 @@ export function ChatView({
     })();
     return () => { cancelled = true; };
   }, [serviceRunning, apiBaseUrl]);
+
+  // Restore conversations from backend when localStorage is empty (e.g. after Tauri restart)
+  const sessionRestoreAttempted = useRef(false);
+  useEffect(() => {
+    if (!serviceRunning || sessionRestoreAttempted.current) return;
+    sessionRestoreAttempted.current = true;
+    if (conversations.length > 0) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${apiBaseUrl}/api/sessions?channel=desktop`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        const backendSessions: { id: string; title: string; lastMessage: string; timestamp: number; messageCount: number }[] = data.sessions || [];
+        if (backendSessions.length === 0 || cancelled) return;
+
+        const restoredConvs: ChatConversation[] = backendSessions.map((s) => ({
+          id: s.id,
+          title: s.title || "对话",
+          lastMessage: s.lastMessage || "",
+          timestamp: s.timestamp,
+          messageCount: s.messageCount || 0,
+        }));
+        setConversations(restoredConvs);
+
+        const firstConvId = restoredConvs[0].id;
+        setActiveConvId(firstConvId);
+
+        const histRes = await fetch(`${apiBaseUrl}/api/sessions/${encodeURIComponent(firstConvId)}/history`);
+        if (!histRes.ok || cancelled) return;
+        const histData = await histRes.json();
+        const restoredMsgs: ChatMessage[] = (histData.messages || []).map((m: { id: string; role: string; content: string; timestamp: number }) => ({
+          id: m.id,
+          role: m.role as "user" | "assistant" | "system",
+          content: m.content,
+          timestamp: m.timestamp,
+        }));
+        if (restoredMsgs.length > 0) {
+          skipConvLoadRef.current = true;
+          setMessages(restoredMsgs);
+        }
+      } catch { /* backend not available yet, ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [serviceRunning, apiBaseUrl, conversations.length]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 

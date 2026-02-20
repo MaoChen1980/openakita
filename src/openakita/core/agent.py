@@ -5967,6 +5967,19 @@ NEXT: 建议的下一步（如有）"""
 
         duration = time.time() - start_time
 
+        # === 桌面通知 ===
+        if settings.desktop_notify_enabled:
+            from .desktop_notify import notify_task_completed_async
+
+            asyncio.ensure_future(
+                notify_task_completed_async(
+                    task.description[:80],
+                    success=True,
+                    duration_seconds=duration,
+                    sound=settings.desktop_notify_sound,
+                )
+            )
+
         return TaskResult(
             success=True,
             data=final_response,
