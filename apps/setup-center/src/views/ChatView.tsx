@@ -3,6 +3,8 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { setThemePref } from "../theme";
+import type { Theme } from "../theme";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import ReactMarkdown from "react-markdown";
@@ -63,6 +65,7 @@ type StreamEvent =
   | { type: "user_insert"; content: string }
   | { type: "agent_switch"; agentName: string; reason: string }
   | { type: "artifact"; artifact_type: string; file_url: string; path: string; name: string; caption: string; size?: number }
+  | { type: "ui_preference"; theme?: string; language?: string }
   | { type: "error"; message: string }
   | { type: "done"; usage?: { input_tokens: number; output_tokens: number; total_tokens?: number; context_tokens?: number; context_limit?: number } };
 
@@ -1233,7 +1236,7 @@ export function ChatView({
   apiBaseUrl?: string;
   visible?: boolean;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   // ── 持久化 Key 常量 ──
   const STORAGE_KEY_CONVS = "chat_conversations";
@@ -2040,6 +2043,10 @@ export function ChatView({
                 }
                 break;
               }
+              case "ui_preference":
+                if (event.theme) setThemePref(event.theme as Theme);
+                if (event.language) i18n.changeLanguage(event.language);
+                break;
               case "artifact":
                 currentArtifacts = [...currentArtifacts, {
                   artifact_type: event.artifact_type,

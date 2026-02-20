@@ -92,6 +92,7 @@ ToolCategory = Literal[
     "MCP",
     "Plan",
     "Web Search",
+    "Config",
 ]
 
 CATEGORY_PREFIXES = {
@@ -121,6 +122,7 @@ CATEGORY_PREFIXES = {
     "File System": ("run_shell", "write_file", "read_file", "list_directory"),
     "Plan": ("create_plan", "update_plan_step", "get_plan_status", "complete_plan"),
     "Web Search": ("web_search", "news_search"),
+    "Config": ("system_config",),
 }
 
 

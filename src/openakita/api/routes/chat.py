@@ -193,6 +193,21 @@ async def _stream_chat(
                         f"| result_preview={event.get('result', '')[:200]}"
                     )
 
+            # Inject ui_preference events for system_config set_ui results
+            if event_type == "tool_call_end" and event.get("tool") == "system_config":
+                try:
+                    result_str = event.get("result", "")
+                    if '"ui_preference"' in result_str:
+                        _log_marker = "\n\n[执行日志]"
+                        if _log_marker in result_str:
+                            result_str = result_str[: result_str.index(_log_marker)]
+                        result_data = json.loads(result_str)
+                        ui_pref = result_data.get("ui_preference")
+                        if ui_pref:
+                            yield _sse("ui_preference", ui_pref)
+                except (json.JSONDecodeError, TypeError, KeyError):
+                    pass
+
         # --- Save assistant response to session ---
         assistant_text_to_save = _full_reply
         if not assistant_text_to_save and _ask_user_question:

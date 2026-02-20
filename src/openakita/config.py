@@ -309,6 +309,16 @@ class Settings(BaseSettings):
     proactive_quiet_hours_end: int = Field(default=7, description="安静时段结束（小时，0-23）")
     proactive_idle_threshold_hours: int = Field(default=24, description="用户空闲多久后触发闲聊问候（小时）")
 
+    # === UI 偏好配置 ===
+    ui_theme: str = Field(
+        default="system",
+        description="桌面客户端主题: system(跟随系统) | light(浅色) | dark(深色)",
+    )
+    ui_language: str = Field(
+        default="zh",
+        description="桌面客户端语言: zh(中文) | en(英文)",
+    )
+
     # === 表情包配置 ===
     sticker_enabled: bool = Field(default=True, description="是否启用表情包功能")
     sticker_data_dir: str = Field(default="data/sticker", description="表情包数据目录")
@@ -438,6 +448,8 @@ _PERSISTABLE_KEYS: list[str] = [
     "proactive_min_interval_minutes",
     "proactive_quiet_hours_start",
     "proactive_quiet_hours_end",
+    "ui_theme",
+    "ui_language",
 ]
 
 

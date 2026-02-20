@@ -46,6 +46,7 @@ from ..tools.file import FileTool
 # Handler Registry（模块化工具执行）
 from ..tools.handlers import SystemHandlerRegistry
 from ..tools.handlers.browser import create_handler as create_browser_handler
+from ..tools.handlers.config import create_handler as create_config_handler
 from ..tools.handlers.desktop import create_handler as create_desktop_handler
 from ..tools.handlers.filesystem import create_handler as create_filesystem_handler
 from ..tools.handlers.im_channel import create_handler as create_im_channel_handler
@@ -877,6 +878,13 @@ class Agent:
             "sticker",
             create_sticker_handler(self),
             ["send_sticker"],
+        )
+
+        # 系统配置
+        self.handler_registry.register(
+            "config",
+            create_config_handler(self),
+            ["system_config"],
         )
 
         # 桌面工具（仅 Windows）

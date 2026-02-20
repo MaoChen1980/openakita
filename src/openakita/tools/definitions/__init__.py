@@ -19,6 +19,7 @@
 - mcp.py          # MCP 工具（3 个）
 - plan.py         # Plan 模式工具（4 个）
 - web_search.py   # Web Search 工具（2 个）
+- config.py       # Config 工具（1 个，统一配置管理）
 """
 
 # 基础模块
@@ -39,6 +40,7 @@ from .base import (
 )
 
 # 工具定义
+from .config import CONFIG_TOOLS
 from .browser import BROWSER_TOOLS
 from .filesystem import FILESYSTEM_TOOLS
 from .im_channel import IM_CHANNEL_TOOLS
@@ -68,6 +70,7 @@ BASE_TOOLS = (
     + WEB_SEARCH_TOOLS
     + PERSONA_TOOLS
     + STICKER_TOOLS
+    + CONFIG_TOOLS
 )
 
 __all__ = [
@@ -100,4 +103,5 @@ __all__ = [
     "WEB_SEARCH_TOOLS",
     "PERSONA_TOOLS",
     "STICKER_TOOLS",
+    "CONFIG_TOOLS",
 ]
