@@ -224,16 +224,33 @@ def _build_identity_section(
 
 def _build_runtime_section() -> str:
     """构建 Runtime 层（运行时信息）"""
+    import locale as _locale
+    import shutil as _shutil
+    import sys as _sys
+
+    from ..config import settings
+    from ..runtime_env import IS_FROZEN, can_pip_install, get_python_executable
+
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # 建议 32: 检测工具可用性
-    tool_status = []
+    # --- 部署模式与 Python 环境 ---
+    deploy_mode = _detect_deploy_mode()
+    ext_python = get_python_executable()
+    pip_ok = can_pip_install()
 
-    # 检查浏览器状态
+    python_info = _build_python_info(IS_FROZEN, ext_python, pip_ok, settings)
+
+    # --- 版本号 ---
     try:
-        from pathlib import Path
+        from .. import get_version_string
+        version_str = get_version_string()
+    except Exception:
+        version_str = "unknown"
 
-        browser_lock = Path("data/browser.lock")
+    # --- 工具可用性 ---
+    tool_status = []
+    try:
+        browser_lock = settings.project_root / "data" / "browser.lock"
         if browser_lock.exists():
             tool_status.append("- **浏览器**: 可能已启动（检测到 lock 文件）")
         else:
@@ -241,9 +258,8 @@ def _build_runtime_section() -> str:
     except Exception:
         tool_status.append("- **浏览器**: 状态未知")
 
-    # 检查 MCP 服务
     try:
-        mcp_config = Path("data/mcp_servers.json")
+        mcp_config = settings.project_root / "data" / "mcp_servers.json"
         if mcp_config.exists():
             tool_status.append("- **MCP 服务**: 配置已存在")
         else:
@@ -253,11 +269,7 @@ def _build_runtime_section() -> str:
 
     tool_status_text = "\n".join(tool_status) if tool_status else "- 工具状态: 正常"
 
-    from ..config import settings
-
-    identity_path = settings.identity_path
-
-    # Windows 环境下注入 Shell 使用提示
+    # --- Shell 提示 ---
     shell_hint = ""
     if platform.system() == "Windows":
         shell_hint = (
@@ -266,12 +278,7 @@ def _build_runtime_section() -> str:
             "简单系统查询（进程/服务/文件列表）可直接使用 PowerShell cmdlet。"
         )
 
-    # 系统环境详细信息（供高频工具使用）
-    import locale as _locale
-    import shutil as _shutil
-    import sys as _sys
-
-    python_version = _sys.version.split()[0]
+    # --- 系统环境 ---
     system_encoding = _sys.getdefaultencoding()
     try:
         default_locale = _locale.getdefaultlocale()
@@ -281,7 +288,6 @@ def _build_runtime_section() -> str:
 
     shell_type = "PowerShell" if platform.system() == "Windows" else "bash"
 
-    # 检测 PATH 中的关键工具
     path_tools = []
     for cmd in ("git", "python", "node", "pip", "npm", "docker", "curl"):
         if _shutil.which(cmd):
@@ -290,15 +296,18 @@ def _build_runtime_section() -> str:
 
     return f"""## 运行环境
 
+- **OpenAkita 版本**: {version_str}
+- **部署模式**: {deploy_mode}
 - **当前时间**: {current_time}
 - **操作系统**: {platform.system()} {platform.release()} ({platform.machine()})
 - **当前工作目录**: {os.getcwd()}
-- **Identity 目录**: {identity_path}
-  - SOUL.md, AGENT.md, USER.md, MEMORY.md 均在此目录
+- **工作区信息**: 需要操作系统文件（日志/配置/数据/截图等）时，先调用 `get_workspace_map` 获取目录布局
 - **临时目录**: data/temp/{shell_hint}
 
+### Python 环境
+{python_info}
+
 ### 系统环境
-- **Python 版本**: {python_version}
 - **系统编码**: {system_encoding}
 - **默认语言环境**: {locale_str}
 - **Shell**: {shell_type}
@@ -309,6 +318,76 @@ def _build_runtime_section() -> str:
 
 ⚠️ **重要**：服务重启后浏览器、变量、连接等状态会丢失，执行任务前必须通过工具检查实时状态。
 如果工具不可用，允许纯文本回复并说明限制。"""
+
+
+def _detect_deploy_mode() -> str:
+    """检测当前部署模式"""
+    import importlib.metadata
+    import sys as _sys
+
+    from ..runtime_env import IS_FROZEN
+
+    if IS_FROZEN:
+        return "bundled (PyInstaller 打包)"
+
+    # 检查 editable install (pip install -e)
+    try:
+        dist = importlib.metadata.distribution("openakita")
+        direct_url = dist.read_text("direct_url.json")
+        if direct_url and '"editable"' in direct_url:
+            return "editable (pip install -e)"
+    except Exception:
+        pass
+
+    # 检查是否在虚拟环境 + 源码目录中
+    if _sys.prefix != _sys.base_prefix:
+        return "source (venv)"
+
+    # 检查是否通过 pip 安装
+    try:
+        importlib.metadata.version("openakita")
+        return "pip install"
+    except Exception:
+        pass
+
+    return "source"
+
+
+def _build_python_info(is_frozen: bool, ext_python: str | None, pip_ok: bool, settings) -> str:
+    """根据部署模式构建 Python 环境信息"""
+    import sys as _sys
+
+    if not is_frozen:
+        in_venv = _sys.prefix != _sys.base_prefix
+        env_type = "venv" if in_venv else "system"
+        return (
+            f"- **Python**: {_sys.version.split()[0]} ({env_type})\n"
+            f"- **解释器**: {_sys.executable}\n"
+            f"- **pip**: 可用"
+        )
+
+    # 打包模式
+    if ext_python:
+        return (
+            f"- **Python**: 可用（外置环境已自动配置）\n"
+            f"- **解释器**: {ext_python}\n"
+            f"- **pip**: {'可用' if pip_ok else '不可用'}"
+        )
+
+    # 打包模式 + 无外置 Python
+    venv_path = settings.project_root / "data" / "venv"
+    if platform.system() == "Windows":
+        install_cmd = "winget install Python.Python.3.12"
+    else:
+        install_cmd = "sudo apt install python3 或 brew install python3"
+
+    return (
+        f"- **Python**: ⚠️ 未检测到可用的 Python 环境\n"
+        f"  - 推荐操作：通过 `run_shell` 执行 `{install_cmd}` 安装 Python\n"
+        f"  - 安装后创建工作区虚拟环境：`python -m venv {venv_path}`\n"
+        f"  - 创建完成后系统将自动检测并使用该环境，无需重启\n"
+        f"  - 此环境为系统专用，与用户个人 Python 环境隔离"
+    )
 
 
 def _build_session_type_rules(session_type: str, persona_active: bool = False) -> str:
@@ -419,11 +498,12 @@ def _build_catalogs_section(
         skills_detail = skill_catalog.get_catalog()
         skills_detail_result = apply_budget(skills_detail, remaining, "skills", truncate_strategy="end")
 
-        # 强引导：找不到合适技能就用 skill-creator 创建
         skills_rule = (
-            "### Skills Planning Rule (important)\n"
-            "- For multi-step tasks, every plan step MUST reference at least one relevant skill name.\n"
-            "- If no suitable skill exists, use **skill-creator** to create one, then `load_skill` → `get_skill_info` → `run_skill_script`.\n"
+            "### 技能使用规则（必须遵守）\n"
+            "- 执行任务前**必须先检查**已有技能清单，优先使用已有技能\n"
+            "- 没有合适技能时，搜索安装或使用 skill-creator 创建，然后加载使用\n"
+            "- 同类操作重复出现时，**必须**封装为永久技能\n"
+            "- Shell 命令仅用于一次性简单操作，不是默认选择\n"
         )
 
         parts.append("\n\n".join([skills_index, skills_rule, skills_detail_result.content]).strip())

@@ -834,6 +834,7 @@ class Agent:
                 "enable_thinking",
                 "set_task_timeout",
                 "generate_image",
+                "get_workspace_map",
             ],
         )
 

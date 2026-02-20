@@ -8,6 +8,7 @@ System 工具定义
 - get_tool_info: 获取工具详细信息
 - generate_image: AI 生成图片
 - set_task_timeout: 调整任务超时策略
+- get_workspace_map: 获取工作区目录结构和关键路径
 """
 
 SYSTEM_TOOLS = [
@@ -267,6 +268,16 @@ SYSTEM_TOOLS = [
                 "reason": {"type": "string", "description": "简要说明调整原因"},
             },
             "required": ["progress_timeout_seconds", "reason"],
+        },
+    },
+    {
+        "name": "get_workspace_map",
+        "category": "System",
+        "description": "获取工作区目录结构和关键路径说明。涉及系统文件（日志/配置/会话/媒体/截图等）时先调用此工具了解目录布局。",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
         },
     },
 ]

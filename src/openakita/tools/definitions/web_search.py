@@ -11,6 +11,10 @@ WEB_SEARCH_TOOLS = [
         "name": "web_search",
         "category": "Web Search",
         "description": "Search the web using DuckDuckGo. Use when you need to find current information, verify facts, look up documentation, or answer questions requiring up-to-date knowledge. Returns titles, URLs, and snippets.",
+        "related_tools": [
+            {"name": "browser_task", "relation": "需要与网页交互（点击/填表/多步操作）时改用 browser_task"},
+            {"name": "news_search", "relation": "专门搜索新闻时改用 news_search"},
+        ],
         "detail": """使用 DuckDuckGo 搜索网页。
 
 **适用场景**：

@@ -85,6 +85,9 @@ MEMORY_TOOLS = [
         "name": "search_conversation_traces",
         "category": "Memory",
         "description": "Search full conversation history including tool calls and results by keyword. Use when you need to recall specific details of what you did in past conversations - what tools were called, what parameters were used, what results were returned. Searches both conversation history (JSONL) and reasoning traces (JSON). Uses keyword matching so provide specific terms.",
+        "related_tools": [
+            {"name": "search_memory", "relation": "搜索已学习的语义记忆（偏好/事实/规则）时改用 search_memory"},
+        ],
         "input_schema": {
             "type": "object",
             "properties": {

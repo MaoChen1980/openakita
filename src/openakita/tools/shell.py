@@ -203,6 +203,19 @@ class ShellTool:
         if env:
             cmd_env.update(env)
 
+        # 打包模式：将外置 Python 目录 prepend 到子进程 PATH，
+        # 使 `python script.py` 自动找到正确解释器
+        try:
+            from ..runtime_env import IS_FROZEN, get_python_executable
+            if IS_FROZEN:
+                _ext_py = get_python_executable()
+                if _ext_py:
+                    from pathlib import Path
+                    _py_dir = str(Path(_ext_py).parent)
+                    cmd_env["PATH"] = _py_dir + os.pathsep + cmd_env.get("PATH", "")
+        except Exception:
+            pass
+
         # Windows PowerShell 命令处理
         original_command = command
         if self._is_windows and self._needs_powershell(command):

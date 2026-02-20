@@ -69,6 +69,7 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
         "File System",
         "Skills",
         "Memory",
+        "Web Search",
         "Browser",
         "Desktop",
         "Scheduled",
@@ -78,6 +79,8 @@ Use `get_tool_info(tool_name)` to see full parameters before calling.
         "MCP",
         "Plan",
         "Persona",
+        "Sticker",
+        "Config",
     ]
 
     # 分类显示名映射（内部名 -> 系统提示中的显示名）

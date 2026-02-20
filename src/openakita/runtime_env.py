@@ -46,11 +46,23 @@ def _get_openakita_root() -> Path:
 def get_python_executable() -> str | None:
     """获取可用的 Python 解释器路径。
 
-    PyInstaller 环境下: 查找外置 Python (venv > embedded > PATH)
+    PyInstaller 环境下: 查找外置 Python
+      (workspace venv > home venv > embedded > PATH)
     常规环境下: 返回 sys.executable
     """
     if not IS_FROZEN:
         return sys.executable
+
+    # 0. 检查 {project_root}/data/venv/ — 工作区虚拟环境（系统专用，与用户环境隔离）
+    try:
+        from .config import settings
+        workspace_venv = settings.project_root / "data" / "venv"
+        py = _find_python_in_dir(workspace_venv)
+        if py:
+            logger.debug(f"使用工作区 venv Python: {py}")
+            return str(py)
+    except Exception:
+        pass
 
     root = _get_openakita_root()
 

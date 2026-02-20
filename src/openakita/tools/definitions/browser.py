@@ -20,6 +20,9 @@ BROWSER_TOOLS = [
         "name": "browser_task",
         "category": "Browser",
         "description": "【推荐优先使用】Intelligent browser task - describe what you want to accomplish and browser-use Agent will automatically plan and execute all steps. Best for: (1) Multi-step operations like search + filter + sort, (2) Complex web interactions including clicking, typing, form filling, (3) Tasks where you're unsure of exact steps, (4) Any task requiring element interaction (clicks, inputs, tab management). For simple URL opening only, use browser_navigate.",
+        "related_tools": [
+            {"name": "web_search", "relation": "仅需快速获取搜索结果（无需页面交互）时改用 web_search，更快更省资源"},
+        ],
         "detail": build_detail(
             summary="智能浏览器任务 - 描述你想完成的任务，browser-use Agent 会自动规划和执行所有步骤。",
             scenarios=[
