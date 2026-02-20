@@ -2067,6 +2067,7 @@ fn main() {
             read_file_base64,
             download_file,
             show_item_in_folder,
+            open_file_with_default,
             open_external_url,
             openakita_list_processes,
             openakita_stop_all_processes,
@@ -4225,6 +4226,37 @@ fn show_item_in_folder(path: String) -> Result<(), String> {
                 .spawn()
                 .map_err(|e| format!("Failed to open file manager: {e}"))?;
         }
+    }
+    Ok(())
+}
+
+/// Open a local file with the system default application.
+#[tauri::command]
+fn open_file_with_default(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err(format!("File does not exist: {path}"));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", "start", "", &path]);
+        apply_no_window(&mut c);
+        c.spawn().map_err(|e| format!("Failed to open file: {e}"))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {e}"))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {e}"))?;
     }
     Ok(())
 }

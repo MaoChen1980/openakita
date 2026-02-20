@@ -38,6 +38,8 @@ import {
   IconMask, IconBot, IconUsers, IconHelp, IconEdit, IconDownload,
 } from "../icons";
 
+let _artifactClickTimer: ReturnType<typeof setTimeout> | null = null;
+
 // ─── 排队消息类型 ───
 type QueuedMessage = {
   id: string;
@@ -1010,12 +1012,14 @@ function MessageBubble({
   apiBaseUrl,
   showChain = true,
   onSkipStep,
+  onImagePreview,
 }: {
   msg: ChatMessage;
   onAskAnswer?: (msgId: string, answer: string) => void;
   apiBaseUrl?: string;
   showChain?: boolean;
   onSkipStep?: () => void;
+  onImagePreview?: (url: string, name: string) => void;
 }) {
   const isUser = msg.role === "user";
   return (
@@ -1103,6 +1107,27 @@ function MessageBubble({
                         borderRadius: 8,
                         border: "1px solid var(--line)",
                         display: "block",
+                        cursor: "pointer",
+                      }}
+                      onClick={() => {
+                        if (_artifactClickTimer) clearTimeout(_artifactClickTimer);
+                        _artifactClickTimer = setTimeout(() => {
+                          onImagePreview?.(fullUrl, art.name || "image");
+                        }, 250);
+                      }}
+                      onDoubleClick={() => {
+                        if (_artifactClickTimer) { clearTimeout(_artifactClickTimer); _artifactClickTimer = null; }
+                        (async () => {
+                          try {
+                            const savedPath = await invoke<string>("download_file", {
+                              url: fullUrl,
+                              filename: art.name || `image-${Date.now()}.png`,
+                            });
+                            await invoke("open_file_with_default", { path: savedPath });
+                          } catch (err) {
+                            console.error("图片打开失败:", err);
+                          }
+                        })();
                       }}
                     />
                     <button
@@ -1159,16 +1184,33 @@ function MessageBubble({
                   background: "var(--panel)",
                   transition: "background 0.15s",
                 }}
-                  onClick={async () => {
-                    try {
-                      const savedPath = await invoke<string>("download_file", {
-                        url: fullUrl,
-                        filename: art.name || "file",
-                      });
-                      await invoke("show_item_in_folder", { path: savedPath });
-                    } catch (err) {
-                      console.error("文件下载失败:", err);
-                    }
+                  onClick={() => {
+                    if (_artifactClickTimer) clearTimeout(_artifactClickTimer);
+                    _artifactClickTimer = setTimeout(async () => {
+                      try {
+                        const savedPath = await invoke<string>("download_file", {
+                          url: fullUrl,
+                          filename: art.name || "file",
+                        });
+                        await invoke("show_item_in_folder", { path: savedPath });
+                      } catch (err) {
+                        console.error("文件下载失败:", err);
+                      }
+                    }, 250);
+                  }}
+                  onDoubleClick={() => {
+                    if (_artifactClickTimer) { clearTimeout(_artifactClickTimer); _artifactClickTimer = null; }
+                    (async () => {
+                      try {
+                        const savedPath = await invoke<string>("download_file", {
+                          url: fullUrl,
+                          filename: art.name || "file",
+                        });
+                        await invoke("open_file_with_default", { path: savedPath });
+                      } catch (err) {
+                        console.error("文件打开失败:", err);
+                      }
+                    })();
                   }}
                   onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "rgba(14,165,233,0.08)"; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = "var(--panel)"; }}
@@ -1206,12 +1248,14 @@ function FlatMessageItem({
   apiBaseUrl,
   showChain = true,
   onSkipStep,
+  onImagePreview,
 }: {
   msg: ChatMessage;
   onAskAnswer?: (msgId: string, answer: string) => void;
   apiBaseUrl?: string;
   showChain?: boolean;
   onSkipStep?: () => void;
+  onImagePreview?: (url: string, name: string) => void;
 }) {
   const isUser = msg.role === "user";
   const isSystem = msg.role === "system";
@@ -1298,7 +1342,27 @@ function FlatMessageItem({
                       <img
                         src={fullUrl}
                         alt={art.caption || art.name}
-                        style={{ maxWidth: "100%", maxHeight: 400, borderRadius: 8, border: "1px solid var(--line)", display: "block" }}
+                        style={{ maxWidth: "100%", maxHeight: 400, borderRadius: 8, border: "1px solid var(--line)", display: "block", cursor: "pointer" }}
+                        onClick={() => {
+                          if (_artifactClickTimer) clearTimeout(_artifactClickTimer);
+                          _artifactClickTimer = setTimeout(() => {
+                            onImagePreview?.(fullUrl, art.name || "image");
+                          }, 250);
+                        }}
+                        onDoubleClick={() => {
+                          if (_artifactClickTimer) { clearTimeout(_artifactClickTimer); _artifactClickTimer = null; }
+                          (async () => {
+                            try {
+                              const savedPath = await invoke<string>("download_file", {
+                                url: fullUrl,
+                                filename: art.name || `image-${Date.now()}.png`,
+                              });
+                              await invoke("open_file_with_default", { path: savedPath });
+                            } catch (err) {
+                              console.error("图片打开失败:", err);
+                            }
+                          })();
+                        }}
                       />
                       <button
                         title={t("chat.downloadImage") || "保存图片"}
@@ -1402,6 +1466,13 @@ export function ChatView({
   const [slashFilter, setSlashFilter] = useState("");
   const [slashSelectedIdx, setSlashSelectedIdx] = useState(0);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
+  const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null);
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setLightbox(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightbox]);
 
   // 思维链 & 显示模式（从 localStorage 恢复用户习惯）
   const [showChain, setShowChain] = useState(() => {
@@ -3000,9 +3071,9 @@ export function ChatView({
           )}
           {messages.map((msg) =>
             displayMode === "flat" ? (
-              <FlatMessageItem key={msg.id} msg={msg} onAskAnswer={handleAskAnswer} apiBaseUrl={apiBaseUrl} showChain={showChain} onSkipStep={handleSkipStep} />
+              <FlatMessageItem key={msg.id} msg={msg} onAskAnswer={handleAskAnswer} apiBaseUrl={apiBaseUrl} showChain={showChain} onSkipStep={handleSkipStep} onImagePreview={(url, name) => setLightbox({ url, name })} />
             ) : (
-              <MessageBubble key={msg.id} msg={msg} onAskAnswer={handleAskAnswer} apiBaseUrl={apiBaseUrl} showChain={showChain} onSkipStep={handleSkipStep} />
+              <MessageBubble key={msg.id} msg={msg} onAskAnswer={handleAskAnswer} apiBaseUrl={apiBaseUrl} showChain={showChain} onSkipStep={handleSkipStep} onImagePreview={(url, name) => setLightbox({ url, name })} />
             )
           )}
           <div ref={messagesEndRef} />
@@ -3292,6 +3363,76 @@ export function ChatView({
           </div>
         </div>
       </div>
+
+      {/* Image lightbox overlay */}
+      {lightbox && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 99999,
+            background: "rgba(0,0,0,0.85)", backdropFilter: "blur(8px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "zoom-out",
+          }}
+          onClick={() => setLightbox(null)}
+        >
+          <img
+            src={lightbox.url}
+            alt={lightbox.name}
+            style={{
+              maxWidth: "92vw", maxHeight: "90vh",
+              borderRadius: 8, objectFit: "contain",
+              boxShadow: "0 8px 48px rgba(0,0,0,0.5)",
+              cursor: "default",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <div style={{
+            position: "absolute", top: 16, right: 16,
+            display: "flex", gap: 8,
+          }}>
+            <button
+              title={t("chat.downloadImage") || "保存图片"}
+              style={{
+                background: "rgba(255,255,255,0.15)", color: "#fff",
+                border: "1px solid rgba(255,255,255,0.2)", borderRadius: 8,
+                width: 40, height: 40,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: "pointer", transition: "background 0.15s",
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.3)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.15)"; }}
+              onClick={async (e) => {
+                e.stopPropagation();
+                try {
+                  const savedPath = await invoke<string>("download_file", {
+                    url: lightbox.url,
+                    filename: lightbox.name || `image-${Date.now()}.png`,
+                  });
+                  await invoke("show_item_in_folder", { path: savedPath });
+                } catch (err) {
+                  console.error("图片下载失败:", err);
+                }
+              }}
+            >
+              <IconDownload size={18} />
+            </button>
+            <button
+              style={{
+                background: "rgba(255,255,255,0.15)", color: "#fff",
+                border: "1px solid rgba(255,255,255,0.2)", borderRadius: 8,
+                width: 40, height: 40,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: "pointer", transition: "background 0.15s",
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.3)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.15)"; }}
+              onClick={(e) => { e.stopPropagation(); setLightbox(null); }}
+            >
+              <IconX size={18} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
