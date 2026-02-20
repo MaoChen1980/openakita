@@ -17,11 +17,12 @@ import {
   IconChevronDown, IconChevronRight, IconChevronUp, IconGlobe, IconLink, IconPower,
   IconEdit, IconTrash, IconEye, IconEyeOff, IconInfo, IconClipboard,
   DotGreen, DotGray, DotYellow, DotRed,
-  IconBook, IconZap, IconGear,
+  IconBook, IconZap, IconGear, IconMoon, IconSun, IconLaptop,
   LogoTelegram, LogoFeishu, LogoWework, LogoDingtalk, LogoQQ,
 } from "./icons";
 import logoUrl from "./assets/logo.png";
 import "highlight.js/styles/github.css";
+import { getThemePref, setThemePref, type Theme } from "./theme";
 // ═══════════════════════════════════════════════════════════════════════
 // 前后端交互路由原则（全局适用）：
 //   后端运行中 → 所有配置读写、模型列表、连接测试 **优先走后端 HTTP API**
@@ -517,7 +518,7 @@ function SearchSelect({
             overflow: "auto",
             border: "1px solid var(--line)",
             borderRadius: 14,
-            background: "rgba(255,255,255,0.98)",
+            background: "var(--panel2)",
             boxShadow: "0 18px 60px rgba(17, 24, 39, 0.14)",
           }}
           onMouseDown={(e) => {
@@ -691,7 +692,7 @@ function ProviderSearchSelect({
             overflow: "auto",
             border: "1px solid var(--line)",
             borderRadius: 14,
-            background: "rgba(255,255,255,0.98)",
+            background: "var(--panel2)",
             boxShadow: "0 18px 60px rgba(17, 24, 39, 0.14)",
           }}
           onMouseDown={(e) => { e.preventDefault(); }}
@@ -791,32 +792,41 @@ function TroubleshootPanel({ t }: { t: (k: string) => string }) {
   };
 
   return (
-    <div style={{ marginTop: 8, padding: "8px 12px", background: "#f5f5f5", borderRadius: 6, fontSize: 12, color: "#555" }}>
+    <div style={{ marginTop: 8, padding: "8px 12px", background: "var(--panel2)", borderRadius: 6, fontSize: 12, color: "var(--text)", border: "1px solid var(--line)" }}>
       <div style={{ fontWeight: 600, marginBottom: 6 }}>{t("status.troubleshootTitle")}</div>
-      <div style={{ marginBottom: 4 }}>{t("status.troubleshootTip")}</div>
+      <div style={{ marginBottom: 4, color: "var(--muted)" }}>{t("status.troubleshootTip")}</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ color: "#888", minWidth: 60 }}>{t("status.troubleshootListProcess")}:</span>
-          <code style={{ background: "#e8e8e8", padding: "1px 6px", borderRadius: 3, fontSize: 11, flex: 1 }}>{listCmd}</code>
+          <span style={{ color: "var(--muted)", minWidth: 60 }}>{t("status.troubleshootListProcess")}:</span>
+          <code style={{ background: "var(--nav-hover)", border: "1px solid var(--line)", padding: "1px 6px", borderRadius: 3, fontSize: 11, flex: 1, color: "var(--text)" }}>{listCmd}</code>
           <button className="btnSmall" style={{ fontSize: 10, padding: "1px 6px" }} onClick={() => copyText(listCmd, "list")}>
             {copied === "list" ? t("status.troubleshootCopied") : t("status.troubleshootCopy")}
           </button>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ color: "#888", minWidth: 60 }}>{t("status.troubleshootKillProcess")}:</span>
-          <code style={{ background: "#e8e8e8", padding: "1px 6px", borderRadius: 3, fontSize: 11, flex: 1 }}>{killCmd}</code>
+          <span style={{ color: "var(--muted)", minWidth: 60 }}>{t("status.troubleshootKillProcess")}:</span>
+          <code style={{ background: "var(--nav-hover)", border: "1px solid var(--line)", padding: "1px 6px", borderRadius: 3, fontSize: 11, flex: 1, color: "var(--text)" }}>{killCmd}</code>
           <button className="btnSmall" style={{ fontSize: 10, padding: "1px 6px" }} onClick={() => copyText(killCmd, "kill")}>
             {copied === "kill" ? t("status.troubleshootCopied") : t("status.troubleshootCopy")}
           </button>
         </div>
       </div>
-      <div style={{ marginTop: 6, color: "#999", fontSize: 11 }}>{t("status.troubleshootRestart")}</div>
+      <div style={{ marginTop: 6, color: "var(--muted)", fontSize: 11 }}>{t("status.troubleshootRestart")}</div>
     </div>
   );
 }
 
 export function App() {
   const { t, i18n } = useTranslation();
+  const [themePrefState, setThemePrefState] = useState<Theme>(getThemePref());
+  const toggleTheme = useCallback(() => {
+    let next: Theme = "system";
+    if (themePrefState === "system") next = "dark";
+    else if (themePrefState === "dark") next = "light";
+    else next = "system";
+    setThemePref(next);
+    setThemePrefState(next);
+  }, [themePrefState]);
   const [info, setInfo] = useState<PlatformInfo | null>(null);
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState<string | null>(null);
@@ -4309,16 +4319,16 @@ export function App() {
         {!serviceStatus?.running && serviceStatus !== null && effectiveWsId && (
           <div style={{
             marginBottom: 16, padding: "16px 20px", borderRadius: 10,
-            background: "linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%)",
-            border: "1px solid #ffcc80",
+            background: "rgba(245, 158, 11, 0.15)",
+            border: "1px solid rgba(245, 158, 11, 0.4)",
             display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap",
           }}>
-            <div style={{ fontSize: 28, lineHeight: 1 }}>&#9888;</div>
+            <div style={{ fontSize: 28, lineHeight: 1, color: "var(--warning)" }}>&#9888;</div>
             <div style={{ flex: 1, minWidth: 180 }}>
-              <div style={{ fontWeight: 700, fontSize: 15, color: "#e65100", marginBottom: 4 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: "var(--warning)", marginBottom: 4 }}>
                 {t("status.backendNotRunning")}
               </div>
-              <div style={{ fontSize: 13, color: "#bf360c", opacity: 0.85 }}>
+              <div style={{ fontSize: 13, color: "var(--warning)", opacity: 0.85 }}>
                 {t("status.backendNotRunningHint")}
               </div>
             </div>
@@ -4336,16 +4346,16 @@ export function App() {
         {serviceStatus === null && !!busy && effectiveWsId && (
           <div style={{
             marginBottom: 16, padding: "16px 20px", borderRadius: 10,
-            background: "linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)",
-            border: "1px solid #90caf9",
+            background: "rgba(14, 165, 233, 0.15)",
+            border: "1px solid rgba(14, 165, 233, 0.4)",
             display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap",
           }}>
-            <div className="spinner" style={{ width: 22, height: 22, flexShrink: 0 }} />
+            <div className="spinner" style={{ width: 22, height: 22, flexShrink: 0, color: "var(--brand)" }} />
             <div style={{ flex: 1, minWidth: 180 }}>
-              <div style={{ fontWeight: 700, fontSize: 15, color: "#1565c0", marginBottom: 4 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: "var(--brand)", marginBottom: 4 }}>
                 {busy}
               </div>
-              <div style={{ fontSize: 13, color: "#1976d2", opacity: 0.85 }}>
+              <div style={{ fontSize: 13, color: "var(--brand)", opacity: 0.85 }}>
                 {t("status.backendNotRunningHint")}
               </div>
             </div>
@@ -4390,9 +4400,9 @@ export function App() {
             </div>
             {/* Multi-process warning */}
             {detectedProcesses.length > 1 && (
-              <div style={{ marginTop: 8, padding: "6px 10px", background: "#fff3e0", borderRadius: 6, fontSize: 12, color: "#e65100", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ marginTop: 8, padding: "6px 10px", background: "rgba(245, 158, 11, 0.15)", borderRadius: 6, fontSize: 12, color: "var(--warning)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", border: "1px solid rgba(245, 158, 11, 0.3)" }}>
                 <span style={{ fontWeight: 600 }}>⚠ 检测到 {detectedProcesses.length} 个 OpenAkita 进程正在运行</span>
-                <span style={{ color: "#bf360c", fontSize: 11 }}>
+                <span style={{ color: "var(--warning)", fontSize: 11 }}>
                   ({detectedProcesses.map(p => `PID ${p.pid}`).join(", ")})
                 </span>
                 <button className="btnSmall btnSmallDanger" style={{ marginLeft: "auto", fontSize: 11 }} onClick={async () => {
@@ -4409,12 +4419,12 @@ export function App() {
             )}
             {/* Degraded hint — process alive but HTTP unreachable */}
             {heartbeatState === "degraded" && (
-              <div style={{ marginTop: 8, padding: "6px 10px", background: "#fffde7", borderRadius: 6, fontSize: 12, color: "#f57f17", display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ marginTop: 8, padding: "6px 10px", background: "rgba(245, 158, 11, 0.1)", borderRadius: 6, fontSize: 12, color: "var(--warning)", display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap", border: "1px solid rgba(245, 158, 11, 0.2)" }}>
                 <DotYellow size={8} />
                 <span>
                   {t("status.degradedHint")}
                   <br />
-                  <span style={{ fontSize: 11, color: "#b0880a" }}>{t("status.degradedAutoClean")}</span>
+                  <span style={{ fontSize: 11, color: "var(--warning)", opacity: 0.8 }}>{t("status.degradedAutoClean")}</span>
                 </span>
               </div>
             )}
@@ -4659,8 +4669,8 @@ export function App() {
             <div
               className="card"
               style={{
-                marginTop: 0, cursor: "pointer", border: "2px solid var(--primary, #1976d2)",
-                background: "linear-gradient(135deg, #e3f2fd 0%, #f5f5f5 100%)",
+                marginTop: 0, cursor: "pointer", border: "2px solid var(--brand)",
+                background: "var(--nav-active)",
                 transition: "box-shadow 0.2s, transform 0.15s",
               }}
               onClick={async () => {
@@ -4691,16 +4701,16 @@ export function App() {
                 setMaxReachedStepIdx(1);
                 localStorage.setItem("openakita_maxStep", "1");
               }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 20px rgba(25,118,210,0.25)"; (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = "var(--glow-shadow)"; (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = ""; (e.currentTarget as HTMLElement).style.transform = ""; }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
                 <div style={{
                   width: 40, height: 40, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: "var(--primary, #1976d2)", color: "#fff", flexShrink: 0,
+                  background: "var(--brand)", color: "#fff", flexShrink: 0,
                 }}><IconZap size={22} /></div>
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 16, color: "var(--primary, #1976d2)" }}>{t("welcome.quickTitle")}</div>
+                  <div style={{ fontWeight: 700, fontSize: 16, color: "var(--brand)" }}>{t("welcome.quickTitle")}</div>
                   <div style={{ fontSize: 11, opacity: 0.6 }}>{t("welcome.quickTime")}</div>
                 </div>
               </div>
@@ -4708,7 +4718,7 @@ export function App() {
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {quickFeatures.map((f, i) => (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, opacity: 0.7 }}>
-                    <IconCheck size={14} style={{ color: "var(--primary, #1976d2)", flexShrink: 0 }} />
+                    <IconCheck size={14} style={{ color: "var(--brand)", flexShrink: 0 }} />
                     <span>{f}</span>
                   </div>
                 ))}
@@ -4747,13 +4757,13 @@ export function App() {
                 setMaxReachedStepIdx(0);
                 localStorage.setItem("openakita_maxStep", "0");
               }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 16px rgba(0,0,0,0.1)"; (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; (e.currentTarget as HTMLElement).style.borderColor = "#bdbdbd"; }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = "var(--shadow)"; (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--line)"; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = ""; (e.currentTarget as HTMLElement).style.transform = ""; (e.currentTarget as HTMLElement).style.borderColor = "transparent"; }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
                 <div style={{
                   width: 40, height: 40, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: "#78909c", color: "#fff", flexShrink: 0,
+                  background: "var(--muted)", color: "#fff", flexShrink: 0,
                 }}><IconGear size={22} /></div>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 16 }}>{t("welcome.fullTitle")}</div>
@@ -4766,7 +4776,7 @@ export function App() {
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, opacity: 0.7 }}>
                     <div style={{
                       width: 20, height: 20, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                      background: "#e0e0e0", fontSize: 10, fontWeight: 700, flexShrink: 0,
+                      background: "var(--line)", color: "var(--text)", fontSize: 10, fontWeight: 700, flexShrink: 0,
                     }}>{s.icon}</div>
                     <span>{s.title}</span>
                   </div>
@@ -8430,19 +8440,19 @@ export function App() {
             <div className="obContent">
               <h2 className="obStepTitle">{t("onboarding.modules.title")}</h2>
               <p className="obStepDesc">{t("onboarding.modules.desc")}</p>
-              <p style={{ fontSize: 13, color: "#64748b", margin: "0 0 8px", lineHeight: 1.5 }}>
+              <p style={{ fontSize: 13, color: "var(--muted)", margin: "0 0 8px", lineHeight: 1.5 }}>
                 已为你推荐常用模块，如不需要可取消勾选。模块安装后也可在设置中管理。
               </p>
               <div style={{
                 fontSize: 12, color: "#475569", marginBottom: 12, padding: "10px 14px",
                 background: "#f1f5f9", borderRadius: 8, border: "1px solid #e2e8f0", lineHeight: 1.6,
               }}>
-                <strong style={{ color: "#334155" }}>说明：</strong>上述可选模块包含本地模型与插件资源，体积较大，下载耗时较长（预计最长约 30～60 分钟）。若暂不需要可取消勾选，后续可在左侧栏「模块」中按需安装；安装后可提升记忆、浏览器、语音等能力，建议在网络稳定时下载。
+                <strong style={{ color: "var(--text)" }}>说明：</strong>上述可选模块包含本地模型与插件资源，体积较大，下载耗时较长（预计最长约 30～60 分钟）。若暂不需要可取消勾选，后续可在左侧栏「模块」中按需安装；安装后可提升记忆、浏览器、语音等能力，建议在网络稳定时下载。
               </div>
               <div className="obModuleList">
                 {obModules.map((m) => (
                   <label key={m.id} className={`obModuleItem ${m.installed || m.bundled ? "obModuleInstalled" : ""}`}
-                    style={obSelectedModules.has(m.id) && !m.installed && !m.bundled ? { borderColor: "#5B8DEF", background: "#f0f5ff" } : {}}
+                    style={obSelectedModules.has(m.id) && !m.installed && !m.bundled ? { borderColor: "var(--brand)", background: "var(--nav-active)" } : {}}
                   >
                     <input
                       type="checkbox"
@@ -8487,7 +8497,7 @@ export function App() {
 
               <div className="obModuleList">
                 {/* openakita 命令 */}
-                <label className={`obModuleItem ${obCliOpenakita ? "" : ""}`} style={obCliOpenakita ? { borderColor: "#5B8DEF", background: "#f0f5ff" } : {}}>
+                <label className={`obModuleItem ${obCliOpenakita ? "" : ""}`} style={obCliOpenakita ? { borderColor: "var(--brand)", background: "var(--nav-active)" } : {}}>
                   <input
                     type="checkbox"
                     checked={obCliOpenakita}
@@ -8500,7 +8510,7 @@ export function App() {
                 </label>
 
                 {/* oa 命令 */}
-                <label className={`obModuleItem`} style={obCliOa ? { borderColor: "#5B8DEF", background: "#f0f5ff" } : {}}>
+                <label className={`obModuleItem`} style={obCliOa ? { borderColor: "var(--brand)", background: "var(--nav-active)" } : {}}>
                   <input
                     type="checkbox"
                     checked={obCliOa}
@@ -8514,7 +8524,7 @@ export function App() {
                 </label>
 
                 {/* PATH 选项 */}
-                <label className={`obModuleItem`} style={obCliAddToPath ? { borderColor: "#5B8DEF", background: "#f0f5ff" } : {}}>
+                <label className={`obModuleItem`} style={obCliAddToPath ? { borderColor: "var(--brand)", background: "var(--nav-active)" } : {}}>
                   <input
                     type="checkbox"
                     checked={obCliAddToPath}
@@ -8528,7 +8538,7 @@ export function App() {
 
                 {/* 开机自启 */}
                 <div style={{ borderTop: "1px solid #e2e8f0", margin: "8px 0" }} />
-                <label className={`obModuleItem`} style={obAutostart ? { borderColor: "#5B8DEF", background: "#f0f5ff" } : {}}>
+                <label className={`obModuleItem`} style={obAutostart ? { borderColor: "var(--brand)", background: "var(--nav-active)" } : {}}>
                   <input
                     type="checkbox"
                     checked={obAutostart}
@@ -8554,13 +8564,13 @@ export function App() {
                     fontSize: 13, lineHeight: 1.9, color: "#e2e8f0", overflowX: "auto",
                   }}>
                     {obCliOa && <>
-                      <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#7dd3fc" }}>oa</span> serve <span style={{ color: "#64748b", marginLeft: 24 }}># 启动后端服务</span></div>
-                      <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#7dd3fc" }}>oa</span> status <span style={{ color: "#64748b", marginLeft: 16 }}># 查看运行状态</span></div>
-                      <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#7dd3fc" }}>oa</span> run <span style={{ color: "#64748b", marginLeft: 36 }}># 单次对话</span></div>
+                      <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#7dd3fc" }}>oa</span> serve <span style={{ color: "var(--muted)", marginLeft: 24 }}># 启动后端服务</span></div>
+                      <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#7dd3fc" }}>oa</span> status <span style={{ color: "var(--muted)", marginLeft: 16 }}># 查看运行状态</span></div>
+                      <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#7dd3fc" }}>oa</span> run <span style={{ color: "var(--muted)", marginLeft: 36 }}># 单次对话</span></div>
                     </>}
                     {obCliOa && obCliOpenakita && <div style={{ height: 4 }} />}
                     {obCliOpenakita && <>
-                      <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#a5b4fc" }}>openakita</span> init <span style={{ color: "#64748b", marginLeft: 8 }}># 初始化工作区</span></div>
+                      <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#a5b4fc" }}>openakita</span> init <span style={{ color: "var(--muted)", marginLeft: 8 }}># 初始化工作区</span></div>
                       <div><span style={{ color: "#94a3b8" }}>$</span> <span style={{ color: "#a5b4fc" }}>openakita</span> serve <span style={{ color: "#64748b" }}># 启动后端服务</span></div>
                     </>}
                   </div>
@@ -8598,7 +8608,7 @@ export function App() {
           <div className="obPage">
             <div className="obContent" style={{ display: "flex", flexDirection: "column", gap: 0, flex: 1, minHeight: 0 }}>
               <h2 className="obStepTitle">{t("onboarding.progress.title")}</h2>
-              <p style={{ fontSize: 12, color: "#64748b", margin: "0 0 12px", lineHeight: 1.5 }}>
+              <p style={{ fontSize: 12, color: "var(--muted)", margin: "0 0 12px", lineHeight: 1.5 }}>
                 模块与运行环境体积较大，安装过程中请耐心等待，请勿关闭本窗口。
               </p>
 
@@ -8732,13 +8742,13 @@ export function App() {
 
     const _disableToggle = (viewKey: string, label: string) => (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginBottom: 12 }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#64748b", cursor: "pointer" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--muted)", cursor: "pointer" }}>
           <span>{disabledViews.includes(viewKey) ? `${label} 已禁用` : `${label} 已启用`}</span>
           <div
             onClick={() => toggleViewDisabled(viewKey)}
             style={{
               width: 40, height: 22, borderRadius: 11, cursor: "pointer",
-              background: disabledViews.includes(viewKey) ? "#cbd5e1" : "#22c55e",
+              background: disabledViews.includes(viewKey) ? "var(--line)" : "var(--ok)",
               position: "relative", transition: "background 0.2s",
             }}
           >
@@ -8815,7 +8825,7 @@ export function App() {
           ) : (
         <div className="card">
           <h2 className="cardTitle">{t("modules.title")}</h2>
-          <p style={{ color: "#64748b", fontSize: 13, marginBottom: 16 }}>{t("modules.desc")}</p>
+          <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 16 }}>{t("modules.desc")}</p>
           {moduleUninstallPending && currentWorkspaceId && (
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, padding: "10px 12px", background: "#fef2f2", borderRadius: 8, border: "1px solid #fecaca" }}>
               <span style={{ flex: 1, fontSize: 13 }}>{t("modules.uninstallFailInUse")}</span>
@@ -9214,6 +9224,13 @@ export function App() {
             </button>
             <button
               className="topbarRefreshBtn"
+              onClick={toggleTheme}
+              title={themePrefState === "system" ? "主题: 随系统" : themePrefState === "dark" ? "主题: 暗色" : "主题: 亮色"}
+            >
+              {themePrefState === "system" ? <IconLaptop size={14} /> : themePrefState === "dark" ? <IconMoon size={14} /> : <IconSun size={14} />}
+            </button>
+            <button
+              className="topbarRefreshBtn"
               onClick={() => { i18n.changeLanguage(i18n.language?.startsWith("zh") ? "en" : "zh"); }}
               title="中/EN"
             >
@@ -9251,14 +9268,14 @@ export function App() {
                 <button className="dialogCloseBtn" onClick={() => setConnectDialogOpen(false)}>&times;</button>
               </div>
               <div className="dialogSection">
-                <p style={{ color: "#64748b", fontSize: 13, margin: "0 0 16px" }}>{t("connect.hint")}</p>
+                <p style={{ color: "var(--muted)", fontSize: 13, margin: "0 0 16px" }}>{t("connect.hint")}</p>
                 <div className="dialogLabel">{t("connect.address")}</div>
                 <input
                   value={connectAddress}
                   onChange={(e) => setConnectAddress(e.target.value)}
                   placeholder="127.0.0.1:18900"
                   autoFocus
-                  style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 14 }}
+                  style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--line)", fontSize: 14, background: "var(--panel2)", color: "var(--text)" }}
                 />
               </div>
               <div className="dialogFooter">
@@ -9310,7 +9327,7 @@ export function App() {
                     {restartOverlay.phase === "restarting" && t("config.restarting")}
                     {restartOverlay.phase === "waiting" && t("config.restartWaiting")}
                   </div>
-                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 8 }}>
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
                     {t("config.applyRestartHint")}
                   </div>
                 </>
@@ -9343,7 +9360,7 @@ export function App() {
           <div className="modalOverlay" onClick={() => setModuleRestartPrompt(null)}>
             <div className="modalContent" style={{ maxWidth: 400, padding: "28px 24px", borderRadius: 16 }} onClick={(e) => e.stopPropagation()}>
               <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>{t("modules.restartTitle")}</div>
-              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 20, lineHeight: 1.6 }}>
+              <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 20, lineHeight: 1.6 }}>
                 {t("modules.restartDesc", { name: moduleRestartPrompt })}
               </div>
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
@@ -9366,7 +9383,7 @@ export function App() {
                 <span style={{ fontWeight: 600, fontSize: 15 }}>{t("conflict.title")}</span>
               </div>
               <div style={{ fontSize: 14, lineHeight: 1.7, marginBottom: 8 }}>{t("conflict.message")}</div>
-              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 20 }}>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 20 }}>
                 {t("conflict.detail", { pid: conflictDialog.pid, version: conflictDialog.version })}
               </div>
               <div className="dialogFooter" style={{ justifyContent: "flex-end", gap: 8 }}>
@@ -9382,34 +9399,34 @@ export function App() {
 
         {/* ── Version mismatch banner ── */}
         {versionMismatch && (
-          <div style={{ position: "fixed", top: 48, left: "50%", transform: "translateX(-50%)", zIndex: 9999, background: "#fff3e0", border: "1px solid #ffb74d", borderRadius: 10, padding: "12px 20px", maxWidth: 500, boxShadow: "0 4px 20px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ position: "fixed", top: 48, left: "50%", transform: "translateX(-50%)", zIndex: 9999, background: "var(--panel2)", border: "1px solid var(--warning)", borderRadius: 10, padding: "12px 20px", maxWidth: 500, boxShadow: "var(--shadow)", display: "flex", flexDirection: "column", gap: 8, color: "var(--warning)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 16 }}>⚠️</span>
               <span style={{ fontWeight: 600, fontSize: 13 }}>{t("version.mismatch")}</span>
-              <button style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#999" }} onClick={() => setVersionMismatch(null)}>&times;</button>
+              <button style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "var(--muted)" }} onClick={() => setVersionMismatch(null)}>&times;</button>
             </div>
-            <div style={{ fontSize: 12, color: "#6d4c00", lineHeight: 1.6 }}>
+            <div style={{ fontSize: 12, lineHeight: 1.6 }}>
               {t("version.mismatchDetail", { backend: versionMismatch.backend, desktop: versionMismatch.desktop })}
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <button className="btnSmall" style={{ fontSize: 11 }} onClick={() => {
                 navigator.clipboard.writeText(t("version.pipCommand")).then(() => setNotice(t("version.copied")));
               }}>{t("version.updatePip")}</button>
-              <code style={{ fontSize: 11, background: "#f5f5f5", padding: "2px 8px", borderRadius: 4, color: "#333" }}>{t("version.pipCommand")}</code>
+              <code style={{ fontSize: 11, background: "var(--nav-hover)", padding: "2px 8px", borderRadius: 4, color: "var(--text)" }}>{t("version.pipCommand")}</code>
             </div>
           </div>
         )}
 
         {/* ── Update notification with download/install support ── */}
         {newRelease && (
-          <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 9998, background: "#e3f2fd", border: "1px solid #90caf9", borderRadius: 10, padding: "12px 20px", maxWidth: 400, boxShadow: "0 4px 20px rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 9998, background: "var(--panel2)", border: "1px solid var(--brand)", borderRadius: 10, padding: "12px 20px", maxWidth: 400, boxShadow: "var(--shadow)", display: "flex", flexDirection: "column", gap: 8, color: "var(--brand)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 16 }}>{updateProgress.status === "done" ? "✅" : updateProgress.status === "error" ? "❌" : "🎉"}</span>
               <span style={{ fontWeight: 600, fontSize: 13 }}>
                 {updateProgress.status === "done" ? t("version.updateReady") : updateProgress.status === "error" ? t("version.updateFailed") : t("version.newRelease")}
               </span>
               {updateProgress.status === "idle" && (
-                <button style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#999" }} onClick={() => {
+                <button style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "var(--muted)" }} onClick={() => {
                   setNewRelease(null);
                   localStorage.setItem("openakita_release_dismissed", newRelease.latest);
                 }}>&times;</button>
@@ -9417,7 +9434,7 @@ export function App() {
             </div>
 
             {/* Version info */}
-            <div style={{ fontSize: 12, color: "#0d47a1", lineHeight: 1.6 }}>
+            <div style={{ fontSize: 12, lineHeight: 1.6 }}>
               {t("version.newReleaseDetail", { latest: newRelease.latest, current: newRelease.current })}
             </div>
 

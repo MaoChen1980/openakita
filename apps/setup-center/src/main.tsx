@@ -4,6 +4,10 @@ import ReactDOM from "react-dom/client";
 import "./i18n";
 import "./styles.css";
 import { App } from "./App";
+import { initTheme } from "./theme";
+
+// Initialize theme before rendering to catch OS changes
+initTheme();
 
 // ── Global Error Boundary ──
 // Catches unhandled React rendering errors to prevent white-screen crashes.

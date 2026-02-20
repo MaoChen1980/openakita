@@ -166,7 +166,7 @@ function ToolCallDetail({ tc }: { tc: ChatToolCall }) {
         <span style={{ fontSize: 10, opacity: 0.4, marginLeft: "auto" }}>{open ? t("chat.collapse") : t("chat.expand")}</span>
       </div>
       {open && (
-        <div style={{ padding: "6px 10px", fontSize: 12, background: "rgba(255,255,255,0.5)" }}>
+        <div style={{ padding: "6px 10px", fontSize: 12, background: "var(--panel)" }}>
           <div style={{ fontWeight: 700, marginBottom: 4 }}>{t("chat.args")}</div>
           <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 11 }}>
             {JSON.stringify(tc.args, null, 2)}
@@ -224,7 +224,7 @@ function ToolCallsGroup({ toolCalls }: { toolCalls: ChatToolCall[] }) {
         <span style={{ fontSize: 11, opacity: 0.5, marginLeft: "auto", flexShrink: 0 }}>{expanded ? t("chat.collapse") : t("chat.expand")}</span>
       </div>
       {expanded && (
-        <div style={{ padding: "6px 8px", display: "flex", flexDirection: "column", gap: 4, background: "rgba(255,255,255,0.3)" }}>
+        <div style={{ padding: "6px 8px", display: "flex", flexDirection: "column", gap: 4, background: "var(--panel)" }}>
           {toolCalls.map((tc, i) => (
             <ToolCallDetail key={i} tc={tc} />
           ))}
@@ -569,12 +569,12 @@ function AskQuestionItem({
                   display: "flex", alignItems: "center", gap: 10,
                   padding: "7px 14px", borderRadius: 8,
                   border: isSelected ? "1.5px solid rgba(124,58,237,0.55)" : "1px solid rgba(124,58,237,0.18)",
-                  background: isSelected ? "rgba(124,58,237,0.10)" : "rgba(255,255,255,0.7)",
+                  background: isSelected ? "rgba(124,58,237,0.10)" : "var(--panel)",
                   cursor: "pointer", fontSize: 13, textAlign: "left",
                   transition: "all 0.15s",
                 }}
                 onMouseEnter={(e) => { if (!isSelected) { e.currentTarget.style.background = "rgba(124,58,237,0.06)"; e.currentTarget.style.borderColor = "rgba(124,58,237,0.35)"; } }}
-                onMouseLeave={(e) => { if (!isSelected) { e.currentTarget.style.background = "rgba(255,255,255,0.7)"; e.currentTarget.style.borderColor = "rgba(124,58,237,0.18)"; } }}
+                onMouseLeave={(e) => { if (!isSelected) { e.currentTarget.style.background = "var(--panel)"; e.currentTarget.style.borderColor = "rgba(124,58,237,0.18)"; } }}
                 onClick={() => onSelect(opt.id)}
               >
                 <span style={{
@@ -877,7 +877,7 @@ function SlashCommandPanel({
         overflow: "auto",
         border: "1px solid var(--line)",
         borderRadius: 14,
-        background: "rgba(255,255,255,0.98)",
+        background: "var(--panel2)",
         boxShadow: "0 -12px 48px rgba(17,24,39,0.12)",
         zIndex: 100,
       }}
@@ -946,10 +946,10 @@ function MessageBubble({
           maxWidth: "85%",
           padding: isUser ? "10px 16px" : "12px 16px",
           borderRadius: isUser ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-          background: isUser ? "var(--brand)" : "rgba(255,255,255,0.85)",
+          background: isUser ? "var(--brand)" : "var(--panel2)",
           color: isUser ? "#fff" : "var(--text)",
           border: isUser ? "none" : "1px solid var(--line)",
-          boxShadow: isUser ? "0 2px 12px rgba(14,165,233,0.18)" : "0 1px 4px rgba(17,24,39,0.06)",
+          boxShadow: isUser ? "var(--glow-shadow)" : "var(--shadow)",
           fontSize: 14,
           lineHeight: 1.7,
           wordBreak: "break-word",
@@ -1046,7 +1046,7 @@ function MessageBubble({
                   display: "inline-flex", alignItems: "center", gap: 8,
                   padding: "8px 14px", borderRadius: 8, border: "1px solid var(--line)",
                   fontSize: 13, marginBottom: 4, cursor: "pointer",
-                  background: "rgba(255,255,255,0.5)",
+                  background: "var(--panel)",
                   transition: "background 0.15s",
                 }}
                   onClick={async () => {
@@ -1062,7 +1062,7 @@ function MessageBubble({
                     }
                   }}
                   onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "rgba(14,165,233,0.08)"; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.5)"; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = "var(--panel)"; }}
                 >
                   <IconPaperclip size={14} />
                   <span style={{ fontWeight: 600 }}>{art.name}</span>
@@ -2645,7 +2645,7 @@ export function ChatView({
             width: 260,
             minWidth: 260,
             borderRight: "1px solid var(--line)",
-            background: "rgba(255,255,255,0.6)",
+            background: "var(--panel)",
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
@@ -2783,7 +2783,7 @@ export function ChatView({
 
         {/* 附件预览栏 */}
         {pendingAttachments.length > 0 && (
-          <div style={{ padding: "12px 16px 8px", borderTop: "1px solid var(--line)", display: "flex", flexWrap: "wrap", gap: 12, background: "rgba(255,255,255,0.5)" }}>
+          <div style={{ padding: "12px 16px 8px", borderTop: "1px solid var(--line)", display: "flex", flexWrap: "wrap", gap: 12, background: "var(--panel)" }}>
             {pendingAttachments.map((att, idx) => (
               <AttachmentPreview
                 key={`${att.name}-${att.type}-${idx}`}

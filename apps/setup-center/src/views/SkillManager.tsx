@@ -43,7 +43,7 @@ function SkillConfigForm({
               <select
                 value={value}
                 onChange={(e) => onEnvChange((m) => envSet(m, field.key, e.target.value))}
-                style={{ width: "100%", padding: "8px 12px", borderRadius: 10, border: "1px solid var(--line)", background: "rgba(255,255,255,0.7)", fontSize: 14 }}
+                style={{ width: "100%", padding: "8px 12px", borderRadius: 10, border: "1px solid var(--line)", background: "var(--panel2)", color: "var(--text)", fontSize: 14 }}
               >
                 {field.options.map((opt) => (
                   <option key={opt} value={opt}>{opt}</option>

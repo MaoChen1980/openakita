@@ -4,12 +4,41 @@ body {
   margin: 0;
 }
 
+:root, :root[data-theme="light"] {
+  color-scheme: light;
+  --boot-bg: #f4f5f7;
+  --boot-grad: linear-gradient(180deg, #f7f8fb, #eef2ff);
+  --boot-card: rgba(255, 255, 255, 0.78);
+  --boot-text: #111827;
+  --boot-muted: rgba(17, 24, 39, 0.65);
+  --boot-border: rgba(17, 24, 39, 0.12);
+  --boot-btn: rgba(255, 255, 255, 0.9);
+  --boot-btn-hover: rgba(255, 255, 255, 0.98);
+  --boot-shadow: 0 18px 60px rgba(17, 24, 39, 0.12);
+  --boot-bar: rgba(17, 24, 39, 0.08);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --boot-bg: #09090b;
+  --boot-grad: linear-gradient(180deg, #09090b, #18181b);
+  --boot-card: rgba(24, 24, 27, 0.78);
+  --boot-text: rgba(255, 255, 255, 0.92);
+  --boot-muted: rgba(255, 255, 255, 0.55);
+  --boot-border: rgba(255, 255, 255, 0.12);
+  --boot-btn: rgba(39, 39, 42, 0.9);
+  --boot-btn-hover: rgba(63, 63, 70, 0.98);
+  --boot-shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
+  --boot-bar: rgba(255, 255, 255, 0.08);
+}
+
 body {
   font-family: "Noto Sans SC", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei",
     sans-serif;
   background: radial-gradient(1200px 560px at 0% 0%, rgba(124, 58, 237, 0.08), transparent 60%),
-    radial-gradient(1000px 520px at 100% 0%, rgba(14, 165, 233, 0.08), transparent 55%), linear-gradient(180deg, #f7f8fb, #eef2ff);
-  color: #111827;
+    radial-gradient(1000px 520px at 100% 0%, rgba(14, 165, 233, 0.08), transparent 55%), var(--boot-grad);
+  background-color: var(--boot-bg);
+  color: var(--boot-text);
 }
 
 #boot {
@@ -23,11 +52,13 @@ body {
 
 .bootCard {
   width: min(520px, calc(100vw - 48px));
-  border: 1px solid rgba(17, 24, 39, 0.12);
-  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--boot-border);
+  background: var(--boot-card);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border-radius: 18px;
   padding: 18px 18px;
-  box-shadow: 0 18px 60px rgba(17, 24, 39, 0.12);
+  box-shadow: var(--boot-shadow);
 }
 
 .bootTitle {
@@ -38,7 +69,7 @@ body {
 .bootSub {
   margin-top: 6px;
   font-size: 12px;
-  color: rgba(17, 24, 39, 0.65);
+  color: var(--boot-muted);
   line-height: 1.45;
 }
 
@@ -46,7 +77,7 @@ body {
   margin-top: 12px;
   height: 10px;
   border-radius: 999px;
-  background: rgba(17, 24, 39, 0.08);
+  background: var(--boot-bar);
   overflow: hidden;
 }
 
@@ -67,18 +98,19 @@ body {
 }
 
 .bootActions button {
-  border: 1px solid rgba(17, 24, 39, 0.12);
-  background: rgba(255, 255, 255, 0.9);
-  color: rgba(17, 24, 39, 0.92);
+  border: 1px solid var(--boot-border);
+  background: var(--boot-btn);
+  color: var(--boot-text);
   border-radius: 12px;
   padding: 9px 12px;
   font-weight: 700;
   cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .bootActions button:hover {
-  border-color: rgba(17, 24, 39, 0.18);
-  background: rgba(255, 255, 255, 0.98);
+  border-color: var(--boot-muted);
+  background: var(--boot-btn-hover);
 }
 
 @keyframes bootMove {
@@ -95,4 +127,3 @@ body {
     opacity: 0.65;
   }
 }
-
