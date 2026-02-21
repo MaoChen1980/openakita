@@ -46,6 +46,7 @@ export type EndpointDraft = {
   context_window: number;
   timeout: number;
   capabilities: string[];
+  rpm_limit?: number;
   note?: string | null;
   pricing_tiers?: { max_input: number; input_price: number; output_price: number }[];
 };

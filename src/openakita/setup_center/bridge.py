@@ -499,19 +499,28 @@ def list_skills(workspace_dir: str) -> None:
     loader = SkillLoader()
     loader.load_all(base_path=wd)
     skills = loader.registry.list_all()
-    out = [
-        {
+    out = []
+    for s in skills:
+        skill_path = getattr(s, "skill_path", None)
+        source_url = None
+        if skill_path:
+            try:
+                origin_file = Path(skill_path) / ".openakita-source"
+                if origin_file.exists():
+                    source_url = origin_file.read_text(encoding="utf-8").strip()
+            except Exception:
+                pass
+        out.append({
             "name": s.name,
             "description": s.description,
             "system": bool(getattr(s, "system", False)),
             "enabled": bool(getattr(s, "system", False)) or (external_allowlist is None) or (s.name in external_allowlist),
             "tool_name": getattr(s, "tool_name", None),
             "category": getattr(s, "category", None),
-            "path": getattr(s, "skill_path", None),
+            "path": skill_path,
+            "source_url": source_url,
             "config": getattr(s, "config", None) or getattr(s, "config_schema", None),
-        }
-        for s in skills
-    ]
+        })
     _json_print({"count": len(out), "skills": out})
 
 
@@ -642,6 +651,13 @@ def install_skill(workspace_dir: str, url: str) -> None:
         if target.exists():
             raise ValueError(f"技能目录已存在: {target}")
         shutil.copytree(str(src), str(target))
+
+    # Record install origin for marketplace matching (Issue #15)
+    try:
+        origin_file = target / ".openakita-source"
+        origin_file.write_text(url, encoding="utf-8")
+    except Exception:
+        pass
 
     _json_print({"status": "ok", "skill_dir": str(target)})
 

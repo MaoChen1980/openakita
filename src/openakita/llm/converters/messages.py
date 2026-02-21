@@ -94,7 +94,7 @@ def _convert_single_message_to_openai(
     if isinstance(msg.content, str):
         # 简单文本消息
         converted = {"role": msg.role, "content": msg.content}
-        if msg.role == "assistant" and enable_thinking and _needs_reasoning_content(provider):
+        if msg.role == "assistant" and _needs_reasoning_content(provider):
             converted["reasoning_content"] = msg.reasoning_content or ""
         elif msg.reasoning_content:
             converted["reasoning_content"] = msg.reasoning_content
@@ -137,8 +137,11 @@ def _convert_single_message_to_openai(
                     text_content = "".join(b.text for b in text_blocks)
 
             # 需要 reasoning_content 的服务商（DeepSeek Reasoner / Kimi 等）
+            # 无论 enable_thinking 是否开启，只要服务商需要就始终注入，
+            # 避免 thinking 降级后 fallback 到 thinking-only 模型时出现 400 错误。
+            # 多余的 reasoning_content 对不需要的模型无害（API 会忽略）。
             reasoning_content = None
-            if enable_thinking and _needs_reasoning_content(provider):
+            if _needs_reasoning_content(provider):
                 if msg.reasoning_content:
                     reasoning_content = msg.reasoning_content
                 elif text_content:

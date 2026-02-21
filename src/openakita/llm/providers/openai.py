@@ -126,6 +126,46 @@ class OpenAIProvider(LLMProvider):
 
         return self._client
 
+    def _estimate_request_timeout(self, body: dict) -> httpx.Timeout | None:
+        """根据请求体大小动态计算超时
+
+        大上下文（>60K tokens 估算）场景下，默认 read timeout 可能不够，
+        需按比例放大以避免频繁 ReadTimeout 导致的无效重试。
+
+        Returns:
+            httpx.Timeout 或 None（不需要覆盖时）
+        """
+        messages = body.get("messages", [])
+        body_chars = sum(
+            len(str(m.get("content", ""))) + len(str(m.get("tool_calls", "")))
+            for m in messages
+        )
+        tools = body.get("tools", [])
+        if tools:
+            body_chars += sum(len(str(t)) for t in tools)
+
+        est_tokens = body_chars // 2  # 中文约 2 字符/token
+        if est_tokens < 60_000:
+            return None
+
+        base_timeout = self.config.timeout or 180
+        scale = min(est_tokens / 60_000, 3.0)  # 最多 3 倍
+        new_read = base_timeout * scale
+        new_read = min(new_read, 540.0)  # 上限 9 分钟
+        if new_read <= base_timeout * 1.1:
+            return None
+
+        logger.info(
+            f"[OpenAI] '{self.name}': large context (~{est_tokens}k tokens est.), "
+            f"scaling read timeout {base_timeout}s → {new_read:.0f}s"
+        )
+        return httpx.Timeout(
+            connect=min(10.0, new_read),
+            read=new_read,
+            write=min(30.0, new_read),
+            pool=min(30.0, new_read),
+        )
+
     async def chat(self, request: LLMRequest) -> LLMResponse:
         """发送聊天请求"""
         await self.acquire_rate_limit()
@@ -136,12 +176,16 @@ class OpenAIProvider(LLMProvider):
 
         logger.debug(f"OpenAI request to {self.base_url}: model={body.get('model')}")
 
+        # 大上下文场景动态调整超时
+        req_timeout = self._estimate_request_timeout(body)
+
         # 发送请求
         try:
             response = await client.post(
                 f"{self.base_url}/chat/completions",
                 headers=self._build_headers(),
                 json=body,
+                **({"timeout": req_timeout} if req_timeout else {}),
             )
 
             if response.status_code == 401:
@@ -212,12 +256,15 @@ class OpenAIProvider(LLMProvider):
         body = self._build_request_body(request)
         body["stream"] = True
 
+        req_timeout = self._estimate_request_timeout(body)
+
         try:
             async with client.stream(
                 "POST",
                 f"{self.base_url}/chat/completions",
                 headers=self._build_headers(),
                 json=body,
+                **({"timeout": req_timeout} if req_timeout else {}),
             ) as response:
                 if response.status_code >= 400:
                     error_body = await response.aread()
@@ -318,6 +365,19 @@ class OpenAIProvider(LLMProvider):
         """构建请求体"""
         # 转换消息格式（传递 provider 以正确处理视频等多媒体内容）
         thinking_enabled = request.enable_thinking and self.config.has_capability("thinking")
+
+        # thinking-only 模型（deepseek-reasoner、QwQ 等）无法关闭思考，
+        # 即使 fallback 降级了 enable_thinking=False，
+        # 仍必须注入 reasoning_content 并保持 thinking 启用，否则 API 返回 400
+        is_always_thinking = False
+        if not thinking_enabled and self.config.has_capability("thinking"):
+            from ..capabilities import is_thinking_only
+            is_always_thinking = is_thinking_only(
+                self.config.model, provider_slug=self.config.provider,
+            )
+            if is_always_thinking:
+                thinking_enabled = True
+
         messages = convert_messages_to_openai(
             request.messages, request.system,
             provider=self.config.provider,
@@ -439,9 +499,10 @@ class OpenAIProvider(LLMProvider):
             # 此分支使用 OpenAI 风格 thinking: {"type": "enabled"}，不使用 enable_thinking
             body.pop("enable_thinking", None)
 
-            if request.enable_thinking:
+            if request.enable_thinking or is_always_thinking:
                 # 显式启用思考（DeepSeek/vLLM/火山引擎等 OpenAI-compatible 标准）
                 # 对于原生 OpenAI o1/o3 模型，此参数会被忽略（它们天然就是思考模型）
+                # thinking-only 模型在 fallback 降级后也必须保持启用
                 if "thinking" not in body:
                     body["thinking"] = {"type": "enabled"}
                 # 思考深度控制（可选）

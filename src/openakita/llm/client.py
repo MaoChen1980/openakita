@@ -916,6 +916,29 @@ class LLMClient:
                         failed_providers.append(provider)
                         break
 
+                    # ── 自愈: reasoning_content / thinking 兼容性错误 ──
+                    # 当 enable_thinking=False 的请求发送到 thinking-only 端点时，
+                    # API 会返回 reasoning_content 缺失错误。
+                    # 无需维护 thinking-only 模型列表，运行时检测并自动修正。
+                    _reasoning_err_patterns = [
+                        "reasoning_content is missing",
+                        "missing `reasoning_content`",
+                        "missing 'reasoning_content'",
+                        "thinking is enabled but reasoning_content is missing",
+                    ]
+                    _is_reasoning_err = any(
+                        p in error_str.lower() for p in _reasoning_err_patterns
+                    )
+                    if _is_reasoning_err and not getattr(request, '_reasoning_healed', False):
+                        request._reasoning_healed = True  # type: ignore[attr-defined]
+                        request.enable_thinking = True
+                        logger.info(
+                            f"[LLM] endpoint={provider.name} reasoning_content error detected, "
+                            f"self-healing: enable_thinking=True, retrying"
+                        )
+                        await asyncio.sleep(0.5)
+                        continue  # 用修正后的参数重试当前端点
+
                     # 检测不可重试的结构性错误（重试不会修复，浪费配额）
                     non_retryable_patterns = [
                         "invalid_request_error",
@@ -924,8 +947,8 @@ class LLMClient:
                         "must be a response to a preceeding message",
                         "does not support",  # Ollama: "model does not support thinking" 等
                         "not supported",     # 通用的"不支持"格式
-                        "reasoning_content is missing",  # Kimi: thinking 启用但历史消息缺少思考内容
-                        "missing 'reasoning_content'",  # DeepSeek Reasoner: 同上
+                        "reasoning_content is missing",  # 自愈失败后仍作为结构性错误
+                        "missing 'reasoning_content'",
                     ]
                     is_non_retryable = any(
                         pattern in error_str.lower() for pattern in non_retryable_patterns
