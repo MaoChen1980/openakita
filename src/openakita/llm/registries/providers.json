@@ -306,5 +306,27 @@
     "supports_model_list": true,
     "supports_capability_api": false,
     "registry_class": "OpenAIRegistry"
+  },
+  {
+    "name": "美团 LongCat (龙猫)",
+    "slug": "longcat",
+    "api_type": "openai",
+    "default_base_url": "https://api.longcat.chat/openai",
+    "coding_plan_base_url": "https://api.longcat.chat/anthropic",
+    "coding_plan_api_type": "anthropic",
+    "api_key_env_suggestion": "LONGCAT_API_KEY",
+    "supports_model_list": true,
+    "supports_capability_api": false,
+    "registry_class": "OpenAIRegistry"
+  },
+  {
+    "name": "心流 (iFlow)",
+    "slug": "iflow",
+    "api_type": "openai",
+    "default_base_url": "https://apis.iflow.cn/v1",
+    "api_key_env_suggestion": "IFLOW_API_KEY",
+    "supports_model_list": true,
+    "supports_capability_api": false,
+    "registry_class": "OpenAIRegistry"
   }
 ]
