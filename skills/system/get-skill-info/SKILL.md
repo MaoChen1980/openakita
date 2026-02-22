@@ -19,12 +19,15 @@ category: Skills Management
 
 ## Returns
 
-- 完整的 SKILL.md 内容
-- 使用说明
-- 可用脚本列表
-- 参考文档列表
+- 完整的 SKILL.md 内容（使用说明和指令）
+- 参考文档列表（如有）
+
+## Important
+
+大多数外部技能（xlsx, docx, pptx, pdf 等）是**指令型技能**，没有预置脚本。
+读取指令后应按照指令编写代码，通过 `run_shell` 执行，而非调用 `run_skill_script`。
 
 ## Related Skills
 
 - `list-skills`: 列出所有技能
-- `run-skill-script`: 运行技能脚本
+- `run-shell`: 执行按技能指令编写的代码

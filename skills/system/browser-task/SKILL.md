@@ -4,6 +4,7 @@ description: 智能浏览器任务 - 描述任务，自动完成（推荐优先�
 system: true
 handler: browser
 tool-name: browser_task
+category: Browser
 priority: high
 ---
 
@@ -118,4 +119,4 @@ google-chrome --remote-debugging-port=9222
 
 - `browser_screenshot` - 单独截图
 - `browser_navigate` - 单独导航
-- `send_to_chat` - 发送结果给用户
+- `deliver_artifacts` - 发送结果给用户

@@ -32,4 +32,4 @@ category: IM Channel
 
 ## Related Skills
 
-- `send-to-chat`: 发送消息
+- `deliver-artifacts`: 发送附件给用户

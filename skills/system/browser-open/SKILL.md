@@ -1,6 +1,6 @@
 ---
 name: browser-open
-description: Launch and initialize browser for web automation. When you need to start web automation tasks or begin page interaction. IMPORTANT - must check browser_status first, browser closes on service restart.
+description: Launch browser or check its status. Returns current state (is_open, url, title, tab_count). If already running, returns status without restarting. Auto-handles everything - no need to call browser_status first.
 system: true
 handler: browser
 tool-name: browser_open
@@ -18,11 +18,11 @@ category: Browser
 | visible | boolean | 否 | True=显示窗口, False=后台运行，默认 True |
 | ask_user | boolean | 否 | 是否先询问用户偏好，默认 False |
 
-## Important
+## Notes
 
-- 服务重启后浏览器会关闭
-- 必须先用 `browser_status` 检查状态
-- 不能依赖历史记录假设浏览器已打开
+- 如果浏览器已在运行，直接返回当前状态，不会重复启动
+- 服务重启后浏览器会关闭，调用此工具会自动重新启动
+- 无需先调用 `browser_status`，本工具已包含状态检查
 
 ## Related Skills
 

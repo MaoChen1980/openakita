@@ -25,4 +25,4 @@ category: IM Channel
 ## Related Skills
 
 - `get-image-file`: 获取图片文件
-- `send-to-chat`: 发送响应
+- `deliver-artifacts`: 发送文件给用户

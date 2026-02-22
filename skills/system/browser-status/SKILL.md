@@ -1,6 +1,6 @@
 ---
 name: browser-status
-description: Check browser current state including open status, current URL, page title, tab count. IMPORTANT - must call before any browser task. Never assume browser is open from conversation history. Browser state resets on service restart.
+description: Check browser current state including open status, current URL, page title, tab count. Useful for checking current page URL/title. Note - browser_open already includes status check and auto-starts if needed, so you don't need to call browser_status before browser_open.
 system: true
 handler: browser
 tool-name: browser_status
@@ -22,18 +22,11 @@ category: Browser
 - `title`: 当前页面标题
 - `tab_count`: 打开的标签页数量
 
-## Important Notes
+## Notes
 
-- **每次浏览器相关任务必须先调用此工具确认当前状态**
-- 不能假设浏览器已打开
-- 不能依赖历史记录，服务重启后浏览器会关闭
-
-## Workflow
-
-1. 调用 `browser_status` 检查状态
-2. 如果未打开，调用 `browser_open` 启动
-3. 调用 `browser_navigate` 导航到目标页面
-4. 使用 `browser_click` / `browser_type` 交互
+- 用于查看当前页面 URL、标题、标签页数量
+- `browser_open` 已包含状态检查，不需要先调 `browser_status` 再调 `browser_open`
+- `browser_task` 和 `browser_navigate` 会自动启动浏览器，无需手动检查
 
 ## Related Skills
 

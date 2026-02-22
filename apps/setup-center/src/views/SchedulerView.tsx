@@ -167,7 +167,7 @@ function taskToForm(task: ScheduledTask): TaskForm {
 function formToTrigger(f: TaskForm): { trigger_type: string; trigger_config: Record<string, any> } {
   switch (f.scheduleMode) {
     case "once":
-      return { trigger_type: "once", trigger_config: { run_at: f.runAt } };
+      return { trigger_type: "once", trigger_config: { run_at: f.runAt.replace("T", " ") } };
     case "interval": {
       if (f.intervalUnit === "seconds") {
         return { trigger_type: "interval", trigger_config: { interval_seconds: f.intervalValue } };
@@ -476,18 +476,46 @@ export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
   // ── Trigger config form fields ──
   const renderTriggerFields = () => {
     switch (form.scheduleMode) {
-      case "once":
+      case "once": {
+        const [datePart = "", timePart = ""] = (form.runAt || "").split("T");
+        const curH = timePart ? parseInt(timePart.split(":")[0]) || 0 : new Date().getHours();
+        const curM = timePart ? parseInt(timePart.split(":")[1]) || 0 : 0;
+        const updateRunAt = (d: string, h: number, m: number) => {
+          if (!d) { setForm(f => ({ ...f, runAt: "" })); return; }
+          setForm(f => ({ ...f, runAt: `${d}T${pad2(h)}:${pad2(m)}` }));
+        };
         return (
           <div className="field">
             <label className="label">{t("scheduler.runAt")}</label>
-            <input
-              type="datetime-local"
-              className="input"
-              value={form.runAt}
-              onChange={e => setForm(f => ({ ...f, runAt: e.target.value }))}
-            />
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="date"
+                className="input"
+                value={datePart}
+                min={new Date().toISOString().slice(0, 10)}
+                max="2099-12-31"
+                onChange={e => updateRunAt(e.target.value, curH, curM)}
+                style={{ flex: 1 }}
+              />
+              <select
+                style={{ ...selectStyle, width: 72 }}
+                value={curH}
+                onChange={e => updateRunAt(datePart || new Date().toISOString().slice(0, 10), parseInt(e.target.value), curM)}
+              >
+                {hourOptions.map(h => <option key={h} value={h}>{pad2(h)}</option>)}
+              </select>
+              <span style={{ fontWeight: 600 }}>:</span>
+              <select
+                style={{ ...selectStyle, width: 72 }}
+                value={curM}
+                onChange={e => updateRunAt(datePart || new Date().toISOString().slice(0, 10), curH, parseInt(e.target.value))}
+              >
+                {minuteOptions.map(m => <option key={m} value={m}>{pad2(m)}</option>)}
+              </select>
+            </div>
           </div>
         );
+      }
 
       case "interval":
         return (

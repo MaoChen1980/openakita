@@ -21,4 +21,4 @@ category: Skills Management
 ## Related Skills
 
 - `get-skill-info`: 获取主要说明
-- `run-skill-script`: 运行脚本
+- `run-shell`: 执行按技能指令编写的代码

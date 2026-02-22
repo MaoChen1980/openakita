@@ -1,6 +1,6 @@
 ---
 name: desktop-screenshot
-description: Capture Windows desktop screenshot with automatic file saving. When you need to show desktop state, capture application windows, or record operation results. IMPORTANT - must actually call this tool, never say 'screenshot done' without calling. Returns file_path for send_to_chat.
+description: Capture Windows desktop screenshot with automatic file saving. When you need to show desktop state, capture application windows, or record operation results. IMPORTANT - must actually call this tool, never say 'screenshot done' without calling. Returns file_path for deliver_artifacts.
 system: true
 handler: desktop
 tool-name: desktop_screenshot
@@ -48,7 +48,7 @@ category: Desktop
 
 1. 调用此工具截图
 2. 获取返回的 `file_path`
-3. 用 `send_to_chat(file_path=...)` 发送给用户
+3. 用 `deliver_artifacts` 发送给用户
 
 ## Notes
 
@@ -58,5 +58,5 @@ category: Desktop
 ## Related Skills
 
 - `browser-screenshot`: 截取浏览器页面
-- `send-to-chat`: 发送截图给用户
+- `deliver-artifacts`: 发送截图给用户
 - `desktop-click`: 点击桌面元素

@@ -1,6 +1,6 @@
 ---
 name: create-plan
-description: "MUST CALL FIRST for multi-step tasks! If user request needs 2+ tool calls (like 'open + search + screenshot'), call create_plan BEFORE any other tool. Each step must reference at least 1 skill in its 'skills' field."
+description: "MUST CALL FIRST for multi-step tasks! If user request needs 2+ tool calls (like 'open + search + screenshot'), call create_plan BEFORE any other tool."
 system: true
 handler: plan
 tool-name: create_plan
@@ -35,7 +35,7 @@ category: Plan
 | id | string | 是 | 步骤 ID（如 step_1） |
 | description | string | 是 | 步骤描述 |
 | tool | string | 否 | 预计使用的工具 |
-| skills | array | 否 | 关联的 skill 名称列表（至少 1 个） |
+| skills | array | 否 | 关联的 skill 名称列表（可选，用于追踪） |
 | depends_on | array | 否 | 依赖的步骤 ID |
 
 ## Examples

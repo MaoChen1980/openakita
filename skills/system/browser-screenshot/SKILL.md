@@ -37,12 +37,12 @@ category: Browser
 ## Workflow
 
 1. 截图后获取 `file_path`
-2. 使用 `send_to_chat(file_path=...)` 发送给用户
+2. 使用 `deliver_artifacts` 发送给用户
 
 ## Related Skills
 
 - `desktop-screenshot`: 截取桌面应用
-- `send-to-chat`: 发送截图给用户
+- `deliver-artifacts`: 发送截图给用户
 
 
 ## 推荐

@@ -32,4 +32,4 @@ category: Skills Management
 ## Related Skills
 
 - `list-skills`: 查看已安装技能
-- `generate-skill`: 自动生成技能
+- `find-skills`: 搜索可用技能
