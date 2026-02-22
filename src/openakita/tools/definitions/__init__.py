@@ -16,7 +16,7 @@
 - im_channel.py   # IM Channel 工具（4 个）
 - profile.py      # User Profile 工具（3 个）
 - system.py       # System 工具（5 个）
-- mcp.py          # MCP 工具（3 个）
+- mcp.py          # MCP 工具（8 个）
 - plan.py         # Plan 模式工具（4 个）
 - web_search.py   # Web Search 工具（2 个）
 - config.py       # Config 工具（1 个，统一配置管理）

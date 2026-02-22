@@ -330,6 +330,11 @@ Use `call_mcp_tool(server, tool_name, arguments)` to call an MCP tool when neede
         self._cached_catalog = None
 
     @property
+    def servers(self) -> list[MCPServerInfo]:
+        """所有服务器信息（公共只读属性）"""
+        return list(self._servers)
+
+    @property
     def server_count(self) -> int:
         """服务器数量"""
         return len(self._servers)

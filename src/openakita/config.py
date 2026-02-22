@@ -219,6 +219,18 @@ class Settings(BaseSettings):
     )
     minimax_model: str = Field(default="MiniMax-M2.1", description="MiniMax 模型")
 
+    # === MCP 配置 ===
+    mcp_enabled: bool = Field(default=True, description="是否启用 MCP (Model Context Protocol)")
+    mcp_timeout: int = Field(
+        default=60, description="MCP 工具调用超时时间（秒），默认 60 秒"
+    )
+    mcp_connect_timeout: int = Field(
+        default=30, description="MCP 服务器连接超时时间（秒），默认 30 秒"
+    )
+    mcp_auto_connect: bool = Field(
+        default=False, description="启动时是否自动连接所有 MCP 服务器"
+    )
+
     # === 调度器配置 ===
     scheduler_enabled: bool = Field(default=True, description="是否启用定时任务调度器")
     scheduler_timezone: str = Field(default="Asia/Shanghai", description="调度器时区")
@@ -465,6 +477,21 @@ class Settings(BaseSettings):
     def selfcheck_dir(self) -> Path:
         """自检报告目录"""
         return self.project_root / "data" / "selfcheck"
+
+    @property
+    def mcp_config_path(self) -> Path:
+        """用户 MCP 配置目录（可写，打包模式安全）
+
+        路径: {project_root}/data/mcp/servers/
+        AI 通过工具添加的 MCP 服务器配置保存在此目录。
+        启动时同时扫描内置 mcps/ 和此目录。
+        """
+        return self.project_root / "data" / "mcp" / "servers"
+
+    @property
+    def mcp_builtin_path(self) -> Path:
+        """内置 MCP 配置目录（随项目分发，打包后可能只读）"""
+        return self.project_root / "mcps"
 
 
 # ---------------------------------------------------------------------------

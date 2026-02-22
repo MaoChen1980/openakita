@@ -5,6 +5,11 @@ MCP 工具定义
 - call_mcp_tool: 调用 MCP 服务器工具
 - list_mcp_servers: 列出 MCP 服务器
 - get_mcp_instructions: 获取 MCP 使用说明
+- add_mcp_server: 添加 MCP 服务器配置
+- remove_mcp_server: 移除 MCP 服务器
+- connect_mcp_server: 连接 MCP 服务器
+- disconnect_mcp_server: 断开 MCP 服务器
+- reload_mcp_servers: 重新加载所有 MCP 配置
 """
 
 MCP_TOOLS = [
@@ -71,5 +76,115 @@ MCP_TOOLS = [
             "properties": {"server": {"type": "string", "description": "服务器标识符"}},
             "required": ["server"],
         },
+    },
+    {
+        "name": "add_mcp_server",
+        "category": "MCP",
+        "description": "Add/install a new MCP server configuration. Persists to workspace data/mcp/servers/ directory. When user asks to: (1) Install MCP server, (2) Add new tool integration, (3) Configure external MCP service.",
+        "detail": """添加一个新的 MCP 服务器配置，持久化到工作区 data/mcp/servers/ 目录。
+
+**传输协议**：
+- stdio: 通过标准输入输出通信（需要 command），用于本地进程
+- streamable_http: 通过 HTTP 通信（需要 url），用于远程服务
+
+**示例**：
+stdio 模式: add_mcp_server(name="web-search", transport="stdio", command="python", args=["-m", "my_mcp_server"])
+HTTP 模式: add_mcp_server(name="remote-api", transport="streamable_http", url="http://localhost:8080/mcp")
+
+**注意**：添加后需要调用 connect_mcp_server 来建立连接。""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "服务器唯一标识符（如 web-search, my-database）"},
+                "transport": {
+                    "type": "string",
+                    "enum": ["stdio", "streamable_http"],
+                    "description": "传输协议: stdio(本地进程) | streamable_http(HTTP远程)",
+                    "default": "stdio",
+                },
+                "command": {"type": "string", "description": "启动命令 (stdio 模式必填，如 python, npx, node)"},
+                "args": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "命令参数列表 (如 [\"-m\", \"my_server\"])",
+                    "default": [],
+                },
+                "env": {
+                    "type": "object",
+                    "description": "额外环境变量 (如 {\"API_KEY\": \"xxx\"})",
+                    "default": {},
+                },
+                "url": {"type": "string", "description": "服务 URL (streamable_http 模式必填)"},
+                "description": {"type": "string", "description": "服务器描述 (可选)"},
+                "instructions": {"type": "string", "description": "使用说明文本 (可选，将写入 INSTRUCTIONS.md)"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "remove_mcp_server",
+        "category": "MCP",
+        "description": "Remove an MCP server configuration. Only removes servers in the workspace directory (not built-in ones). When user asks to: (1) Uninstall MCP server, (2) Remove tool integration.",
+        "detail": """移除一个 MCP 服务器配置。
+
+**注意**：
+- 只能移除工作区 data/mcp/servers/ 中的配置
+- 内置 mcps/ 中的配置不可移除
+- 如果服务器已连接，会先自动断开""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "要移除的服务器标识符"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "connect_mcp_server",
+        "category": "MCP",
+        "description": "Connect to a configured MCP server. Auto-discovers tools after connection. When you need to: (1) Activate an MCP server, (2) Establish connection before calling tools.",
+        "detail": """连接到一个已配置的 MCP 服务器。
+
+连接成功后会自动发现服务器上的工具、资源和提示词。
+如果服务器已连接，直接返回成功。""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "server": {"type": "string", "description": "服务器标识符"},
+            },
+            "required": ["server"],
+        },
+    },
+    {
+        "name": "disconnect_mcp_server",
+        "category": "MCP",
+        "description": "Disconnect from a connected MCP server. When you need to: (1) Release server resources, (2) Troubleshoot connection issues by reconnecting.",
+        "detail": """断开一个已连接的 MCP 服务器。
+
+断开后该服务器的工具将不可用，直到重新连接。""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "server": {"type": "string", "description": "服务器标识符"},
+            },
+            "required": ["server"],
+        },
+    },
+    {
+        "name": "reload_mcp_servers",
+        "category": "MCP",
+        "description": "Reload all MCP server configurations from disk. Disconnects existing connections and rescans config directories. When you need to: (1) Pick up newly added configs, (2) Fix configuration issues.",
+        "detail": """重新加载所有 MCP 服务器配置。
+
+流程：
+1. 断开所有已连接的服务器
+2. 清空配置缓存
+3. 重新扫描内置 mcps/ 和工作区 data/mcp/servers/ 目录
+4. 重新注册到 MCPClient
+
+**适用场景**：
+- 手动修改了 MCP 配置文件后
+- 需要刷新服务器列表""",
+        "input_schema": {"type": "object", "properties": {}},
     },
 ]

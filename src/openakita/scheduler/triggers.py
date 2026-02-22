@@ -308,12 +308,12 @@ class CronTrigger(Trigger):
         """
         转换星期规范
 
-        cron: 0=周日, 1=周一, ..., 6=周六
+        cron: 0=周日, 1=周一, ..., 6=周六, 7=周日(兼容)
         Python: 0=周一, 1=周二, ..., 6=周日
         """
         result = set()
         for w in weekday_spec:
-            if w == 0:
+            if w == 0 or w == 7:
                 result.add(6)  # 周日
             else:
                 result.add(w - 1)

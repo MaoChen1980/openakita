@@ -807,7 +807,16 @@ class Agent:
         self.handler_registry.register(
             "mcp",
             create_mcp_handler(self),
-            ["list_mcp_servers", "get_mcp_instructions", "call_mcp_tool"],
+            [
+                "list_mcp_servers",
+                "get_mcp_instructions",
+                "call_mcp_tool",
+                "add_mcp_server",
+                "remove_mcp_server",
+                "connect_mcp_server",
+                "disconnect_mcp_server",
+                "reload_mcp_servers",
+            ],
         )
 
         # 用户档案
@@ -1288,10 +1297,19 @@ class Agent:
 
         只加载项目本地的 MCP，不加载 Cursor 的（因为无法实际调用）
         """
-        # 只加载项目本地 MCP 目录
+        if not settings.mcp_enabled:
+            self._mcp_catalog_text = ""
+            logger.info("MCP disabled via MCP_ENABLED=false")
+            await self._start_builtin_mcp_servers()
+            return
+
+        # 扫描 MCP 配置目录：内置(只读) + 工作区(可写)
+        # 内置: mcps/ (随项目分发), .mcp/ (兼容)
+        # 工作区: data/mcp/servers/ (AI 和用户添加的，打包模式可写)
         possible_dirs = [
-            settings.project_root / "mcps",
+            settings.mcp_builtin_path,
             settings.project_root / ".mcp",
+            settings.mcp_config_path,
         ]
 
         total_count = 0
@@ -1308,25 +1326,23 @@ class Agent:
         try:
             from ..tools.mcp import MCPServerConfig
 
-            for server in getattr(self.mcp_catalog, "_servers", []) or []:
-                # server 是 MCPServerInfo，包含 command/args/env/transport/url（来自 SERVER_METADATA.json）
-                if not getattr(server, "identifier", None):
+            for server in self.mcp_catalog.servers:
+                if not server.identifier:
                     continue
-                transport = getattr(server, "transport", "stdio") or "stdio"
-                # stdio 模式需要 command；streamable_http 模式需要 url
-                if transport == "stdio" and not getattr(server, "command", None):
+                transport = server.transport or "stdio"
+                if transport == "stdio" and not server.command:
                     continue
-                if transport == "streamable_http" and not getattr(server, "url", None):
+                if transport == "streamable_http" and not server.url:
                     continue
                 self.mcp_client.add_server(
                     MCPServerConfig(
                         name=server.identifier,
-                        command=getattr(server, "command", "") or "",
-                        args=list(getattr(server, "args", []) or []),
-                        env=dict(getattr(server, "env", {}) or {}),
-                        description=getattr(server, "name", "") or "",
+                        command=server.command or "",
+                        args=list(server.args or []),
+                        env=dict(server.env or {}),
+                        description=server.name or "",
                         transport=transport,
-                        url=getattr(server, "url", "") or "",
+                        url=server.url or "",
                     )
                 )
         except Exception as e:
@@ -1335,19 +1351,25 @@ class Agent:
         # 启动内置 MCP 服务器
         await self._start_builtin_mcp_servers()
 
-        if total_count > 0 or self._builtin_mcp_count > 0:
+        if total_count > 0:
             self._mcp_catalog_text = self.mcp_catalog.generate_catalog()
-            logger.info(f"Total MCP servers: {total_count + self._builtin_mcp_count}")
+            logger.info(f"Total MCP servers: {total_count}")
         else:
             self._mcp_catalog_text = ""
             logger.info("No MCP servers configured")
 
+        # 自动连接（可选）
+        if settings.mcp_auto_connect and total_count > 0:
+            for server_name in self.mcp_client.list_servers():
+                try:
+                    await self.mcp_client.connect(server_name)
+                except Exception as e:
+                    logger.warning(f"Auto-connect to MCP server {server_name} failed: {e}")
+
     async def _start_builtin_mcp_servers(self) -> None:
-        """启动内置服务 (如 browser-use)"""
+        """启动内置浏览器服务 (Playwright，独立于 MCP 体系)"""
         self._builtin_mcp_count = 0
 
-        # 初始化浏览器服务 (作为内置工具，不是 MCP)
-        # 不自动启动浏览器，由 browser_open 工具控制启动时机和模式
         try:
             from ..tools._import_helper import import_or_hint
             pw_hint = import_or_hint("playwright")
@@ -1359,9 +1381,7 @@ class Agent:
                 self.browser_manager = BrowserManager()
                 self.pw_tools = PlaywrightTools(self.browser_manager)
                 self.bu_runner = BrowserUseRunner(self.browser_manager)
-
-                self._builtin_mcp_count += 1
-                logger.info("Started builtin browser service (Playwright)")
+                logger.info("Initialized browser service (Playwright)")
         except Exception as e:
             logger.warning(f"Failed to start browser service: {e}")
 

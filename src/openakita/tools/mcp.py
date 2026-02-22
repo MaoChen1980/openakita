@@ -102,6 +102,7 @@ class MCPClient:
         self._tools: dict[str, MCPTool] = {}
         self._resources: dict[str, MCPResource] = {}
         self._prompts: dict[str, MCPPrompt] = {}
+        self._load_timeouts()
 
     def add_server(self, config: MCPServerConfig) -> None:
         """添加服务器配置"""
@@ -192,6 +193,15 @@ class MCPClient:
 
     _CONNECT_TIMEOUT: int = 30
     _CALL_TIMEOUT: int = 60
+
+    def _load_timeouts(self) -> None:
+        """从配置加载超时参数（settings → 环境变量 → 默认值）"""
+        try:
+            from ..config import settings
+            self._CONNECT_TIMEOUT = settings.mcp_connect_timeout
+            self._CALL_TIMEOUT = settings.mcp_timeout
+        except Exception:
+            pass
 
     async def _connect_stdio(self, server_name: str, config: MCPServerConfig) -> bool:
         """通过 stdio 连接到 MCP 服务器"""
@@ -528,14 +538,14 @@ class MCPClient:
         """列出已连接的服务器"""
         return list(self._connections.keys())
 
-    def list_tools(self, server_name: str = None) -> list[MCPTool]:
+    def list_tools(self, server_name: str | None = None) -> list[MCPTool]:
         """列出工具"""
         if server_name:
             prefix = f"{server_name}:"
             return [t for k, t in self._tools.items() if k.startswith(prefix)]
         return list(self._tools.values())
 
-    def list_resources(self, server_name: str = None) -> list[MCPResource]:
+    def list_resources(self, server_name: str | None = None) -> list[MCPResource]:
         """列出资源"""
         if server_name:
             prefix = f"{server_name}:"

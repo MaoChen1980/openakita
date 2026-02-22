@@ -10,6 +10,8 @@ import { ChatView } from "./views/ChatView";
 import { SkillManager } from "./views/SkillManager";
 import { IMView } from "./views/IMView";
 import { TokenStatsView } from "./views/TokenStatsView";
+import { MCPView } from "./views/MCPView";
+import { SchedulerView } from "./views/SchedulerView";
 import type { EndpointSummary as EndpointSummaryType } from "./types";
 import {
   IconChat, IconIM, IconSkills, IconStatus, IconConfig,
@@ -17,7 +19,7 @@ import {
   IconChevronDown, IconChevronRight, IconChevronUp, IconGlobe, IconLink, IconPower,
   IconEdit, IconTrash, IconEye, IconEyeOff, IconInfo, IconClipboard,
   DotGreen, DotGray, DotYellow, DotRed,
-  IconBook, IconZap, IconGear, IconMoon, IconSun, IconLaptop,
+  IconBook, IconZap, IconGear, IconMoon, IconSun, IconLaptop, IconPlug, IconCalendar,
   LogoTelegram, LogoFeishu, LogoWework, LogoDingtalk, LogoQQ,
 } from "./icons";
 import logoUrl from "./assets/logo.png";
@@ -922,7 +924,7 @@ export function App() {
     [configMode, t],
   );
 
-  const [view, setView] = useState<"wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats">("wizard");
+  const [view, setView] = useState<"wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats" | "mcp" | "scheduler">("wizard");
   const [appInitializing, setAppInitializing] = useState(true); // 首次加载检测中，防止闪烁
   const [configExpanded, setConfigExpanded] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -8837,6 +8839,34 @@ export function App() {
         </div>
       );
     }
+    if (view === "mcp") {
+      return (
+        <div>
+          {_disableToggle("mcp", "MCP 管理")}
+          {disabledViews.includes("mcp") ? (
+            <div className="card" style={{ opacity: 0.5, textAlign: "center", padding: 40 }}>
+              <p style={{ color: "#94a3b8", fontSize: 15 }}>此模块已禁用，点击上方开关启用</p>
+            </div>
+          ) : (
+            <MCPView serviceRunning={serviceStatus?.running ?? false} />
+          )}
+        </div>
+      );
+    }
+    if (view === "scheduler") {
+      return (
+        <div>
+          {_disableToggle("scheduler", t("scheduler.title"))}
+          {disabledViews.includes("scheduler") ? (
+            <div className="card" style={{ opacity: 0.5, textAlign: "center", padding: 40 }}>
+              <p style={{ color: "#94a3b8", fontSize: 15 }}>此模块已禁用，点击上方开关启用</p>
+            </div>
+          ) : (
+            <SchedulerView serviceRunning={serviceStatus?.running ?? false} />
+          )}
+        </div>
+      );
+    }
     if (view === "modules") {
       return (
         <div>
@@ -9067,6 +9097,12 @@ export function App() {
           </div>
           <div className={`navItem ${view === "skills" ? "navItemActive" : ""}`} onClick={() => setView("skills")} role="button" tabIndex={0} title={t("sidebar.skills")} style={disabledViews.includes("skills") ? { opacity: 0.4 } : undefined}>
             <IconSkills size={16} /> {!sidebarCollapsed && <span>{t("sidebar.skills")}</span>}
+          </div>
+          <div className={`navItem ${view === "mcp" ? "navItemActive" : ""}`} onClick={() => setView("mcp")} role="button" tabIndex={0} title="MCP" style={disabledViews.includes("mcp") ? { opacity: 0.4 } : undefined}>
+            <IconPlug size={16} /> {!sidebarCollapsed && <span>MCP</span>}
+          </div>
+          <div className={`navItem ${view === "scheduler" ? "navItemActive" : ""}`} onClick={() => setView("scheduler")} role="button" tabIndex={0} title={t("sidebar.scheduler")} style={disabledViews.includes("scheduler") ? { opacity: 0.4 } : undefined}>
+            <IconCalendar size={16} /> {!sidebarCollapsed && <span>{t("sidebar.scheduler")}</span>}
           </div>
           <div className={`navItem ${view === "modules" ? "navItemActive" : ""}`} onClick={() => { setView("modules"); obLoadModules(); }} role="button" tabIndex={0} title={t("sidebar.modules")} style={disabledViews.includes("modules") ? { opacity: 0.4 } : undefined}>
             <IconGear size={16} /> {!sidebarCollapsed && <span>{t("sidebar.modules")}</span>}
