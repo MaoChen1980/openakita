@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import platform
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,49 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _LAUNCH_TIMEOUT = 30  # seconds
+
+_COMMON_CHROMIUM_ARGS = [
+    "--disable-blink-features=AutomationControlled",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+]
+
+_SERVER_EXTRA_ARGS = [
+    "--disable-gpu",
+    "--disable-software-rasterizer",
+    "--disable-extensions",
+    "--disable-background-networking",
+    "--disable-default-apps",
+    "--no-first-run",
+]
+
+
+def _is_server_environment() -> bool:
+    """检测是否运行在无 GUI 的服务器环境。"""
+    if platform.system() != "Windows":
+        if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+            return True
+        return False
+
+    try:
+        import ctypes
+        SM_REMOTESESSION = 0x1000
+        is_remote = ctypes.windll.user32.GetSystemMetrics(SM_REMOTESESSION) != 0
+        if is_remote:
+            return True
+    except Exception:
+        pass
+
+    os_name = os.environ.get("OS", "").lower()
+    comp_name = os.environ.get("COMPUTERNAME", "").lower()
+    if "server" in os_name or "server" in comp_name:
+        return True
+
+    from openakita.runtime_env import IS_FROZEN
+    if IS_FROZEN:
+        return True
+
+    return False
 
 
 class BrowserState(Enum):
@@ -56,10 +100,14 @@ class BrowserManager:
         self._last_successful_strategy: StartupStrategy | None = None
         self._startup_errors: list[str] = []
         self._startup_lock = asyncio.Lock()
+        self._is_server = _is_server_environment()
 
         # Chrome 检测
         from .chrome_finder import detect_chrome_installation
         self._chrome_path, self._chrome_user_data = detect_chrome_installation()
+
+        if self._is_server:
+            logger.info("[Browser] Server environment detected, will use extra launch args")
 
     # ── 公共属性 ────────────────────────────────────────
 
@@ -102,22 +150,7 @@ class BrowserManager:
 
             self._setup_browsers_path()
 
-            try:
-                from playwright.async_api import async_playwright
-
-                self._playwright = await asyncio.wait_for(
-                    async_playwright().start(), timeout=15,
-                )
-            except ImportError:
-                from openakita.tools._import_helper import import_or_hint
-                hint = import_or_hint("playwright")
-                logger.error(f"Playwright 导入失败: {hint}")
-                self.state = BrowserState.ERROR
-                return False
-            except Exception as e:
-                self._startup_errors.append(f"Playwright start failed: {e}")
-                logger.error(f"Failed to start Playwright: {e}")
-                self.state = BrowserState.ERROR
+            if not await self._start_playwright_driver():
                 return False
 
             strategies = self._build_strategy_order()
@@ -136,7 +169,27 @@ class BrowserManager:
                 except Exception as e:
                     msg = f"{strategy.value}: {e}"
                     self._startup_errors.append(msg)
-                    logger.warning(f"[Browser] Strategy {strategy.value} failed: {e}")
+                    logger.warning(
+                        f"[Browser] Strategy {strategy.value} failed: {e}",
+                        exc_info=True,
+                    )
+
+            if not headless:
+                logger.info("[Browser] All headed strategies failed, retrying in headless mode...")
+                for strategy in strategies:
+                    try:
+                        ok = await self._try_strategy(strategy, headless=True)
+                        if ok:
+                            self.state = BrowserState.READY
+                            self._last_successful_strategy = strategy
+                            self.visible = False
+                            logger.info(
+                                f"Browser started via {strategy.value} "
+                                f"(headless fallback, cdp={self._cdp_url})"
+                            )
+                            return True
+                    except Exception as e:
+                        logger.debug(f"[Browser] Headless fallback {strategy.value} also failed: {e}")
 
             logger.error(
                 f"[Browser] All strategies failed: {'; '.join(self._startup_errors)}"
@@ -144,6 +197,45 @@ class BrowserManager:
             self.state = BrowserState.ERROR
             await self._cleanup_playwright()
             return False
+
+    async def _start_playwright_driver(self) -> bool:
+        """启动 Playwright driver 进程（最多重试 2 次），失败时返回 False。"""
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            from openakita.tools._import_helper import import_or_hint
+            hint = import_or_hint("playwright")
+            logger.error(f"Playwright 导入失败: {hint}")
+            self.state = BrowserState.ERROR
+            return False
+
+        max_attempts = 2
+        last_err = ""
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                pw_ctx = async_playwright()
+                self._playwright = await asyncio.wait_for(
+                    pw_ctx.start(), timeout=20,
+                )
+                return True
+            except asyncio.TimeoutError:
+                last_err = f"Playwright driver 启动超时 (20s, attempt {attempt}/{max_attempts})"
+                logger.warning(f"[Browser] {last_err}")
+                await self._cleanup_playwright()
+                if attempt < max_attempts:
+                    await asyncio.sleep(1)
+            except Exception as e:
+                last_err = f"Playwright driver 启动失败: {type(e).__name__}: {e}"
+                logger.warning(f"[Browser] {last_err}", exc_info=True)
+                await self._cleanup_playwright()
+                if attempt < max_attempts:
+                    await asyncio.sleep(1)
+
+        self._startup_errors.append(last_err)
+        logger.error(f"[Browser] {last_err}")
+        self.state = BrowserState.ERROR
+        return False
 
     async def stop(self) -> None:
         async with self._startup_lock:
@@ -285,6 +377,14 @@ class BrowserManager:
         logger.info(f"[Browser] Connected to running Chrome (tabs: {len(self._context.pages)})")
         return True
 
+    def _build_launch_args(self) -> list[str]:
+        """构建 Chromium 启动参数列表。"""
+        args = list(_COMMON_CHROMIUM_ARGS)
+        args.append(f"--remote-debugging-port={self._cdp_port}")
+        if self._is_server:
+            args.extend(_SERVER_EXTRA_ARGS)
+        return args
+
     async def _try_user_chrome(self, headless: bool, *, use_oa_profile: bool) -> bool:
         """使用用户 Chrome 启动 persistent context。"""
         if not self._chrome_path:
@@ -309,11 +409,7 @@ class BrowserManager:
                 user_data_dir=user_data,
                 headless=headless,
                 executable_path=self._chrome_path,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                    f"--remote-debugging-port={self._cdp_port}",
-                ],
+                args=self._build_launch_args(),
                 channel="chrome",
                 timeout=_LAUNCH_TIMEOUT * 1000,
             ),
@@ -331,18 +427,62 @@ class BrowserManager:
         logger.info(f"Browser started with Chrome ({label}, visible={self.visible})")
         return True
 
+    def _preflight_chromium(self) -> str | None:
+        """预检 Chromium 二进制是否可用，返回错误信息或 None。"""
+        try:
+            exe = self._playwright.chromium.executable_path
+        except Exception:
+            return None
+
+        if not exe:
+            return None
+
+        exe_path = Path(exe)
+        if not exe_path.exists():
+            hint = (
+                f"Chromium 可执行文件不存在: {exe}\n"
+                "请运行: playwright install chromium"
+            )
+            browsers_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "(default)")
+            logger.error(
+                f"[Browser] Chromium preflight FAIL: {hint} "
+                f"(PLAYWRIGHT_BROWSERS_PATH={browsers_path})"
+            )
+            return hint
+
+        if platform.system() != "Windows":
+            if not os.access(exe, os.X_OK):
+                return f"Chromium 可执行文件无执行权限: {exe}"
+
+        file_size = exe_path.stat().st_size
+        if file_size < 1_000_000:
+            hint = f"Chromium 二进制文件异常（仅 {file_size} bytes），可能下载不完整: {exe}"
+            logger.error(f"[Browser] {hint}")
+            return hint
+
+        logger.info(f"[Browser] Chromium binary verified: {exe} ({file_size / 1024 / 1024:.1f} MB)")
+        return None
+
     async def _try_bundled_chromium(self, headless: bool) -> bool:
         """使用 Playwright 内置 Chromium 启动。"""
-        logger.info("[Browser] Launching Playwright Chromium")
+        preflight_err = self._preflight_chromium()
+        if preflight_err:
+            raise RuntimeError(preflight_err)
+
+        effective_headless = headless
+        if self._is_server and not headless:
+            logger.info("[Browser] Server environment: forcing headless mode for Chromium")
+            effective_headless = True
+
+        logger.info(
+            f"[Browser] Launching Playwright Chromium "
+            f"(headless={effective_headless}, server={self._is_server})"
+        )
 
         self._browser = await asyncio.wait_for(
             self._playwright.chromium.launch(
-                headless=headless,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                    f"--remote-debugging-port={self._cdp_port}",
-                ],
+                headless=effective_headless,
+                args=self._build_launch_args(),
                 timeout=_LAUNCH_TIMEOUT * 1000,
             ),
             timeout=_LAUNCH_TIMEOUT + 5,
@@ -355,7 +495,7 @@ class BrowserManager:
         self._page = await self._context.new_page()
         self._page.set_default_timeout(30000)
 
-        self.visible = not headless
+        self.visible = not effective_headless
         logger.info(f"Browser started with Chromium (visible={self.visible})")
         return True
 
