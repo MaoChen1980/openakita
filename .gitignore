@@ -157,6 +157,7 @@ indentity_compiler.txt
 *_report*.py
 create_report*.py
 fix_report.py
+!src/openakita/api/routes/bug_report.py
 
 # Image classification scripts (temporary)
 classify_*.py

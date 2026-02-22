@@ -355,6 +355,12 @@ class Settings(BaseSettings):
     sticker_enabled: bool = Field(default=True, description="是否启用表情包功能")
     sticker_data_dir: str = Field(default="data/sticker", description="表情包数据目录")
 
+    # === Bug Report 配置 ===
+    bug_report_endpoint: str = Field(
+        default="",
+        description="Bug report cloud endpoint URL (Cloudflare Worker). Empty = feature disabled.",
+    )
+
     # === 追踪配置 ===
     tracing_enabled: bool = Field(default=False, description="是否启用 Agent 追踪")
     tracing_export_dir: str = Field(default="data/traces", description="追踪导出目录")
