@@ -156,7 +156,7 @@ class OpenAIProvider(LLMProvider):
             return None
 
         logger.info(
-            f"[OpenAI] '{self.name}': large context (~{est_tokens}k tokens est.), "
+            f"[OpenAI] '{self.name}': large context (~{est_tokens // 1000}k tokens est.), "
             f"scaling read timeout {base_timeout}s → {new_read:.0f}s"
         )
         return httpx.Timeout(
@@ -454,9 +454,9 @@ class OpenAIProvider(LLMProvider):
         # 两类模型都不支持 OpenAI 风格的 thinking: {"type": "enabled"} + reasoning_effort
         elif self.config.provider in ("siliconflow", "siliconflow-intl") and self.config.has_capability("thinking"):
             from ..capabilities import is_thinking_only
-            is_always_thinking = is_thinking_only(self.config.model, provider_slug=self.config.provider)
+            sf_thinking_only = is_thinking_only(self.config.model, provider_slug=self.config.provider)
 
-            if is_always_thinking:
+            if sf_thinking_only:
                 # B 类：天然思考模型 — 只允许 thinking_budget 控制深度
                 # 必须清理 extra_params 可能泄漏的 enable_thinking
                 body.pop("enable_thinking", None)

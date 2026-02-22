@@ -729,6 +729,13 @@ class Brain:
                     )
                 )
 
+        # 保存 OpenAI-compatible 响应中的 reasoning_content（DeepSeek / Kimi / Zhipu 等）
+        # 将其包装为 <thinking> 标签嵌入文本，与 Anthropic ThinkingBlock 走同一条路径。
+        # 下一轮 _extract_thinking_content() 会自动提取出真实推理内容回传给 API，
+        # 而非使用占位符 "..."。
+        if response.reasoning_content and not thinking_texts:
+            thinking_texts.append(f"<thinking>{response.reasoning_content}</thinking>")
+
         # 如果有 thinking 内容，添加到文本块前面
         if thinking_texts:
             thinking_content = "\n".join(thinking_texts)
