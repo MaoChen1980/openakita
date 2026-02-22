@@ -21,28 +21,33 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _get_mcp_client(request: Request):
+def _get_agent(request: Request):
     agent = getattr(request.app.state, "agent", None)
     if agent is None:
         return None
     if hasattr(agent, "mcp_client"):
-        return agent.mcp_client
+        return agent
     local = getattr(agent, "_local_agent", None)
     if local and hasattr(local, "mcp_client"):
-        return local.mcp_client
+        return local
     return None
+
+
+def _get_mcp_client(request: Request):
+    agent = _get_agent(request)
+    return agent.mcp_client if agent else None
 
 
 def _get_mcp_catalog(request: Request):
-    agent = getattr(request.app.state, "agent", None)
-    if agent is None:
-        return None
-    if hasattr(agent, "mcp_catalog"):
-        return agent.mcp_catalog
-    local = getattr(agent, "_local_agent", None)
-    if local and hasattr(local, "mcp_catalog"):
-        return local.mcp_catalog
-    return None
+    agent = _get_agent(request)
+    return agent.mcp_catalog if agent else None
+
+
+def _refresh_catalog_text(request: Request):
+    """刷新 Agent 系统提示中的 MCP 清单文本"""
+    agent = _get_agent(request)
+    if agent and hasattr(agent, "_mcp_catalog_text"):
+        agent._mcp_catalog_text = agent.mcp_catalog.generate_catalog()
 
 
 class MCPServerAddRequest(BaseModel):
@@ -148,6 +153,9 @@ async def disconnect_mcp_server(request: Request, body: MCPConnectRequest):
     if client is None:
         return {"error": "Agent not initialized"}
 
+    if body.server_name not in client.list_connected():
+        return {"status": "not_connected", "server": body.server_name}
+
     await client.disconnect(body.server_name)
     return {"status": "disconnected", "server": body.server_name}
 
@@ -189,14 +197,22 @@ async def get_mcp_instructions(request: Request, server_name: str):
 @router.post("/api/mcp/servers/add")
 async def add_mcp_server(request: Request, body: MCPServerAddRequest):
     """Add a new MCP server config (persisted to workspace data/mcp/servers/)."""
+    if not body.name.strip():
+        return {"status": "error", "message": "Server name is required"}
+    if body.transport == "stdio" and not body.command.strip():
+        return {"status": "error", "message": "stdio transport requires a command"}
+    if body.transport == "streamable_http" and not body.url.strip():
+        return {"status": "error", "message": "streamable_http transport requires a url"}
+
     from openakita.config import settings
 
-    server_dir = settings.mcp_config_path / body.name
+    name = body.name.strip()
+    server_dir = settings.mcp_config_path / name
     server_dir.mkdir(parents=True, exist_ok=True)
 
     metadata = {
-        "serverIdentifier": body.name,
-        "serverName": body.description or body.name,
+        "serverIdentifier": name,
+        "serverName": body.description or name,
         "command": body.command,
         "args": body.args,
         "env": body.env,
@@ -220,7 +236,7 @@ async def add_mcp_server(request: Request, body: MCPServerAddRequest):
     if client:
         from openakita.tools.mcp import MCPServerConfig
         client.add_server(MCPServerConfig(
-            name=body.name,
+            name=name,
             command=body.command,
             args=body.args,
             env=body.env,
@@ -229,7 +245,9 @@ async def add_mcp_server(request: Request, body: MCPServerAddRequest):
             url=body.url,
         ))
 
-    return {"status": "ok", "server": body.name, "path": str(server_dir)}
+    _refresh_catalog_text(request)
+
+    return {"status": "ok", "server": name, "path": str(server_dir)}
 
 
 @router.delete("/api/mcp/servers/{server_name}")
@@ -264,5 +282,7 @@ async def remove_mcp_server(request: Request, server_name: str):
     if catalog:
         catalog._servers = [s for s in catalog._servers if s.identifier != server_name]
         catalog.invalidate_cache()
+
+    _refresh_catalog_text(request)
 
     return {"status": "ok", "server": server_name, "removed": removed}

@@ -120,9 +120,14 @@ export function MCPView({ serviceRunning }: { serviceRunning: boolean }) {
     if (!confirm(`确定删除 MCP 服务器 "${name}"？`)) return;
     setBusy(name);
     try {
-      await fetch(`${API_BASE}/api/mcp/servers/${encodeURIComponent(name)}`, { method: "DELETE" });
-      showMsg(`已删除 ${name}`, true);
-      await fetchServers();
+      const res = await fetch(`${API_BASE}/api/mcp/servers/${encodeURIComponent(name)}`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.status === "ok") {
+        showMsg(`已删除 ${name}`, true);
+        await fetchServers();
+      } else {
+        showMsg(`删除失败: ${data.message || "未知错误"}`, false);
+      }
     } catch (e) {
       showMsg(`删除失败: ${e}`, false);
     }
@@ -155,14 +160,14 @@ export function MCPView({ serviceRunning }: { serviceRunning: boolean }) {
           description: form.description.trim(),
         }),
       });
-      if (res.ok) {
+      const data = await res.json();
+      if (res.ok && data.status === "ok") {
         showMsg(`已添加 ${form.name}`, true);
         setForm({ ...emptyForm });
         setShowAdd(false);
         await fetchServers();
       } else {
-        const data = await res.json();
-        showMsg(`添加失败: ${data.error || "未知错误"}`, false);
+        showMsg(`添加失败: ${data.message || data.error || "未知错误"}`, false);
       }
     } catch (e) {
       showMsg(`添加异常: ${e}`, false);

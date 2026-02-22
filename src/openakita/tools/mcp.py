@@ -484,7 +484,7 @@ class MCPClient:
         self,
         server_name: str,
         prompt_name: str,
-        arguments: dict = None,
+        arguments: dict | None = None,
     ) -> MCPCallResult:
         """
         获取 MCP 提示词
@@ -552,7 +552,7 @@ class MCPClient:
             return [r for k, r in self._resources.items() if k.startswith(prefix)]
         return list(self._resources.values())
 
-    def list_prompts(self, server_name: str = None) -> list[MCPPrompt]:
+    def list_prompts(self, server_name: str | None = None) -> list[MCPPrompt]:
         """列出提示词"""
         if server_name:
             prefix = f"{server_name}:"
