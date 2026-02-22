@@ -254,9 +254,9 @@ async def submit_bug_report(
 ):
     """Submit a bug report with system info, logs, and LLM debug files."""
     if len(title) < 2 or len(title) > 200:
-        raise HTTPException(status_code=400, detail="Title must be 2-200 characters")
-    if len(description) < 5:
-        raise HTTPException(status_code=400, detail="Description too short")
+        raise HTTPException(status_code=400, detail="标题需要 2-200 个字符")
+    if len(description) < 2:
+        raise HTTPException(status_code=400, detail="请填写「错误描述」字段（标题下方的文本框）")
 
     report_id = uuid.uuid4().hex[:12]
     sys_info = _collect_system_info()
@@ -322,9 +322,9 @@ async def submit_feature_request(
 ):
     """Submit a feature/requirement request with optional contact info and attachments."""
     if len(title) < 2 or len(title) > 200:
-        raise HTTPException(status_code=400, detail="Title must be 2-200 characters")
-    if len(description) < 5:
-        raise HTTPException(status_code=400, detail="Description too short")
+        raise HTTPException(status_code=400, detail="需求名称需要 2-200 个字符")
+    if len(description) < 2:
+        raise HTTPException(status_code=400, detail="请填写「需求描述」字段")
 
     report_id = uuid.uuid4().hex[:12]
 

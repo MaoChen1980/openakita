@@ -510,7 +510,12 @@
     "statusDisabled": "Disabled",
     "statusCancelled": "Cancelled",
     "never": "Never",
-    "notScheduled": "Not scheduled"
+    "notScheduled": "Not scheduled",
+    "tabActive": "Active",
+    "tabCompleted": "Completed",
+    "tabAll": "All",
+    "searchPlaceholder": "Search tasks...",
+    "noMatchingTasks": "No matching tasks"
   },
   "im": {
     "channels": "IM Channels",

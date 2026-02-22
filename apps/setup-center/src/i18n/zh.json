@@ -510,7 +510,12 @@
     "statusDisabled": "已禁用",
     "statusCancelled": "已取消",
     "never": "从未",
-    "notScheduled": "未调度"
+    "notScheduled": "未调度",
+    "tabActive": "进行中",
+    "tabCompleted": "已完成",
+    "tabAll": "全部",
+    "searchPlaceholder": "搜索任务...",
+    "noMatchingTasks": "没有匹配的任务"
   },
   "im": {
     "channels": "IM 通道",

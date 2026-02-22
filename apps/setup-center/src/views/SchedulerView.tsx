@@ -1,8 +1,8 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   IconRefresh, IconPlus, IconTrash, IconEdit, IconCheck, IconX,
-  IconPlay, IconClock, IconCalendar,
+  IconPlay, IconClock, IconCalendar, IconSearch,
   DotGreen, DotGray, DotYellow, DotRed,
 } from "../icons";
 
@@ -245,6 +245,11 @@ const selectStyle: React.CSSProperties = {
 const hourOptions = Array.from({ length: 24 }, (_, i) => i);
 const minuteOptions = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
 
+type TaskTab = "active" | "completed" | "all";
+
+const ACTIVE_STATUSES = new Set(["pending", "scheduled", "running"]);
+const COMPLETED_STATUSES = new Set(["completed", "failed", "cancelled"]);
+
 export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
   const { t } = useTranslation();
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
@@ -255,6 +260,8 @@ export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [channels, setChannels] = useState<IMChannel[]>([]);
+  const [activeTab, setActiveTab] = useState<TaskTab>("active");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const fetchTasks = useCallback(async () => {
     if (!serviceRunning) return;
@@ -402,6 +409,30 @@ export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
       }
     } catch (e) { showMsg(String(e), false); }
   };
+
+  const filteredTasks = useMemo(() => {
+    let list = tasks;
+    if (activeTab === "active") {
+      list = list.filter(t => ACTIVE_STATUSES.has(t.status) || (t.status === "disabled" && t.enabled));
+    } else if (activeTab === "completed") {
+      list = list.filter(t => COMPLETED_STATUSES.has(t.status));
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      list = list.filter(t =>
+        t.name.toLowerCase().includes(q) ||
+        (t.reminder_message || "").toLowerCase().includes(q) ||
+        (t.prompt || "").toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [tasks, activeTab, searchQuery]);
+
+  const tabCounts = useMemo(() => ({
+    active: tasks.filter(t => ACTIVE_STATUSES.has(t.status) || (t.status === "disabled" && t.enabled)).length,
+    completed: tasks.filter(t => COMPLETED_STATUSES.has(t.status)).length,
+    all: tasks.length,
+  }), [tasks]);
 
   const statusDot = (status: string) => {
     switch (status) {
@@ -618,10 +649,33 @@ export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
     }
   };
 
+  const tabStyle = (tab: TaskTab): React.CSSProperties => ({
+    padding: "6px 16px",
+    fontSize: 13,
+    fontWeight: activeTab === tab ? 600 : 400,
+    color: activeTab === tab ? "var(--brand, #0ea5e9)" : "var(--muted, #6b7280)",
+    background: "none",
+    border: "none",
+    borderBottom: `2px solid ${activeTab === tab ? "var(--brand, #0ea5e9)" : "transparent"}`,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+    transition: "color 0.15s, border-color 0.15s",
+  });
+
+  const countBadge = (count: number) => (
+    <span style={{
+      display: "inline-block", minWidth: 18, height: 18, lineHeight: "18px",
+      borderRadius: 9, fontSize: 11, textAlign: "center",
+      background: "var(--bg-elevated, rgba(0,0,0,0.06))", marginLeft: 4,
+    }}>
+      {count}
+    </span>
+  );
+
   return (
     <div>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>
           <IconCalendar size={20} style={{ verticalAlign: -3, marginRight: 6 }} />
           {t("scheduler.title")}
@@ -633,6 +687,32 @@ export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
           <button className="btn" onClick={openCreate}>
             <IconPlus size={14} /> {t("scheduler.addTask")}
           </button>
+        </div>
+      </div>
+
+      {/* Tabs + Search */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--line, #e5e7eb)", marginBottom: 12 }}>
+        <div style={{ display: "flex", gap: 0 }}>
+          <button style={tabStyle("active")} onClick={() => setActiveTab("active")}>
+            {t("scheduler.tabActive")}{countBadge(tabCounts.active)}
+          </button>
+          <button style={tabStyle("completed")} onClick={() => setActiveTab("completed")}>
+            {t("scheduler.tabCompleted")}{countBadge(tabCounts.completed)}
+          </button>
+          <button style={tabStyle("all")} onClick={() => setActiveTab("all")}>
+            {t("scheduler.tabAll")}{countBadge(tabCounts.all)}
+          </button>
+        </div>
+        <div style={{ position: "relative", marginBottom: -1 }}>
+          <IconSearch size={14} style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", opacity: 0.4, pointerEvents: "none" }} />
+          <input
+            type="text"
+            className="input"
+            placeholder={t("scheduler.searchPlaceholder")}
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{ paddingLeft: 28, fontSize: 12, height: 30, width: 180, borderRadius: 6 }}
+          />
         </div>
       </div>
 
@@ -788,9 +868,14 @@ export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
           <p style={{ color: "var(--muted)", margin: "8px 0 4px" }}>{t("scheduler.noTasks")}</p>
           <p style={{ color: "var(--muted)", fontSize: 12, margin: 0 }}>{t("scheduler.noTasksHint")}</p>
         </div>
+      ) : filteredTasks.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", padding: 32 }}>
+          <IconSearch size={32} style={{ opacity: 0.2, marginBottom: 8 }} />
+          <p style={{ color: "var(--muted)", margin: "8px 0 0", fontSize: 13 }}>{t("scheduler.noMatchingTasks")}</p>
+        </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {tasks.map(task => (
+          {filteredTasks.map(task => (
             <div key={task.id} className="card" style={{ padding: "12px 16px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
