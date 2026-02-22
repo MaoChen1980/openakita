@@ -2495,8 +2495,22 @@ class ReasoningEngine:
                     "thinking": thinking_text,
                 })
             elif block.type == "text":
-                text_content += block.text
-                assistant_content.append({"type": "text", "text": block.text})
+                raw_text = block.text
+                # brain.py 将 OpenAI-compatible 的 reasoning_content 包装为 <thinking> 标签
+                # 嵌入 TextBlock；Qwen3/MiniMax 可能产出 <think> 标签。
+                # 将其正确路由到 thinking_content 避免原始标签泄漏到前端，
+                # assistant_content 保留原文（消息历史需要标签用于下轮提取）。
+                if "<thinking>" in raw_text or "<think>" in raw_text:
+                    display_text = strip_thinking_tags(raw_text)
+                    if display_text != raw_text and not thinking_content:
+                        import re
+                        m = re.search(r"<think(?:ing)?>(.*?)</think(?:ing)?>", raw_text, re.DOTALL)
+                        if m:
+                            thinking_content = m.group(1).strip()
+                else:
+                    display_text = raw_text
+                text_content += display_text
+                assistant_content.append({"type": "text", "text": raw_text})
             elif block.type == "tool_use":
                 tool_calls.append({
                     "id": block.id,
