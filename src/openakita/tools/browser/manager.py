@@ -36,31 +36,85 @@ _SERVER_EXTRA_ARGS = [
 
 
 def _is_server_environment() -> bool:
-    """检测是否运行在无 GUI 的服务器环境。"""
+    """检测是否运行在无 GUI 的服务器环境（如 Windows Server / headless Linux）。
+
+    注意：PyInstaller 打包的桌面应用（IS_FROZEN=True）不等于服务器，
+    不应因为是打包环境就强制 headless / --disable-gpu。
+    """
     if platform.system() != "Windows":
         if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
             return True
         return False
 
+    # Windows: 远程桌面会话
     try:
         import ctypes
         SM_REMOTESESSION = 0x1000
-        is_remote = ctypes.windll.user32.GetSystemMetrics(SM_REMOTESESSION) != 0
-        if is_remote:
+        if ctypes.windll.user32.GetSystemMetrics(SM_REMOTESESSION) != 0:
             return True
     except Exception:
         pass
 
-    os_name = os.environ.get("OS", "").lower()
-    comp_name = os.environ.get("COMPUTERNAME", "").lower()
-    if "server" in os_name or "server" in comp_name:
-        return True
-
-    from openakita.runtime_env import IS_FROZEN
-    if IS_FROZEN:
-        return True
+    # Windows: 通过注册表检测 Windows Server 版本
+    try:
+        import winreg
+        key = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+        )
+        product_name, _ = winreg.QueryValueEx(key, "ProductName")
+        winreg.CloseKey(key)
+        if "server" in product_name.lower():
+            return True
+    except Exception:
+        pass
 
     return False
+
+
+def _find_bundled_browser_executable() -> str | None:
+    """在 PyInstaller 打包目录中搜索内置的 Chromium/Chrome 可执行文件。
+
+    搜索路径（按优先级）：
+    1. {_MEIPASS}/browser/chrome.exe          — Tauri 桌面端标准打包位置
+    2. {_MEIPASS}/playwright-browsers/.../     — Playwright 标准结构（如有）
+    3. {exe_dir}/_internal/browser/chrome.exe  — PyInstaller onedir 结构
+    """
+    import sys
+
+    from openakita.runtime_env import IS_FROZEN
+    if not IS_FROZEN:
+        return None
+
+    candidates: list[Path] = []
+
+    _meipass = getattr(sys, "_MEIPASS", None)
+    if _meipass:
+        meipass = Path(_meipass)
+        # Tauri 打包的标准位置
+        candidates.append(meipass / "browser" / "chrome.exe")
+        candidates.append(meipass / "browser" / "chrome")
+        # headless-shell 变体
+        candidates.append(meipass / "browser" / "headless_shell.exe")
+        candidates.append(meipass / "browser" / "headless_shell")
+
+    # 兜底: 相对于 exe 的 _internal/browser/
+    exe_dir = Path(sys.executable).parent
+    internal_browser = exe_dir / "_internal" / "browser"
+    if internal_browser != (Path(_meipass) / "browser" if _meipass else None):
+        candidates.append(internal_browser / "chrome.exe")
+        candidates.append(internal_browser / "chrome")
+
+    for path in candidates:
+        if path.is_file():
+            logger.info(f"[Browser] Found bundled browser executable: {path}")
+            return str(path)
+
+    logger.debug(
+        f"[Browser] No bundled browser found in: "
+        f"{[str(c.parent) for c in candidates[:2]]}"
+    )
+    return None
 
 
 class BrowserState(Enum):
@@ -105,6 +159,9 @@ class BrowserManager:
         # Chrome 检测
         from .chrome_finder import detect_chrome_installation
         self._chrome_path, self._chrome_user_data = detect_chrome_installation()
+
+        # 内置 Chromium 检测（PyInstaller 打包环境）
+        self._bundled_executable = _find_bundled_browser_executable()
 
         if self._is_server:
             logger.info("[Browser] Server environment detected, will use extra launch args")
@@ -289,8 +346,20 @@ class BrowserManager:
     # ── 内部 ────────────────────────────────────────────
 
     def _setup_browsers_path(self) -> None:
-        """设置 PLAYWRIGHT_BROWSERS_PATH 环境变量。"""
+        """设置 PLAYWRIGHT_BROWSERS_PATH 环境变量。
+
+        如果发现了内置的 chrome.exe（_bundled_executable），则不需要设置此变量，
+        因为会通过 executable_path 参数直接指定。
+        """
         if "PLAYWRIGHT_BROWSERS_PATH" in os.environ:
+            return
+
+        # 如果有内置可执行文件，跳过 — 会在 _try_bundled_chromium 里用 executable_path
+        if self._bundled_executable:
+            logger.info(
+                f"[Browser] Will use bundled executable directly: "
+                f"{self._bundled_executable}"
+            )
             return
 
         from openakita.runtime_env import IS_FROZEN
@@ -302,7 +371,7 @@ class BrowserManager:
                 bundled = Path(_meipass) / "playwright-browsers"
                 if bundled.is_dir():
                     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(bundled)
-                    logger.info(f"[Browser] Using bundled Chromium: {bundled}")
+                    logger.info(f"[Browser] Using bundled playwright-browsers: {bundled}")
                     return
 
         browsers_dir = Path.home() / ".openakita" / "modules" / "browser" / "browsers"
@@ -464,27 +533,40 @@ class BrowserManager:
         return None
 
     async def _try_bundled_chromium(self, headless: bool) -> bool:
-        """使用 Playwright 内置 Chromium 启动。"""
-        preflight_err = self._preflight_chromium()
-        if preflight_err:
-            raise RuntimeError(preflight_err)
+        """使用 Chromium 启动。
+
+        优先使用打包内置的 chrome.exe（通过 executable_path 直接指定），
+        回退到 Playwright 标准浏览器发现机制。
+        """
+        exe_path = self._bundled_executable
+
+        if exe_path:
+            logger.info(f"[Browser] Using bundled executable: {exe_path}")
+        else:
+            preflight_err = self._preflight_chromium()
+            if preflight_err:
+                raise RuntimeError(preflight_err)
 
         effective_headless = headless
         if self._is_server and not headless:
             logger.info("[Browser] Server environment: forcing headless mode for Chromium")
             effective_headless = True
 
+        launch_kwargs: dict[str, Any] = {
+            "headless": effective_headless,
+            "args": self._build_launch_args(),
+            "timeout": _LAUNCH_TIMEOUT * 1000,
+        }
+        if exe_path:
+            launch_kwargs["executable_path"] = exe_path
+
         logger.info(
-            f"[Browser] Launching Playwright Chromium "
-            f"(headless={effective_headless}, server={self._is_server})"
+            f"[Browser] Launching Chromium "
+            f"(headless={effective_headless}, exe={'bundled' if exe_path else 'playwright'})"
         )
 
         self._browser = await asyncio.wait_for(
-            self._playwright.chromium.launch(
-                headless=effective_headless,
-                args=self._build_launch_args(),
-                timeout=_LAUNCH_TIMEOUT * 1000,
-            ),
+            self._playwright.chromium.launch(**launch_kwargs),
             timeout=_LAUNCH_TIMEOUT + 5,
         )
 
