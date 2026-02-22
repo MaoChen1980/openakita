@@ -464,6 +464,7 @@
     "triggerCron": "Custom Cron",
     "runAt": "Run At",
     "intervalValue": "Interval",
+    "intervalSeconds": "seconds",
     "intervalMinutes": "minutes",
     "intervalHours": "hours",
     "intervalDays": "days",
@@ -793,5 +794,41 @@
     "restartLater": "Later",
     "uninstallFailInUse": "Uninstall failed: module files may be in use by the backend. Stop the backend service first, then try again.",
     "stopAndUninstall": "Stop backend and uninstall"
+  },
+  "feedback": {
+    "trigger": "Feedback"
+  },
+  "bugReport": {
+    "title": "Bug Report",
+    "tabBug": "Report Bug",
+    "titleLabel": "Title",
+    "titlePlaceholder": "Brief description of the issue",
+    "descLabel": "Error Description",
+    "descPlaceholder": "Describe what went wrong in detail...",
+    "stepsLabel": "Steps to Reproduce (optional)",
+    "stepsPlaceholder": "1. ...\n2. ...\n3. ...",
+    "images": "Screenshots",
+    "imageDropHint": "Click or drag images here (max 10)",
+    "uploadLogs": "Upload recent logs",
+    "uploadDebug": "Upload recent 20 LLM debug files",
+    "debugWarning": "Debug files may contain recent conversation content",
+    "systemInfo": "System Information (auto-collected)",
+    "submit": "Submit Report",
+    "submitting": "Submitting...",
+    "submitSuccess": "Report submitted successfully (ID: {{id}})"
+  },
+  "featureRequest": {
+    "title": "Feature Request",
+    "tabFeature": "Request Feature",
+    "nameLabel": "Feature Name",
+    "namePlaceholder": "Briefly describe the feature you'd like",
+    "descLabel": "Description",
+    "descPlaceholder": "Describe the feature, use cases, and expected behavior in detail...",
+    "attachments": "Attachments",
+    "contactLabel": "Contact Info (optional, for follow-up)",
+    "emailPlaceholder": "Email",
+    "wechatPlaceholder": "WeChat ID",
+    "submit": "Submit Request",
+    "submitSuccess": "Feature request submitted successfully (ID: {{id}})"
   }
 }

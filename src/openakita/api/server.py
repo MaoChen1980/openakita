@@ -22,7 +22,7 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import chat, chat_models, config, files, health, im, logs, mcp, scheduler, sessions, skills, token_stats, upload
+from .routes import bug_report, chat, chat_models, config, files, health, im, logs, mcp, scheduler, sessions, skills, token_stats, upload
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,7 @@ def create_app(
     app.state.gateway = gateway
 
     # Mount routes
+    app.include_router(bug_report.router)
     app.include_router(chat.router)
     app.include_router(chat_models.router)
     app.include_router(config.router)

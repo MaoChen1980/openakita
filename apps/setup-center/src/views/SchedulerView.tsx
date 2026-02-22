@@ -1,8 +1,8 @@
-import { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import {
   IconRefresh, IconPlus, IconTrash, IconEdit, IconCheck, IconX,
-  IconPlay, IconClock, IconCalendar, IconChevronDown, IconChevronRight,
+  IconPlay, IconClock, IconCalendar,
   DotGreen, DotGray, DotYellow, DotRed,
 } from "../icons";
 
@@ -16,6 +16,7 @@ type ScheduledTask = {
   reminder_message: string | null;
   prompt: string;
   channel_id: string | null;
+  chat_id: string | null;
   enabled: boolean;
   status: string;
   deletable: boolean;
@@ -26,6 +27,13 @@ type ScheduledTask = {
   created_at: string;
   updated_at: string;
   metadata: Record<string, any>;
+};
+
+type IMChannel = {
+  channel_id: string;
+  chat_id: string;
+  user_id: string | null;
+  last_active: string;
 };
 
 // Frontend-only schedule mode; maps to backend trigger_type (once/interval/cron)
@@ -39,7 +47,7 @@ type TaskForm = {
   runAt: string;
   // interval
   intervalValue: number;
-  intervalUnit: "minutes" | "hours" | "days";
+  intervalUnit: "seconds" | "minutes" | "hours" | "days";
   // daily / weekly / monthly
   timeHour: number;
   timeMinute: number;
@@ -51,6 +59,7 @@ type TaskForm = {
   reminder_message: string;
   prompt: string;
   channel_id: string;
+  chat_id: string;
   enabled: boolean;
 };
 
@@ -71,10 +80,16 @@ const defaultForm: TaskForm = {
   reminder_message: "",
   prompt: "",
   channel_id: "",
+  chat_id: "",
   enabled: true,
 };
 
 function pad2(n: number): string { return n.toString().padStart(2, "0"); }
+
+function safeInt(s: string, fallback: number): number {
+  const v = parseInt(s, 10);
+  return Number.isNaN(v) ? fallback : v;
+}
 
 function formatDateTime(iso: string | null): string {
   if (!iso) return "-";
@@ -87,17 +102,21 @@ function formatDateTime(iso: string | null): string {
   } catch { return iso; }
 }
 
-/** Parse backend task data into the frontend ScheduleMode */
+/** Parse backend task data into the frontend ScheduleMode.
+ *  Only recognizes simple patterns (single numbers); anything with ranges,
+ *  steps or lists falls back to "custom" to avoid destructive edits. */
 function detectScheduleMode(triggerType: string, config: Record<string, any>): ScheduleMode {
   if (triggerType === "once") return "once";
   if (triggerType === "interval") return "interval";
   if (triggerType === "cron" && typeof config.cron === "string") {
     const parts = config.cron.trim().split(/\s+/);
     if (parts.length === 5) {
-      const [, , day, month, weekday] = parts;
+      const [min, hour, day, month, weekday] = parts;
+      const isNum = (s: string) => /^\d{1,2}$/.test(s);
+      if (!isNum(min) || !isNum(hour)) return "custom";
       if (day === "*" && month === "*" && weekday === "*") return "daily";
-      if (day === "*" && month === "*" && weekday !== "*") return "weekly";
-      if (day !== "*" && month === "*" && weekday === "*") return "monthly";
+      if (day === "*" && month === "*" && isNum(weekday)) return "weekly";
+      if (isNum(day) && month === "*" && weekday === "*") return "monthly";
     }
     return "custom";
   }
@@ -114,25 +133,31 @@ function taskToForm(task: ScheduledTask): TaskForm {
   f.reminder_message = task.reminder_message || "";
   f.prompt = task.prompt || "";
   f.channel_id = task.channel_id || "";
+  f.chat_id = task.chat_id || "";
   f.enabled = task.enabled;
 
   if (mode === "once") {
     const raw = task.trigger_config.run_at || "";
     f.runAt = typeof raw === "string" ? raw.replace(" ", "T").slice(0, 16) : "";
   } else if (mode === "interval") {
-    const mins = task.trigger_config.interval_minutes || task.trigger_config.interval || 30;
-    if (mins % 1440 === 0) { f.intervalValue = mins / 1440; f.intervalUnit = "days"; }
-    else if (mins % 60 === 0) { f.intervalValue = mins / 60; f.intervalUnit = "hours"; }
-    else { f.intervalValue = mins; f.intervalUnit = "minutes"; }
+    const secs = task.trigger_config.interval_seconds || 0;
+    const mins = task.trigger_config.interval_minutes || task.trigger_config.interval || 0;
+    const hours = task.trigger_config.interval_hours || 0;
+    const days = task.trigger_config.interval_days || 0;
+    const totalSecs = days * 86400 + hours * 3600 + mins * 60 + secs;
+    if (totalSecs >= 86400 && totalSecs % 86400 === 0) { f.intervalValue = totalSecs / 86400; f.intervalUnit = "days"; }
+    else if (totalSecs >= 3600 && totalSecs % 3600 === 0) { f.intervalValue = totalSecs / 3600; f.intervalUnit = "hours"; }
+    else if (totalSecs >= 60 && totalSecs % 60 === 0) { f.intervalValue = totalSecs / 60; f.intervalUnit = "minutes"; }
+    else { f.intervalValue = Math.max(1, totalSecs) || 30; f.intervalUnit = "seconds"; }
   } else if (mode === "custom") {
     f.cronExpr = task.trigger_config.cron || "";
   } else {
     // daily / weekly / monthly — parse cron parts
     const parts = (task.trigger_config.cron || "0 9 * * *").trim().split(/\s+/);
-    f.timeMinute = parseInt(parts[0]) || 0;
-    f.timeHour = parseInt(parts[1]) || 9;
-    if (mode === "weekly") f.weekday = parseInt(parts[4]) || 1;
-    if (mode === "monthly") f.dayOfMonth = parseInt(parts[2]) || 1;
+    f.timeMinute = safeInt(parts[0], 0);
+    f.timeHour = safeInt(parts[1], 9);
+    if (mode === "weekly") f.weekday = safeInt(parts[4], 1);
+    if (mode === "monthly") f.dayOfMonth = safeInt(parts[2], 1);
   }
 
   return f;
@@ -144,6 +169,9 @@ function formToTrigger(f: TaskForm): { trigger_type: string; trigger_config: Rec
     case "once":
       return { trigger_type: "once", trigger_config: { run_at: f.runAt } };
     case "interval": {
+      if (f.intervalUnit === "seconds") {
+        return { trigger_type: "interval", trigger_config: { interval_seconds: f.intervalValue } };
+      }
       let mins = f.intervalValue;
       if (f.intervalUnit === "hours") mins *= 60;
       if (f.intervalUnit === "days") mins *= 1440;
@@ -170,24 +198,33 @@ function triggerDescription(
     return config.run_at ? formatDateTime(config.run_at) : t("scheduler.triggerOnce");
   }
   if (triggerType === "interval") {
+    const secs = config.interval_seconds || 0;
     const mins = config.interval_minutes || config.interval || 0;
-    if (mins >= 1440 && mins % 1440 === 0) return `${t("scheduler.triggerInterval")} ${mins / 1440} ${t("scheduler.intervalDays")}`;
-    if (mins >= 60 && mins % 60 === 0) return `${t("scheduler.triggerInterval")} ${mins / 60} ${t("scheduler.intervalHours")}`;
-    return `${t("scheduler.triggerInterval")} ${mins} ${t("scheduler.intervalMinutes")}`;
+    const hours = config.interval_hours || 0;
+    const days = config.interval_days || 0;
+    const totalSecs = days * 86400 + hours * 3600 + mins * 60 + secs;
+    if (totalSecs > 0 && totalSecs < 60) return `${t("scheduler.triggerInterval")} ${totalSecs}s`;
+    const totalMins = totalSecs / 60;
+    if (totalMins >= 1440 && totalMins % 1440 === 0) return `${t("scheduler.triggerInterval")} ${totalMins / 1440} ${t("scheduler.intervalDays")}`;
+    if (totalMins >= 60 && totalMins % 60 === 0) return `${t("scheduler.triggerInterval")} ${totalMins / 60} ${t("scheduler.intervalHours")}`;
+    return `${t("scheduler.triggerInterval")} ${totalMins} ${t("scheduler.intervalMinutes")}`;
   }
   if (triggerType === "cron" && typeof config.cron === "string") {
     const parts = config.cron.trim().split(/\s+/);
     if (parts.length === 5) {
       const [min, hour, day, month, weekday] = parts;
-      const weekdays: string[] = t("scheduler.weekdays", { returnObjects: true }) as any;
-      const timeStr = `${pad2(parseInt(hour))}:${pad2(parseInt(min))}`;
-      if (day === "*" && month === "*" && weekday === "*") return `${t("scheduler.triggerDaily")} ${timeStr}`;
-      if (day === "*" && month === "*" && weekday !== "*") {
-        const wdIdx = parseInt(weekday);
-        const wdName = (Array.isArray(weekdays) && weekdays[wdIdx]) || weekday;
-        return `${t("scheduler.triggerWeekly")} ${wdName} ${timeStr}`;
+      const isNum = (s: string) => /^\d{1,2}$/.test(s);
+      if (isNum(min) && isNum(hour)) {
+        const weekdayNames: string[] = t("scheduler.weekdays", { returnObjects: true }) as any;
+        const timeStr = `${pad2(parseInt(hour))}:${pad2(parseInt(min))}`;
+        if (day === "*" && month === "*" && weekday === "*") return `${t("scheduler.triggerDaily")} ${timeStr}`;
+        if (day === "*" && month === "*" && isNum(weekday)) {
+          const wdIdx = parseInt(weekday);
+          const wdName = (Array.isArray(weekdayNames) && weekdayNames[wdIdx]) || weekday;
+          return `${t("scheduler.triggerWeekly")} ${wdName} ${timeStr}`;
+        }
+        if (isNum(day) && month === "*" && weekday === "*") return `${t("scheduler.triggerMonthly")} ${day} ${timeStr}`;
       }
-      if (day !== "*" && month === "*" && weekday === "*") return `${t("scheduler.triggerMonthly")} ${day}${t("scheduler.dayOfMonth") ? "日" : ""} ${timeStr}`;
     }
     return config.cron;
   }
@@ -217,6 +254,7 @@ export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
   const [form, setForm] = useState<TaskForm>({ ...defaultForm });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  const [channels, setChannels] = useState<IMChannel[]>([]);
 
   const fetchTasks = useCallback(async () => {
     if (!serviceRunning) return;
@@ -231,7 +269,18 @@ export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
     setLoading(false);
   }, [serviceRunning]);
 
-  useEffect(() => { fetchTasks(); }, [fetchTasks]);
+  const fetchChannels = useCallback(async () => {
+    if (!serviceRunning) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/scheduler/channels`);
+      if (res.ok) {
+        const data = await res.json();
+        setChannels(data.channels || []);
+      }
+    } catch { /* ignore */ }
+  }, [serviceRunning]);
+
+  useEffect(() => { fetchTasks(); fetchChannels(); }, [fetchTasks, fetchChannels]);
 
   const showMsg = (text: string, ok: boolean) => {
     setMessage({ text, ok });
@@ -259,6 +308,19 @@ export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
   const saveTask = async () => {
     if (!form.name.trim()) { showMsg(t("scheduler.namePlaceholder"), false); return; }
 
+    if (form.scheduleMode === "once" && !form.runAt) {
+      showMsg(t("scheduler.runAt"), false); return;
+    }
+    if (form.scheduleMode === "custom" && !form.cronExpr.trim()) {
+      showMsg(t("scheduler.cronExpression"), false); return;
+    }
+    if (form.task_type === "reminder" && !form.reminder_message.trim()) {
+      showMsg(t("scheduler.reminderPlaceholder"), false); return;
+    }
+    if (form.task_type === "task" && !form.prompt.trim()) {
+      showMsg(t("scheduler.promptPlaceholder"), false); return;
+    }
+
     const { trigger_type, trigger_config } = formToTrigger(form);
 
     setBusy(true);
@@ -270,7 +332,8 @@ export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
         trigger_config,
         reminder_message: form.task_type === "reminder" ? form.reminder_message : null,
         prompt: form.task_type === "task" ? form.prompt : "",
-        channel_id: form.channel_id || null,
+        channel_id: form.channel_id || "",
+        chat_id: form.chat_id || "",
         enabled: form.enabled,
       };
 
@@ -389,8 +452,7 @@ export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
 
   const weekdays: string[] = (t("scheduler.weekdays", { returnObjects: true }) as any) || ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 
-  // ── Time picker (hour + minute dropdowns) ──
-  const TimePickerRow = () => (
+  const renderTimePicker = () => (
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
       <label className="label" style={{ marginBottom: 0, minWidth: "fit-content" }}>{t("scheduler.timeAt")}</label>
       <select
@@ -445,6 +507,7 @@ export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
                 value={form.intervalUnit}
                 onChange={e => setForm(f => ({ ...f, intervalUnit: e.target.value as any }))}
               >
+                <option value="seconds">{t("scheduler.intervalSeconds")}</option>
                 <option value="minutes">{t("scheduler.intervalMinutes")}</option>
                 <option value="hours">{t("scheduler.intervalHours")}</option>
                 <option value="days">{t("scheduler.intervalDays")}</option>
@@ -456,7 +519,7 @@ export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
       case "daily":
         return (
           <div className="field">
-            <TimePickerRow />
+            {renderTimePicker()}
           </div>
         );
 
@@ -484,7 +547,7 @@ export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
                 ))}
               </div>
             </div>
-            <TimePickerRow />
+            {renderTimePicker()}
           </div>
         );
 
@@ -503,7 +566,7 @@ export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
                 ))}
               </select>
             </div>
-            <TimePickerRow />
+            {renderTimePicker()}
           </div>
         );
 
@@ -636,16 +699,36 @@ export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
 
           <div className="field">
             <label className="label">{t("scheduler.channel")}</label>
-            <input
-              type="text"
-              className="input"
-              placeholder={t("scheduler.channelPlaceholder")}
-              value={form.channel_id}
-              onChange={e => setForm(f => ({ ...f, channel_id: e.target.value }))}
-            />
-            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
-              telegram / feishu / wework / dingtalk
-            </div>
+            {channels.length > 0 ? (
+              <select
+                className="input"
+                value={form.channel_id && form.chat_id ? `${form.channel_id}|${form.chat_id}` : ""}
+                onChange={e => {
+                  const v = e.target.value;
+                  if (!v) {
+                    setForm(f => ({ ...f, channel_id: "", chat_id: "" }));
+                  } else {
+                    const [ch, ...rest] = v.split("|");
+                    setForm(f => ({ ...f, channel_id: ch, chat_id: rest.join("|") }));
+                  }
+                }}
+              >
+                <option value="">{t("scheduler.channelNone")}</option>
+                {channels.map(ch => (
+                  <option key={`${ch.channel_id}|${ch.chat_id}`} value={`${ch.channel_id}|${ch.chat_id}`}>
+                    {ch.channel_id} / {ch.chat_id}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                className="input"
+                placeholder={t("scheduler.channelPlaceholder")}
+                value={form.channel_id}
+                onChange={e => setForm(f => ({ ...f, channel_id: e.target.value }))}
+              />
+            )}
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, marginBottom: 8 }}>
@@ -757,7 +840,9 @@ export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
                 </div>
                 <div>
                   <span style={{ opacity: 0.7 }}>{t("scheduler.channel")}:</span>{" "}
-                  <span style={{ color: "var(--text)" }}>{task.channel_id || "-"}</span>
+                  <span style={{ color: "var(--text)" }}>
+                    {task.channel_id ? (task.chat_id ? `${task.channel_id}/${task.chat_id}` : task.channel_id) : "-"}
+                  </span>
                 </div>
                 <div>
                   <span style={{ opacity: 0.7 }}>{t("scheduler.runCount")}:</span>{" "}

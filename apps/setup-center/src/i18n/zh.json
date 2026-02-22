@@ -464,6 +464,7 @@
     "triggerCron": "自定义 Cron",
     "runAt": "执行时间",
     "intervalValue": "间隔时间",
+    "intervalSeconds": "秒",
     "intervalMinutes": "分钟",
     "intervalHours": "小时",
     "intervalDays": "天",
@@ -793,5 +794,41 @@
     "restartLater": "稍后再说",
     "uninstallFailInUse": "卸载失败：模块文件可能正被后端使用。请先停止后端服务后再试卸载。",
     "stopAndUninstall": "停止后端并卸载"
+  },
+  "feedback": {
+    "trigger": "反馈"
+  },
+  "bugReport": {
+    "title": "错误报告",
+    "tabBug": "报告问题",
+    "titleLabel": "标题",
+    "titlePlaceholder": "简要描述遇到的问题",
+    "descLabel": "错误描述",
+    "descPlaceholder": "详细描述发生了什么错误...",
+    "stepsLabel": "复现步骤（可选）",
+    "stepsPlaceholder": "1. ...\n2. ...\n3. ...",
+    "images": "截图",
+    "imageDropHint": "点击或拖拽图片到此处（最多 10 张）",
+    "uploadLogs": "上传近期日志",
+    "uploadDebug": "上传最近 20 条 LLM 调试文件",
+    "debugWarning": "调试文件可能包含近期对话内容，如涉及敏感信息请取消勾选",
+    "systemInfo": "系统信息（自动采集）",
+    "submit": "提交报告",
+    "submitting": "提交中...",
+    "submitSuccess": "报告提交成功（ID: {{id}}）"
+  },
+  "featureRequest": {
+    "title": "需求建议",
+    "tabFeature": "提交需求",
+    "nameLabel": "需求名称",
+    "namePlaceholder": "简要描述你希望的功能",
+    "descLabel": "需求描述",
+    "descPlaceholder": "详细描述你期望的功能、使用场景和预期效果...",
+    "attachments": "附件",
+    "contactLabel": "联系方式（可选，方便我们跟进）",
+    "emailPlaceholder": "邮箱",
+    "wechatPlaceholder": "微信号",
+    "submit": "提交需求",
+    "submitSuccess": "需求提交成功（ID: {{id}}）"
   }
 }

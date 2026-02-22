@@ -117,6 +117,7 @@ class IntervalTrigger(Trigger):
 
     def __init__(
         self,
+        interval_seconds: int = 0,
         interval_minutes: int = 0,
         interval_hours: int = 0,
         interval_days: int = 0,
@@ -124,12 +125,14 @@ class IntervalTrigger(Trigger):
     ):
         """
         Args:
+            interval_seconds: 间隔秒数
             interval_minutes: 间隔分钟数
             interval_hours: 间隔小时数
             interval_days: 间隔天数
             start_time: 起始时间（默认为当前时间）
         """
         self.interval = timedelta(
+            seconds=interval_seconds,
             minutes=interval_minutes,
             hours=interval_hours,
             days=interval_days,
@@ -171,6 +174,7 @@ class IntervalTrigger(Trigger):
 
     @classmethod
     def from_config(cls, config: dict) -> "IntervalTrigger":
+        interval_seconds = config.get("interval_seconds", 0)
         interval_minutes = config.get("interval_minutes", 0)
         interval_hours = config.get("interval_hours", 0)
         interval_days = config.get("interval_days", 0)
@@ -184,6 +188,7 @@ class IntervalTrigger(Trigger):
             start_time = datetime.fromisoformat(start_time)
 
         return cls(
+            interval_seconds=interval_seconds,
             interval_minutes=interval_minutes,
             interval_hours=interval_hours,
             interval_days=interval_days,

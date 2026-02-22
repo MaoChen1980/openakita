@@ -13,7 +13,6 @@ Provides HTTP API for the frontend to manage scheduled tasks:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
@@ -43,6 +42,7 @@ class TaskCreateRequest(BaseModel):
     reminder_message: str | None = None
     prompt: str = ""
     channel_id: str | None = None
+    chat_id: str | None = None
     enabled: bool = True
 
 
@@ -52,8 +52,9 @@ class TaskUpdateRequest(BaseModel):
     trigger_type: str | None = None
     trigger_config: dict | None = None
     reminder_message: str | None = None
-    prompt: str = ""
+    prompt: str | None = None
     channel_id: str | None = None
+    chat_id: str | None = None
     enabled: bool | None = None
 
 
@@ -114,7 +115,8 @@ async def create_task(request: Request, body: TaskCreateRequest):
         reminder_message=body.reminder_message,
         prompt=body.prompt,
     )
-    task.channel_id = body.channel_id
+    task.channel_id = body.channel_id or None
+    task.chat_id = body.chat_id or None
     task.enabled = body.enabled
 
     task_id = await scheduler.add_task(task)
@@ -141,9 +143,9 @@ async def update_task(request: Request, task_id: str, body: TaskUpdateRequest):
     if body.prompt is not None:
         updates["prompt"] = body.prompt
     if body.channel_id is not None:
-        updates["channel_id"] = body.channel_id
-    if body.enabled is not None:
-        updates["enabled"] = body.enabled
+        updates["channel_id"] = body.channel_id or None
+    if body.chat_id is not None:
+        updates["chat_id"] = body.chat_id or None
 
     if body.task_type is not None:
         from openakita.scheduler.task import TaskType
@@ -170,9 +172,16 @@ async def update_task(request: Request, task_id: str, body: TaskUpdateRequest):
             or task.description
         )
 
-    success = await scheduler.update_task(task_id, updates)
-    if not success:
-        return {"error": "Update failed"}
+    if updates:
+        success = await scheduler.update_task(task_id, updates)
+        if not success:
+            return {"error": "Update failed"}
+
+    if body.enabled is not None:
+        if body.enabled:
+            await scheduler.enable_task(task_id)
+        else:
+            await scheduler.disable_task(task_id)
 
     updated = scheduler.get_task(task_id)
     return {"status": "ok", "task": updated.to_dict() if updated else None}
@@ -231,6 +240,84 @@ async def trigger_task(request: Request, task_id: str):
         return {"error": "Task not found or trigger failed"}
 
     return {"status": "ok", "execution": execution.to_dict()}
+
+
+@router.get("/api/scheduler/channels")
+async def list_channels(request: Request):
+    """List available IM channels with chat_id for notification targeting."""
+    agent = getattr(request.app.state, "agent", None)
+    if agent is None:
+        local = None
+    else:
+        local = getattr(agent, "_local_agent", agent)
+
+    gateway = None
+    executor = getattr(local, "_task_executor", None)
+    if executor and getattr(executor, "gateway", None):
+        gateway = executor.gateway
+    if not gateway:
+        gateway = getattr(local, "_gateway", None)
+
+    if not gateway:
+        return {"channels": []}
+
+    import json
+    from datetime import datetime as dt
+
+    results: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    session_manager = getattr(gateway, "session_manager", None)
+
+    if session_manager:
+        sessions = session_manager.list_sessions()
+        if sessions:
+            sessions.sort(
+                key=lambda s: getattr(s, "last_active", dt.min), reverse=True
+            )
+            for s in sessions:
+                if getattr(s, "state", None) and str(s.state.value) == "closed":
+                    continue
+                if not getattr(s, "channel", None) or not getattr(s, "chat_id", None):
+                    continue
+                pair = (s.channel, s.chat_id)
+                if pair in seen:
+                    continue
+                seen.add(pair)
+                results.append({
+                    "channel_id": s.channel,
+                    "chat_id": s.chat_id,
+                    "user_id": getattr(s, "user_id", None),
+                    "last_active": getattr(s, "last_active", dt.min).isoformat(),
+                })
+
+        sessions_file = getattr(session_manager, "storage_path", None)
+        if sessions_file:
+            sessions_file = sessions_file / "sessions.json"
+            if sessions_file.exists():
+                try:
+                    with open(sessions_file, encoding="utf-8") as f:
+                        raw = json.load(f)
+                    raw.sort(key=lambda s: s.get("last_active", ""), reverse=True)
+                    for s in raw:
+                        ch = s.get("channel")
+                        cid = s.get("chat_id")
+                        state = s.get("state", "")
+                        if not ch or not cid or state == "closed":
+                            continue
+                        pair = (ch, cid)
+                        if pair in seen:
+                            continue
+                        seen.add(pair)
+                        results.append({
+                            "channel_id": ch,
+                            "chat_id": cid,
+                            "user_id": s.get("user_id"),
+                            "last_active": s.get("last_active", ""),
+                        })
+                except Exception as e:
+                    logger.warning(f"Failed to read sessions file: {e}")
+
+    return {"channels": results}
 
 
 @router.get("/api/scheduler/stats")

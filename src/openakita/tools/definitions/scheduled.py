@@ -64,7 +64,7 @@ SCHEDULED_TOOLS = [
                 },
                 "trigger_config": {
                     "type": "object",
-                    "description": "触发配置。once: {run_at: '2026-02-01 10:00'}；interval: {interval_minutes: 30}；cron: {cron: '0 9 * * *'}",
+                    "description": "触发配置。once: {run_at: '2026-02-01 10:00'}；interval: {interval_minutes: 30} 或 {interval_seconds: 30} 或 {interval_hours: 2}；cron: {cron: '0 9 * * *'}。interval 支持 interval_seconds/interval_minutes/interval_hours/interval_days，可组合使用",
                 },
                 "reminder_message": {
                     "type": "string",

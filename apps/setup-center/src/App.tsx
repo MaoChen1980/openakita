@@ -12,6 +12,7 @@ import { IMView } from "./views/IMView";
 import { TokenStatsView } from "./views/TokenStatsView";
 import { MCPView } from "./views/MCPView";
 import { SchedulerView } from "./views/SchedulerView";
+import { FeedbackModal } from "./views/FeedbackModal";
 import type { EndpointSummary as EndpointSummaryType } from "./types";
 import {
   IconChat, IconIM, IconSkills, IconStatus, IconConfig,
@@ -20,6 +21,7 @@ import {
   IconEdit, IconTrash, IconEye, IconEyeOff, IconInfo, IconClipboard,
   DotGreen, DotGray, DotYellow, DotRed,
   IconBook, IconZap, IconGear, IconMoon, IconSun, IconLaptop, IconPlug, IconCalendar,
+  IconBug,
   LogoTelegram, LogoFeishu, LogoWework, LogoDingtalk, LogoQQ,
 } from "./icons";
 import logoUrl from "./assets/logo.png";
@@ -928,6 +930,7 @@ export function App() {
   const [appInitializing, setAppInitializing] = useState(true); // 首次加载检测中，防止闪烁
   const [configExpanded, setConfigExpanded] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [bugReportOpen, setBugReportOpen] = useState(false);
   const [disabledViews, setDisabledViews] = useState<string[]>([]);
 
   // ── Data mode: "local" (Tauri commands) or "remote" (HTTP API) ──
@@ -9175,7 +9178,7 @@ export function App() {
           )}
         </div>
 
-        {/* Version info + website link at sidebar bottom */}
+        {/* Version info + website link + bug report at sidebar bottom */}
         {!sidebarCollapsed && (
           <div style={{
             padding: "10px 16px",
@@ -9188,7 +9191,7 @@ export function App() {
             <div>Desktop v{desktopVersion}</div>
             {backendVersion && <div>Backend v{backendVersion}</div>}
             {!backendVersion && serviceStatus?.running && <div>Backend: -</div>}
-            <div style={{ marginTop: 4 }}>
+            <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 12 }}>
               <a
                 href="https://openakita.ai"
                 style={{ color: "var(--accent, #5B8DEF)", textDecoration: "none", opacity: 1 }}
@@ -9198,6 +9201,18 @@ export function App() {
                 <IconGlobe size={11} style={{ verticalAlign: "-1px", marginRight: 3 }} />
                 openakita.ai
               </a>
+              {serviceStatus?.running && (
+                <span
+                  onClick={() => setBugReportOpen(true)}
+                  title={t("feedback.trigger")}
+                  style={{ cursor: "pointer", opacity: 1, color: "var(--accent, #5B8DEF)", display: "inline-flex", alignItems: "center", gap: 3 }}
+                  onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")}
+                  onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}
+                >
+                  <IconBug size={11} />
+                  {t("feedback.trigger")}
+                </span>
+              )}
             </div>
           </div>
         )}
@@ -9208,6 +9223,7 @@ export function App() {
             flexShrink: 0,
             display: "flex",
             justifyContent: "center",
+            gap: 8,
           }}>
             <a
               href="https://openakita.ai"
@@ -9216,6 +9232,15 @@ export function App() {
             >
               <IconGlobe size={14} />
             </a>
+            {serviceStatus?.running && (
+              <span
+                onClick={() => setBugReportOpen(true)}
+                title={t("feedback.trigger")}
+                style={{ color: "var(--accent, #5B8DEF)", opacity: 0.5, display: "flex", cursor: "pointer" }}
+              >
+                <IconBug size={14} />
+              </span>
+            )}
           </div>
         )}
       </aside>
@@ -9612,6 +9637,13 @@ export function App() {
           );
         })() : null}
       </main>
+
+      {/* Feedback Modal (Bug Report + Feature Request) */}
+      <FeedbackModal
+        open={bugReportOpen}
+        onClose={() => setBugReportOpen(false)}
+        apiBase={httpApiBase()}
+      />
     </div>
   );
 }
