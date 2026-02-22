@@ -46,6 +46,18 @@ class IMChannelHandler:
     def __init__(self, agent: "Agent"):
         self.agent = agent
 
+    def _get_workspace_root(self) -> Path | None:
+        ws = getattr(self.agent, "workspace_dir", None) or getattr(self.agent, "_workspace_dir", None)
+        return Path(ws).resolve() if ws else None
+
+    @staticmethod
+    def _is_relative_to(path: Path, root: Path) -> bool:
+        try:
+            path.relative_to(root)
+            return True
+        except ValueError:
+            return False
+
     async def handle(self, tool_name: str, params: dict[str, Any]) -> str:
         """处理工具调用"""
         from ...core.im_context import get_im_session
@@ -342,10 +354,14 @@ class IMChannelHandler:
         so the desktop frontend can display them inline.
         """
         import json
+        import shutil
         import urllib.parse
 
         artifacts = params.get("artifacts") or []
         receipts = []
+
+        workspace_root = self._get_workspace_root()
+        home_dir = Path.home().resolve()
 
         for idx, art in enumerate(artifacts):
             art_type = (art or {}).get("type", "")
@@ -370,16 +386,39 @@ class IMChannelHandler:
                 })
                 continue
 
-            # Build a URL that the desktop frontend can use via /api/files endpoint
-            abs_path = str(p.resolve())
+            resolved = p.resolve()
+
+            # /api/files 的安全白名单只允许 workspace 和 home 目录下的文件。
+            # 如果文件在白名单外（如 D:\research\），先复制到工作区再提供服务，
+            # 否则前端请求 /api/files 会被 403 拦截。
+            safe_roots = [workspace_root, home_dir] if workspace_root else [home_dir]
+            if not any(self._is_relative_to(resolved, root) for root in safe_roots):
+                try:
+                    output_dir = (workspace_root or Path.cwd()) / "data" / "output"
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                    dest = output_dir / resolved.name
+                    if dest.exists() and dest.stat().st_size == resolved.stat().st_size:
+                        pass  # same file already copied
+                    else:
+                        counter = 1
+                        while dest.exists():
+                            dest = output_dir / f"{resolved.stem}_{counter}{resolved.suffix}"
+                            counter += 1
+                        shutil.copy2(str(resolved), str(dest))
+                    resolved = dest.resolve()
+                    logger.info(f"[Desktop] Copied external file to workspace: {p} → {resolved}")
+                except Exception as e:
+                    logger.warning(f"[Desktop] Failed to copy external file {p}: {e}")
+
+            abs_path = str(resolved)
             file_url = f"/api/files?path={urllib.parse.quote(abs_path, safe='')}"
-            size = p.stat().st_size
+            size = resolved.stat().st_size
 
             receipts.append({
                 "index": idx,
                 "status": "delivered",
                 "type": art_type,
-                "path": str(p.resolve()),
+                "path": abs_path,
                 "file_url": file_url,
                 "caption": caption,
                 "name": name or p.name,
