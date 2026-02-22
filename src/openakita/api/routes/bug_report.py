@@ -16,6 +16,7 @@ import uuid
 import zipfile
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
@@ -204,10 +205,10 @@ async def _upload_to_worker(
                 content=zip_bytes,
                 headers={
                     "Content-Type": "application/zip",
-                    "X-Report-Title": title[:200],
+                    "X-Report-Title": quote(title[:200], safe=""),
                     "X-Report-Type": report_type,
-                    "X-Report-Summary": summary[:2000],
-                    "X-Report-System-Info": extra_info[:2000],
+                    "X-Report-Summary": quote(summary[:2000], safe=""),
+                    "X-Report-System-Info": quote(extra_info[:2000], safe=""),
                     "X-Turnstile-Token": turnstile_token,
                 },
             )

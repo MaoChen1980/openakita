@@ -54,6 +54,14 @@ function error(msg: string, status: number): Response {
   return json({ error: msg }, status);
 }
 
+function safeDecodeURI(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 // ─── Turnstile Verification ──────────────────────────────────
 
 async function verifyTurnstile(
@@ -187,8 +195,9 @@ async function handleSubmit(
     return error(rateLimitMsg, 429);
   }
 
-  // 4. Validate required headers
-  const title = request.headers.get("X-Report-Title") || "";
+  // 4. Validate required headers (URL-encoded for non-ASCII support)
+  const titleRaw = request.headers.get("X-Report-Title") || "";
+  const title = safeDecodeURI(titleRaw);
   if (title.length < 2 || title.length > 200) {
     return error("Title must be 2-200 characters", 400);
   }
@@ -200,8 +209,8 @@ async function handleSubmit(
   }
 
   const reportType = request.headers.get("X-Report-Type") || "bug";
-  const summary = request.headers.get("X-Report-Summary") || "";
-  const extraInfo = request.headers.get("X-Report-System-Info") || "";
+  const summary = safeDecodeURI(request.headers.get("X-Report-Summary") || "");
+  const extraInfo = safeDecodeURI(request.headers.get("X-Report-System-Info") || "");
   const metadata = {
     id: reportId,
     type: reportType,

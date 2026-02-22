@@ -798,7 +798,8 @@
     "restartNow": "Restart Now",
     "restartLater": "Later",
     "uninstallFailInUse": "Uninstall failed: module files may be in use by the backend. Stop the backend service first, then try again.",
-    "stopAndUninstall": "Stop backend and uninstall"
+    "stopAndUninstall": "Stop backend and uninstall",
+    "legacyNotice": "The modules below are carried over from previous versions. You don't need to install them unless you have specific requirements. These modules will be phased out in upcoming releases, with their functionality provided natively in a more lightweight manner."
   },
   "feedback": {
     "trigger": "Feedback"

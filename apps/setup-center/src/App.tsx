@@ -8882,6 +8882,10 @@ export function App() {
         <div className="card">
           <h2 className="cardTitle">{t("modules.title")}</h2>
           <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 16 }}>{t("modules.desc")}</p>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 16, padding: "10px 14px", background: "var(--warn-bg, #fffbeb)", borderRadius: 8, border: "1px solid var(--warn-border, #fde68a)", fontSize: 13, color: "var(--warn, #92400e)", lineHeight: 1.6 }}>
+            <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>⚠️</span>
+            <span>{t("modules.legacyNotice")}</span>
+          </div>
           {moduleUninstallPending && currentWorkspaceId && (
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, padding: "10px 12px", background: "#fef2f2", borderRadius: 8, border: "1px solid #fecaca" }}>
               <span style={{ flex: 1, fontSize: 13 }}>{t("modules.uninstallFailInUse")}</span>

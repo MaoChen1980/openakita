@@ -249,7 +249,7 @@ export function FeedbackModal({ open, onClose, apiBase, initialMode = "bug" }: F
         </div>
 
         {/* Body */}
-        <div className="dialogBody" style={{ padding: "16px 24px", overflow: "auto" }}>
+        <div className="dialogBody" style={{ padding: "16px 24px", overflowY: "auto", overflowX: "hidden" }}>
           {/* Title */}
           <label className="dialogLabel" style={{ display: "block", marginBottom: 12 }}>
             <span style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, display: "block" }}>
@@ -379,21 +379,23 @@ export function FeedbackModal({ open, onClose, apiBase, initialMode = "bug" }: F
 
           {/* Bug: Checkboxes */}
           {isBug && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12, width: "100%", alignItems: "stretch" }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer", width: "100%", textAlign: "left" }}>
-                <input type="checkbox" checked={uploadLogs} onChange={(e) => setUploadLogs(e.target.checked)} style={{ flexShrink: 0 }} />
-                {t("bugReport.uploadLogs")}
-              </label>
-              <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, cursor: "pointer", width: "100%", textAlign: "left" }}>
-                <input type="checkbox" checked={uploadDebug} onChange={(e) => setUploadDebug(e.target.checked)} style={{ marginTop: 2, flexShrink: 0 }} />
-                <span>
-                  {t("bugReport.uploadDebug")}
-                  <span style={{ display: "block", fontSize: 11, color: "#f59e0b", marginTop: 2, lineHeight: 1.4 }}>
-                    <IconInfo size={11} style={{ verticalAlign: "-1px", marginRight: 3 }} />
-                    {t("bugReport.debugWarning")}
-                  </span>
-                </span>
-              </label>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ marginBottom: 6 }}>
+                <label style={{ fontSize: 13, cursor: "pointer" }}>
+                  <input type="checkbox" checked={uploadLogs} onChange={(e) => setUploadLogs(e.target.checked)} style={{ marginRight: 6, verticalAlign: "middle" }} />
+                  <span style={{ verticalAlign: "middle" }}>{t("bugReport.uploadLogs")}</span>
+                </label>
+              </div>
+              <div>
+                <label style={{ fontSize: 13, cursor: "pointer" }}>
+                  <input type="checkbox" checked={uploadDebug} onChange={(e) => setUploadDebug(e.target.checked)} style={{ marginRight: 6, verticalAlign: "middle" }} />
+                  <span style={{ verticalAlign: "middle" }}>{t("bugReport.uploadDebug")}</span>
+                </label>
+                <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 3, paddingLeft: 22, lineHeight: 1.4 }}>
+                  <IconInfo size={11} style={{ verticalAlign: "-1px", marginRight: 3 }} />
+                  {t("bugReport.debugWarning")}
+                </div>
+              </div>
             </div>
           )}
 
