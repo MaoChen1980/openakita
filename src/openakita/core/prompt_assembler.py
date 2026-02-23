@@ -8,7 +8,6 @@
 - 系统环境信息注入
 """
 
-import asyncio
 import logging
 import os
 import platform
@@ -132,7 +131,8 @@ class PromptAssembler:
         """
         使用编译管线构建系统提示词 (v2) - 异步版本。
 
-        Token 消耗降低约 55%。
+        渐进式披露：不再预注入动态记忆，由 _build_memory_section 注入
+        记忆系统自描述 + Scratchpad + Core Memory，LLM 按需搜索。
 
         Args:
             task_description: 任务描述
@@ -143,25 +143,12 @@ class PromptAssembler:
         """
         from ..prompt.builder import build_system_prompt
         from ..prompt.compiler import check_compiled_outdated, compile_all
-        from ..prompt.retriever import retrieve_memory
 
         identity_dir = settings.identity_path
 
         if check_compiled_outdated(identity_dir):
             logger.info("Compiled identity files outdated, recompiling...")
             compile_all(identity_dir)
-
-        precomputed_memory = ""
-        if self._memory_manager and task_description:
-            try:
-                precomputed_memory = await asyncio.to_thread(
-                    retrieve_memory,
-                    query=task_description,
-                    memory_manager=self._memory_manager,
-                    max_tokens=400,
-                )
-            except Exception as e:
-                logger.warning(f"Async memory retrieval failed: {e}")
 
         return build_system_prompt(
             identity_dir=identity_dir,
@@ -173,7 +160,6 @@ class PromptAssembler:
             task_description=task_description,
             include_tools_guide=True,
             session_type=session_type,
-            precomputed_memory=precomputed_memory,
             persona_manager=self._persona_manager,
         )
 
