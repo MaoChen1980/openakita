@@ -1215,6 +1215,32 @@ class MessageGateway:
                     await self._send_response(message, response_text)
                     return
 
+            # 检查是否是上下文重置命令（开启新话题）
+            _CONTEXT_RESET_COMMANDS = {"/new", "/reset", "/新话题", "/新任务", "新对话"}
+            _user_cmd = user_text.strip()
+            if _user_cmd in _CONTEXT_RESET_COMMANDS or _user_cmd.lower() in _CONTEXT_RESET_COMMANDS:
+                _reset_session = self.session_manager.get_session(
+                    channel=message.channel,
+                    chat_id=message.chat_id,
+                    user_id=message.user_id,
+                )
+                if _reset_session:
+                    _old_count = len(_reset_session.context.messages)
+                    _reset_session.context.clear_messages()
+                    _reset_session.context.current_task = None
+                    _reset_session.context.summary = None
+                    _reset_session.context.variables.pop("task_description", None)
+                    _reset_session.context.variables.pop("task_status", None)
+                    self.session_manager.mark_dirty()
+                    logger.info(
+                        f"[IM] Context reset for {session_key}: "
+                        f"cleared {_old_count} messages"
+                    )
+                await self._send_response(
+                    message, "好的，已开启新话题。之前的对话上下文已清除，请说说你的新需求吧~"
+                )
+                return
+
             # ==================== 正常消息处理流程 ====================
 
             # 1. 发送"正在输入"状态
@@ -1236,6 +1262,35 @@ class MessageGateway:
 
             # 4.5 推送未送达的自检报告（每天第一条消息时触发，最多一次）
             await self._maybe_deliver_pending_selfcheck_report(message)
+
+            # 4.6 时间间隔自动上下文边界标记
+            # 如果距离上一条消息超过阈值，插入边界标记帮助 LLM 区分新旧话题
+            _CONTEXT_BOUNDARY_MINUTES = 30
+            if session.context.messages:
+                _last_ts_str = session.context.messages[-1].get("timestamp")
+                if _last_ts_str:
+                    try:
+                        _last_ts = datetime.fromisoformat(_last_ts_str)
+                        _elapsed_min = (datetime.now() - _last_ts).total_seconds() / 60
+                        if _elapsed_min > _CONTEXT_BOUNDARY_MINUTES:
+                            _hours = _elapsed_min / 60
+                            if _hours >= 1:
+                                _time_desc = f"{_hours:.1f} 小时"
+                            else:
+                                _time_desc = f"{int(_elapsed_min)} 分钟"
+                            session.context.add_message(
+                                "user",
+                                f"[上下文边界] 距上次对话已过去 {_time_desc}，"
+                                f"以下是新的对话，可能是新话题。"
+                                f"请优先关注边界之后的内容。",
+                            )
+                            session.context.mark_topic_boundary()
+                            logger.info(
+                                f"[IM] Inserted context boundary for {session_key} "
+                                f"(idle {_time_desc})"
+                            )
+                    except (ValueError, TypeError):
+                        pass
 
             # 5. 记录消息到会话
             session.add_message(

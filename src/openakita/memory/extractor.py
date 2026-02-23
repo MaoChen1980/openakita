@@ -36,12 +36,33 @@ logger = logging.getLogger(__name__)
 class MemoryExtractor:
     """AI 驱动的记忆提取器 (v2)"""
 
-    EXTRACTION_PROMPT_V2 = """分析这轮对话，提取值得记住的信息。
+    EXTRACTION_PROMPT_V2 = """分析这轮对话，判断是否包含值得长期记住的信息。
 
 对话内容:
 [{role}]: {content}
 {tool_context}
 {extra_context}
+
+### 判断标准
+
+**值得记录的**：
+- 用户的身份信息、偏好、习惯（长期有效的个人特征）
+- 用户对 AI 行为的明确要求或规则（提炼为结构化规则，不照抄原文）
+- 项目信息、配置路径、技术栈等持久事实
+- 成功解决问题的经验方法（可复用的模式）
+- 失败教训（需要避免的操作）
+
+**不要记录的**：
+- 一次性操作指令（如"打开浏览器"、"去某网站"、"帮我搜索XX"）
+- 打招呼、寒暄、确认、感谢等日常对话
+- 系统状态信息、错误堆栈、临时调试信息
+- 当前对话的临时上下文（下次对话不会用到的信息）
+- 大部分日常对话都不需要记录，只记录真正有长期价值的信息
+
+### 规则提炼指导
+如果用户表达了对 AI 行为的要求（如"不要骗我"、"必须认真做"、"每次都要确认"），
+应提炼为结构化的 RULE，而非照抄原文。
+例如："你不要骗我，说做了就必须真的做了" → RULE: "禁止虚报执行结果，必须实际完成后再汇报"
 
 对于每条值得记录的信息，用 JSON 输出:
 [
@@ -49,12 +70,19 @@ class MemoryExtractor:
     "type": "FACT|PREFERENCE|RULE|SKILL|ERROR",
     "subject": "实体主语 (谁/什么)",
     "predicate": "属性/关系 (偏好/版本/位于/...)",
-    "content": "完整描述",
+    "content": "完整描述（精炼表达，不照抄原文）",
     "importance": 0.5-1.0,
+    "duration": "permanent|7d|24h|session",
     "is_update": false,
     "update_hint": ""
   }}
 ]
+
+duration 参考:
+- permanent: 用户身份、长期偏好、行为规则、技能经验
+- 7d: 错误教训、项目阶段性信息
+- 24h: 任务特定的临时规则、短期上下文
+- session: 仅当前会话有效（极少使用）
 
 如果没有值得记录的信息, 只输出: NONE
 
@@ -63,7 +91,8 @@ class MemoryExtractor:
 - predicate 是属性关系, 如 "偏好", "版本", "使用工具"
 - content 要精简, 不要照抄原文
 - is_update: 如果是对已知事实的更新(如版本升级), 设为 true
-- 最多输出 3 条记忆"""
+- 最多输出 3 条记忆
+- 大部分对话不需要记录任何信息，宁缺毋滥"""
 
     EPISODE_PROMPT = """基于以下对话轮次，生成一个情节摘要。
 
@@ -190,12 +219,23 @@ class MemoryExtractor:
                 c = (item.get("content") or "").strip()
                 if len(c) < 5:
                     continue
+                mem_type = (item.get("type") or "FACT").upper()
+                duration = (item.get("duration") or "").strip()
+                if duration not in ("permanent", "7d", "24h", "session"):
+                    duration = {
+                        "RULE": "24h",
+                        "PREFERENCE": "permanent",
+                        "SKILL": "permanent",
+                        "ERROR": "7d",
+                        "FACT": "permanent",
+                    }.get(mem_type, "permanent")
                 results.append({
-                    "type": (item.get("type") or "FACT").upper(),
+                    "type": mem_type,
                     "subject": (item.get("subject") or "").strip(),
                     "predicate": (item.get("predicate") or "").strip(),
                     "content": c,
                     "importance": max(0.1, min(1.0, float(item.get("importance", 0.5)))),
+                    "duration": duration,
                     "is_update": bool(item.get("is_update", False)),
                     "update_hint": (item.get("update_hint") or "").strip(),
                 })
@@ -423,54 +463,12 @@ class MemoryExtractor:
 
     def extract_quick_facts(self, messages: list[dict]) -> list[SemanticMemory]:
         """
+        [DEPRECATED] 已弃用 — 粗糙的关键词匹配误报率高，由 extract_from_turn_v2 替代。
+
         快速规则提取 — 用于上下文压缩前, 不调用 LLM
         只提取强信号: 偏好、规则、路径
         """
-        facts: list[SemanticMemory] = []
-        for msg in messages:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            if role != "user" or not content or len(content) < 10:
-                continue
-
-            if any(k in content for k in ("我喜欢", "我更喜欢", "我习惯", "我偏好")):
-                facts.append(SemanticMemory(
-                    type=MemoryType.PREFERENCE,
-                    priority=MemoryPriority.LONG_TERM,
-                    subject="用户",
-                    predicate="偏好",
-                    content=content[:200],
-                    source="quick_extract",
-                    importance_score=0.7,
-                    tags=["preference"],
-                ))
-
-            if any(k in content for k in ("不要", "必须", "禁止", "永远不要")):
-                facts.append(SemanticMemory(
-                    type=MemoryType.RULE,
-                    priority=MemoryPriority.LONG_TERM,
-                    subject="用户",
-                    predicate="规则",
-                    content=content[:200],
-                    source="quick_extract",
-                    importance_score=0.8,
-                    tags=["rule"],
-                ))
-
-            m = re.search(r"[A-Za-z]:\\[^\s\"']{3,}", content)
-            if m:
-                facts.append(SemanticMemory(
-                    type=MemoryType.FACT,
-                    priority=MemoryPriority.LONG_TERM,
-                    subject="用户",
-                    predicate="路径",
-                    content=f"用户提到路径: {m.group(0)}",
-                    source="quick_extract",
-                    importance_score=0.6,
-                    tags=["path"],
-                ))
-
-        return facts[:5]
+        return []
 
     # ==================================================================
     # v1 Backward Compatible Methods

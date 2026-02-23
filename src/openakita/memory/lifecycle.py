@@ -302,6 +302,9 @@ class LifecycleManager:
             effective_score = mem.importance_score * decay_factor
 
             if effective_score < 0.1 and mem.access_count < 2:
+                self.store.delete_semantic(mem.id)
+                decayed += 1
+            elif effective_score < 0.3:
                 self.store.update_semantic(mem.id, {
                     "priority": MemoryPriority.TRANSIENT.value,
                     "importance_score": effective_score,
@@ -409,6 +412,15 @@ class LifecycleManager:
             "preferences": [],
             "projects": [],
         }
+
+        _action_words = {"打开", "关闭", "运行", "执行", "安装", "部署", "启动", "停止",
+                         "创建", "删除", "修改", "搜索", "下载", "上传", "编译", "测试",
+                         "去", "进入", "访问", "登录", "检查", "查看", "发送"}
+        user_facts = [
+            m for m in user_facts
+            if not any(w in (m.predicate or "") for w in _action_words)
+            and not any(w in (m.content or "")[:20] for w in _action_words)
+        ]
 
         for mem in user_facts:
             pred = mem.predicate.lower() if mem.predicate else ""

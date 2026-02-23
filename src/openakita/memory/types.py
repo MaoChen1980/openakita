@@ -80,6 +80,9 @@ class SemanticMemory:
     superseded_by: str | None = None
     source_episode_id: str | None = None
 
+    # v2: retention / TTL
+    expires_at: datetime | None = None
+
     def to_dict(self) -> dict:
         d = {
             "id": self.id,
@@ -101,6 +104,7 @@ class SemanticMemory:
             else None,
             "superseded_by": self.superseded_by,
             "source_episode_id": self.source_episode_id,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
         }
         return d
 
@@ -131,6 +135,7 @@ class SemanticMemory:
             else None,
             superseded_by=data.get("superseded_by"),
             source_episode_id=data.get("source_episode_id"),
+            expires_at=datetime.fromisoformat(data["expires_at"]) if data.get("expires_at") else None,
         )
 
     def to_markdown(self) -> str:
@@ -260,16 +265,16 @@ class Episode:
 
     def to_markdown(self) -> str:
         lines = [
-            f"### Episode: {self.goal or self.summary[:50]}",
+            f"### 历史操作记录: {self.goal or self.summary[:50]}",
             f"- 结果: {self.outcome}",
             f"- 时间: {self.started_at.strftime('%Y-%m-%d %H:%M')} - {self.ended_at.strftime('%H:%M')}",
         ]
         if self.summary:
             lines.append(f"- 摘要: {self.summary}")
         if self.tools_used:
-            lines.append(f"- 工具: {', '.join(self.tools_used)}")
+            lines.append(f"- 使用工具: {', '.join(self.tools_used)}")
         if self.entities:
-            lines.append(f"- 实体: {', '.join(self.entities[:5])}")
+            lines.append(f"- 相关实体: {', '.join(self.entities[:5])}")
         return "\n".join(lines)
 
 
@@ -314,6 +319,15 @@ class Scratchpad:
             if "updated_at" in data
             else datetime.now(),
         )
+
+    def to_markdown(self) -> str:
+        """Render scratchpad as markdown for system prompt injection."""
+        lines: list[str] = []
+        if self.current_focus:
+            lines.append(f"## 当前任务\n{self.current_focus}")
+        if self.active_projects:
+            lines.append("## 近期完成\n" + "\n".join(f"- {p}" for p in self.active_projects[:5]))
+        return "\n\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

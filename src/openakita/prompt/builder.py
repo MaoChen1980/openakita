@@ -571,67 +571,93 @@ def _build_catalogs_section(
     return "\n\n".join(parts)
 
 
+_MEMORY_SYSTEM_GUIDE = """## 你的记忆系统
+
+你有一个持久化记忆系统，能跨对话记住信息。系统后台自动从对话中提取有价值的信息，每天自动整理去重，不重要的记忆会随时间衰减清理。
+
+### 记忆中存放了什么
+- **用户偏好/规则**：习惯、喜好、对你行为的要求
+- **事实信息**：用户身份、项目信息、配置路径
+- **技能经验/错误教训**：可复用的解决方案、需要避免的操作
+- **历史操作记录**：过去对话的摘要（目标、结果、使用的工具）
+- **原始对话存档**：完整的对话原文，包含工具调用的参数和返回值
+
+### 两级搜索（渐进式）
+需要回忆时，按需逐级搜索：
+
+**第一级 `search_memory`** — 搜索提炼后的知识
+→ 用户偏好、规则、经验教训、历史操作摘要
+→ 适合：了解用户习惯、查找之前总结的经验、确认项目信息
+
+**第二级 `search_conversation_traces`** — 搜索原始对话记录
+→ 完整的工具调用（名称、参数、返回值）、逐轮对话原文
+→ 适合：第一级结果不够详细时，需要操作细节（"上次用了什么命令"、"那次搜索的结果是什么"）
+
+通常先用第一级；只有当摘要不够、需要具体参数或返回值时，才用第二级深挖。
+
+### 何时搜索
+不需要每次都搜索。仅在以下情况按需使用：
+- 用户提到"之前/上次/我说过" → 搜索确认
+- 任务涉及用户偏好或习惯 → 查记忆
+- 觉得之前做过类似任务 → 查可复用经验
+- 不确定时 → 不搜索，避免旧信息干扰当前判断
+
+### 何时主动写入
+后台自动提取已覆盖日常信息，你只需在以下情况用 `add_memory` 记录：
+- 完成复杂任务后总结可复用经验 → type=skill
+- 犯错后找到正确方法 → type=error
+- 发现用户深层需求或偏好 → type=preference/rule
+
+### 当前注入的信息
+下方是用户核心档案和当前任务状态，仅供快速参考。更多记忆请按需搜索。"""
+
+
 def _build_memory_section(
     memory_manager: Optional["MemoryManager"],
     task_description: str,
     budget_tokens: int,
 ) -> str:
     """
-    构建 Memory 层 — 三层注入:
-    1. Scratchpad (工作记忆, ~200 tok)
-    2. Core Memory (MEMORY.md, ~200 tok)
-    3. Dynamic Memories (RetrievalEngine 检索, ~300 tok)
+    构建 Memory 层 — 渐进式披露:
+    0. 记忆系统自描述 (告知 LLM 记忆系统的运作方式)
+    1. Scratchpad (当前任务 + 近期完成)
+    2. Core Memory (MEMORY.md 用户基本信息 + 永久规则)
+
+    Dynamic Memories 不再自动注入，由 LLM 按需调用 search_memory 检索。
     """
     if not memory_manager:
         return ""
 
     parts: list[str] = []
 
-    # Layer 1: Scratchpad
+    # Layer 0: 记忆系统自描述
+    parts.append(_MEMORY_SYSTEM_GUIDE)
+
+    # Layer 1: Scratchpad (当前任务)
     scratchpad_text = _build_scratchpad_section(memory_manager)
     if scratchpad_text:
         parts.append(scratchpad_text)
 
-    # Layer 2: Core Memory (MEMORY.md)
-    core_budget = min(budget_tokens // 3, 200)
+    # Layer 2: Core Memory (MEMORY.md — 用户基本信息 + 永久规则)
+    core_budget = min(budget_tokens // 2, 300)
     core_memory = _get_core_memory(memory_manager, max_chars=core_budget * 3)
     if core_memory:
         parts.append(f"## 核心记忆\n\n{core_memory}")
-
-    # Layer 3: Dynamic Memories (via RetrievalEngine or legacy)
-    dynamic_budget = budget_tokens - sum(len(p) // 3 for p in parts)
-    retrieval_engine = getattr(memory_manager, "retrieval_engine", None)
-    if retrieval_engine and task_description:
-        recent = getattr(memory_manager, "_recent_messages", None)
-        dynamic_text = retrieval_engine.retrieve(
-            query=task_description,
-            recent_messages=recent,
-            max_tokens=max(100, dynamic_budget),
-        )
-        if dynamic_text:
-            parts.append(f"## 相关记忆\n\n{dynamic_text}")
-    elif task_description:
-        legacy_text = retrieve_memory(
-            query=task_description,
-            memory_manager=memory_manager,
-            max_tokens=max(100, dynamic_budget),
-        )
-        if legacy_text:
-            parts.append(legacy_text)
 
     return "\n\n".join(parts)
 
 
 def _build_scratchpad_section(memory_manager: Optional["MemoryManager"]) -> str:
-    """从 UnifiedStore 读取 Scratchpad 注入"""
+    """从 UnifiedStore 读取 Scratchpad，注入当前任务 + 近期完成"""
     store = getattr(memory_manager, "store", None)
     if store is None:
         return ""
     try:
         pad = store.get_scratchpad()
-        if pad and pad.content:
-            content = pad.content[:600]
-            return f"## 工作记忆\n\n{content}"
+        if pad:
+            md = pad.to_markdown()
+            if md:
+                return md
     except Exception:
         pass
     return ""

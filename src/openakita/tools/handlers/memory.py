@@ -133,32 +133,53 @@ class MemoryHandler:
             return "✅ 记忆已存在（语义相似），无需重复记录。请继续执行其他任务或结束。"
 
     def _search_memory(self, params: dict) -> str:
-        """搜索记忆（优先使用 RetrievalEngine 多路召回，fallback 到子串匹配）"""
-        import logging
+        """搜索记忆
 
-        _logger = logging.getLogger(__name__)
+        无 type_filter: RetrievalEngine 多路召回（语义+情节+最近+附件）
+        有 type_filter: SQLite FTS5 搜索 + 类型过滤
+        最终 fallback: v1 内存子串匹配
+        """
         from ...memory.types import MemoryType
 
         query = params["query"]
         type_filter = params.get("type")
+        now = datetime.now()
 
-        retrieval_engine = getattr(self.agent.memory_manager, "retrieval_engine", None)
-        if retrieval_engine and not type_filter:
+        # 路径 A: 无类型过滤 → RetrievalEngine 多路召回
+        if not type_filter:
+            retrieval_engine = getattr(self.agent.memory_manager, "retrieval_engine", None)
+            if retrieval_engine:
+                try:
+                    candidates = retrieval_engine.retrieve_candidates(
+                        query=query,
+                        recent_messages=getattr(self.agent.memory_manager, "_recent_messages", None),
+                    )
+                    if candidates:
+                        logger.info(f"[search_memory] RetrievalEngine: {len(candidates)} candidates for '{query[:50]}'")
+                        output = f"找到 {len(candidates)} 条相关记忆:\n\n"
+                        for c in candidates[:10]:
+                            output += f"- [{c.source_type}] {c.content[:200]}\n\n"
+                        return output
+                except Exception as e:
+                    logger.warning(f"[search_memory] RetrievalEngine failed: {e}")
+
+        # 路径 B: 有类型过滤 或 RetrievalEngine 无结果 → SQLite 搜索
+        store = getattr(self.agent.memory_manager, "store", None)
+        if store:
             try:
-                candidates = retrieval_engine.retrieve_candidates(
-                    query=query,
-                    recent_messages=getattr(self.agent.memory_manager, "_recent_messages", None),
-                )
-                if candidates:
-                    _logger.info(f"[search_memory] RetrievalEngine returned {len(candidates)} candidates for '{query[:50]}'")
-                    output = f"找到 {len(candidates)} 条相关记忆:\n\n"
-                    for c in candidates[:10]:
-                        output += f"- [{c.source_type}] {c.content[:200]}\n\n"
+                memories = store.search_semantic(query, limit=10, filter_type=type_filter)
+                memories = [m for m in memories if not m.expires_at or m.expires_at >= now]
+                if memories:
+                    logger.info(f"[search_memory] SQLite: {len(memories)} results for '{query[:50]}'")
+                    output = f"找到 {len(memories)} 条相关记忆:\n\n"
+                    for m in memories:
+                        output += f"- [{m.type.value}] {m.content}\n"
+                        output += f"  (重要性: {m.importance_score:.1f}, 访问次数: {m.access_count})\n\n"
                     return output
-                _logger.debug(f"[search_memory] RetrievalEngine returned 0 candidates, falling back to substring")
             except Exception as e:
-                _logger.warning(f"[search_memory] RetrievalEngine failed, falling back to substring: {e}")
+                logger.warning(f"[search_memory] SQLite search failed: {e}")
 
+        # 路径 C: 最终 fallback → v1 内存子串匹配
         mem_type = None
         if type_filter:
             type_map = {
@@ -173,6 +194,7 @@ class MemoryHandler:
         memories = self.agent.memory_manager.search_memories(
             query=query, memory_type=mem_type, limit=10
         )
+        memories = [m for m in memories if not m.expires_at or m.expires_at >= now]
 
         if not memories:
             return f"未找到与 '{query}' 相关的记忆"
@@ -207,7 +229,11 @@ class MemoryHandler:
 
 
     def _search_conversation_traces(self, params: dict) -> str:
-        """搜索完整对话历史（含工具调用和结果）"""
+        """搜索完整对话历史（含工具调用和结果）
+
+        优先从 SQLite conversation_turns 搜索（可靠、有索引），
+        不足时再 fallback 到 JSONL 文件和 react_traces。
+        """
         keyword = params.get("keyword", "").strip()
         if not keyword:
             return "❌ 请提供搜索关键词"
@@ -222,104 +248,181 @@ class MemoryHandler:
         )
 
         results: list[dict] = []
-        cutoff = datetime.now() - timedelta(days=days_back)
 
-        from ...config import settings
-        data_root = settings.project_root / "data"
+        # === 数据源 1: SQLite conversation_turns（主数据源） ===
+        store = getattr(self.agent.memory_manager, "store", None)
+        if store:
+            try:
+                rows = store.search_turns(
+                    keyword=keyword,
+                    session_id=session_id_filter or None,
+                    days_back=days_back,
+                    limit=max_results,
+                )
+                for row in rows:
+                    results.append({
+                        "source": "sqlite_turns",
+                        "session_id": row.get("session_id", ""),
+                        "timestamp": row.get("timestamp", ""),
+                        "role": row.get("role", ""),
+                        "content": str(row.get("content", ""))[:500],
+                        "tool_calls": row.get("tool_calls") or [],
+                        "tool_results": row.get("tool_results") or [],
+                    })
+            except Exception as e:
+                logger.warning(f"[SearchTraces] SQLite search failed, will try JSONL: {e}")
 
-        # 1. Search conversation_history/*.jsonl
-        history_dir = data_root / "memory" / "conversation_history"
-        if history_dir.exists():
-            for jsonl_file in sorted(history_dir.glob("*.jsonl"), reverse=True):
-                if session_id_filter and session_id_filter not in jsonl_file.stem:
-                    continue
-                try:
-                    file_mtime = datetime.fromtimestamp(jsonl_file.stat().st_mtime)
-                    if file_mtime < cutoff:
-                        continue
-                except Exception:
-                    continue
-
-                try:
-                    for line in jsonl_file.read_text(encoding="utf-8").splitlines():
-                        if not line.strip():
-                            continue
-                        if keyword.lower() not in line.lower():
-                            continue
-                        try:
-                            turn = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        results.append({
-                            "source": "conversation_history",
-                            "file": jsonl_file.name,
-                            "timestamp": turn.get("timestamp", ""),
-                            "role": turn.get("role", ""),
-                            "content": str(turn.get("content", ""))[:500],
-                            "tool_calls": turn.get("tool_calls", []),
-                            "tool_results": turn.get("tool_results", []),
-                        })
-                        if len(results) >= max_results:
-                            break
-                except Exception as e:
-                    logger.debug(f"Error reading {jsonl_file}: {e}")
-                if len(results) >= max_results:
-                    break
-
-        # 2. Search react_traces/{date}/*.json
+        # === 数据源 2: react_traces（补充工具调用细节） ===
         if len(results) < max_results:
+            cutoff = datetime.now() - timedelta(days=days_back)
+            from ...config import settings
+            data_root = settings.project_root / "data"
+
             traces_dir = data_root / "react_traces"
             if traces_dir.exists():
-                date_dirs = sorted(traces_dir.iterdir(), reverse=True)
-                for date_dir in date_dirs:
-                    if not date_dir.is_dir():
-                        continue
-                    try:
-                        dir_date = datetime.strptime(date_dir.name, "%Y%m%d")
-                        if dir_date < cutoff:
-                            continue
-                    except ValueError:
-                        continue
+                remaining = max_results - len(results)
+                seen_timestamps = {r.get("timestamp", "") for r in results}
+                self._search_react_traces(
+                    traces_dir, keyword, session_id_filter, cutoff, remaining,
+                    results, seen_timestamps,
+                )
 
-                    for trace_file in sorted(date_dir.glob("*.json"), reverse=True):
-                        if session_id_filter and session_id_filter not in trace_file.stem:
-                            continue
-                        try:
-                            raw = trace_file.read_text(encoding="utf-8")
-                            if keyword.lower() not in raw.lower():
-                                continue
-                            trace_data = json.loads(raw)
-                        except Exception:
-                            continue
+        # === 数据源 3: JSONL fallback（SQLite 无结果或更早历史） ===
+        if len(results) < max_results:
+            cutoff = datetime.now() - timedelta(days=days_back)
+            from ...config import settings
+            data_root = settings.project_root / "data"
 
-                        for it in trace_data.get("iterations", []):
-                            it_str = json.dumps(it, ensure_ascii=False, default=str)
-                            if keyword.lower() not in it_str.lower():
-                                continue
-                            results.append({
-                                "source": "react_trace",
-                                "file": f"{date_dir.name}/{trace_file.name}",
-                                "conversation_id": trace_data.get("conversation_id", ""),
-                                "iteration": it.get("iteration", 0),
-                                "tool_calls": it.get("tool_calls", []),
-                                "tool_results": it.get("tool_results", []),
-                                "text_content": str(it.get("text_content", ""))[:300],
-                            })
-                            if len(results) >= max_results:
-                                break
-                        if len(results) >= max_results:
-                            break
-                    if len(results) >= max_results:
-                        break
+            history_dir = data_root / "memory" / "conversation_history"
+            if history_dir.exists():
+                remaining = max_results - len(results)
+                seen_timestamps = {r.get("timestamp", "") for r in results}
+                self._search_jsonl_history(
+                    history_dir, keyword, session_id_filter, cutoff, remaining,
+                    results, seen_timestamps,
+                )
 
         if not results:
             return f"未找到包含 '{keyword}' 的对话记录（最近 {days_back} 天）"
 
+        return self._format_trace_results(results, keyword)
+
+    def _search_react_traces(
+        self,
+        traces_dir: Path,
+        keyword: str,
+        session_id_filter: str,
+        cutoff: datetime,
+        limit: int,
+        results: list[dict],
+        seen_timestamps: set[str],
+    ) -> None:
+        """搜索 react_traces/{date}/*.json"""
+        count = 0
+        for date_dir in sorted(traces_dir.iterdir(), reverse=True):
+            if not date_dir.is_dir():
+                continue
+            try:
+                dir_date = datetime.strptime(date_dir.name, "%Y%m%d")
+                if dir_date < cutoff:
+                    continue
+            except ValueError:
+                continue
+            for trace_file in sorted(date_dir.glob("*.json"), reverse=True):
+                if session_id_filter and session_id_filter not in trace_file.stem:
+                    continue
+                try:
+                    raw = trace_file.read_text(encoding="utf-8")
+                    if keyword.lower() not in raw.lower():
+                        continue
+                    trace_data = json.loads(raw)
+                except Exception:
+                    continue
+                for it in trace_data.get("iterations", []):
+                    it_str = json.dumps(it, ensure_ascii=False, default=str)
+                    if keyword.lower() not in it_str.lower():
+                        continue
+                    results.append({
+                        "source": "react_trace",
+                        "file": f"{date_dir.name}/{trace_file.name}",
+                        "conversation_id": trace_data.get("conversation_id", ""),
+                        "iteration": it.get("iteration", 0),
+                        "tool_calls": it.get("tool_calls", []),
+                        "tool_results": it.get("tool_results", []),
+                        "text_content": str(it.get("text_content", ""))[:300],
+                    })
+                    count += 1
+                    if count >= limit:
+                        return
+                if count >= limit:
+                    return
+            if count >= limit:
+                return
+
+    def _search_jsonl_history(
+        self,
+        history_dir: Path,
+        keyword: str,
+        session_id_filter: str,
+        cutoff: datetime,
+        limit: int,
+        results: list[dict],
+        seen_timestamps: set[str],
+    ) -> None:
+        """搜索 conversation_history/*.jsonl，跳过 SQLite 已返回的条目"""
+        count = 0
+        for jsonl_file in sorted(history_dir.glob("*.jsonl"), reverse=True):
+            if session_id_filter and session_id_filter not in jsonl_file.stem:
+                continue
+            try:
+                file_mtime = datetime.fromtimestamp(jsonl_file.stat().st_mtime)
+                if file_mtime < cutoff:
+                    continue
+            except Exception:
+                continue
+            try:
+                for line in jsonl_file.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    if keyword.lower() not in line.lower():
+                        continue
+                    try:
+                        turn = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    ts = turn.get("timestamp", "")
+                    if ts in seen_timestamps:
+                        continue
+                    results.append({
+                        "source": "conversation_history",
+                        "file": jsonl_file.name,
+                        "timestamp": ts,
+                        "role": turn.get("role", ""),
+                        "content": str(turn.get("content", ""))[:500],
+                        "tool_calls": turn.get("tool_calls", []),
+                        "tool_results": turn.get("tool_results", []),
+                    })
+                    seen_timestamps.add(ts)
+                    count += 1
+                    if count >= limit:
+                        return
+            except Exception as e:
+                logger.debug(f"Error reading {jsonl_file}: {e}")
+            if count >= limit:
+                return
+
+    @staticmethod
+    def _format_trace_results(results: list[dict], keyword: str) -> str:
+        """格式化搜索结果为可读文本"""
         output = f"找到 {len(results)} 条匹配记录（关键词: {keyword}）:\n\n"
         for i, r in enumerate(results, 1):
-            output += f"--- 记录 {i} [{r['source']}] ---\n"
-            if r["source"] == "conversation_history":
-                output += f"文件: {r['file']}\n"
+            source = r["source"]
+            output += f"--- 记录 {i} [{source}] ---\n"
+            if source in ("sqlite_turns", "conversation_history"):
+                if r.get("session_id"):
+                    output += f"会话: {r['session_id']}\n"
+                elif r.get("file"):
+                    output += f"文件: {r['file']}\n"
                 output += f"时间: {r.get('timestamp', 'N/A')}\n"
                 output += f"角色: {r.get('role', 'N/A')}\n"
                 output += f"内容: {r.get('content', '')}\n"
@@ -328,7 +431,7 @@ class MemoryHandler:
                 if r.get("tool_results"):
                     output += f"工具结果: {json.dumps(r['tool_results'], ensure_ascii=False, default=str)[:500]}\n"
             else:
-                output += f"文件: {r['file']}\n"
+                output += f"文件: {r.get('file', 'N/A')}\n"
                 output += f"会话: {r.get('conversation_id', 'N/A')}\n"
                 output += f"迭代: {r.get('iteration', 'N/A')}\n"
                 if r.get("text_content"):
@@ -345,7 +448,6 @@ class MemoryHandler:
                         rc = str(tr.get("result_content", tr.get("result_preview", "")))
                         output += f"  结果: {rc[:300]}\n"
             output += "\n"
-
         return output
 
 

@@ -196,6 +196,9 @@ class UnifiedStore:
     def get_recent_turns(self, session_id: str, limit: int = 20) -> list[dict]:
         return self.db.get_recent_turns(session_id, limit)
 
+    def search_turns(self, keyword: str, **kwargs: Any) -> list[dict]:
+        return self.db.search_turns(keyword, **kwargs)
+
     # ======================================================================
     # Extraction Queue
     # ======================================================================

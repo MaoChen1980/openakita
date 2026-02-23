@@ -1874,31 +1874,10 @@ search_github → install_skill → 使用
 1. 用户发送语音 → 2. 系统自动下载并用 Whisper 转文字 → 3. 你收到的是转写后的文字
 4. 只有当你看到"[语音识别失败]"或"自动识别失败"时，才需要用 get_voice_file 工具获取文件路径并手动处理
 
-### 记忆管理 (非常重要!)
-**主动使用记忆功能**，在以下情况必须调用 add_memory:
-- 学到新东西时 → 记录为 FACT
-- 发现用户偏好时 → 记录为 PREFERENCE
-- 找到有效解决方案时 → 记录为 SKILL
-- 遇到错误教训时 → 记录为 ERROR
-- 发现重要规则时 → 记录为 RULE
-
-**记忆时机**:
-1. 任务完成后，回顾学到了什么
-2. 用户明确表达偏好时
-3. 解决了一个难题时
-4. 犯错后找到正确方法时
-
-### 记忆使用原则 (重要!)
+### 记忆使用原则
 **上下文优先**：当前对话内容永远优先于记忆中的信息。
-
-**不要让记忆主导对话**：
-- ❌ 错误：用户说"你好" → 回复"你好！关于之前 Moltbook 技能的事情，你想怎么处理？"
-- ✅ 正确：用户说"你好" → 回复"你好！有什么可以帮你的？"（记忆中的事情等用户主动提起或真正相关时再说）
-
-**记忆提及方式**：
-- 如果记忆与当前话题高度相关，可以**简短**提一句，但不要作为回复的主体
-- 不要让用户感觉你在"接着上次说"——每次对话都是新鲜的开始
-- 例如：处理完用户当前请求后，可以在结尾轻轻带一句"对了，之前xxx的事情需要我继续处理吗？"
+**不要让记忆主导对话**——每次对话都是新鲜的开始，记忆中的事情等用户主动提起或真正相关时再说。
+记忆系统的详细使用说明见系统提示词中的"你的记忆系统"章节。
 
 ### 诚实原则 (极其重要!!!)
 **绝对禁止编造不存在的功能或进度！**
@@ -2931,6 +2910,17 @@ search_github → install_skill → 使用
             conversation_safe_id = re.sub(r'[/\\+=%?*<>|"\x00-\x1f]', "_", conversation_safe_id)
             if getattr(self.memory_manager, "_current_session_id", None) != conversation_safe_id:
                 self.memory_manager.start_session(conversation_safe_id)
+                # 1.5 新会话时清空 Scratchpad 工作记忆，避免跨会话泄漏
+                try:
+                    store = getattr(self.memory_manager, "store", None)
+                    if store and hasattr(store, "save_scratchpad"):
+                        from ..memory.types import Scratchpad as _SpClear
+                        store.save_scratchpad(_SpClear(user_id="default"))
+                        logger.debug(
+                            f"[Session] Cleared scratchpad for new conversation {conversation_id}"
+                        )
+                except Exception as _e:
+                    logger.debug(f"[Session] Scratchpad clear failed (non-critical): {_e}")
         except Exception as e:
             logger.warning(f"[Memory] Failed to align memory session: {e}")
 
@@ -3012,6 +3002,55 @@ search_github → install_skill → 使用
         # 9. Task definition setup
         self._current_task_definition = compiler_summary
         self._current_task_query = compiler_summary or message
+
+        # 9.5 话题切换检测 — 检测当前消息是否是新话题
+        topic_changed = False
+        if session and len(session_messages) >= 4:
+            topic_changed = await self._detect_topic_change(
+                session_messages, message, session
+            )
+            if topic_changed:
+                _boundary_msg = {
+                    "role": "user",
+                    "content": (
+                        "[上下文边界] 检测到话题切换，以下是新话题。"
+                        "请优先关注边界之后的内容。"
+                    ),
+                    "timestamp": datetime.now().isoformat(),
+                }
+                # 将边界标记插入到 session_messages 的倒数第二位（当前消息之前）
+                if session_messages and session_messages[-1].get("role") == "user":
+                    session_messages.insert(-1, _boundary_msg)
+                else:
+                    session_messages.append(_boundary_msg)
+                # 同步更新 Session 模型的话题边界索引
+                if hasattr(session.context, "mark_topic_boundary"):
+                    session.context.mark_topic_boundary()
+                logger.info(
+                    f"[Session:{session_id}] Topic change detected, "
+                    f"inserted context boundary"
+                )
+
+        # 9.7 同步更新 Scratchpad 当前任务
+        _new_task = compiler_summary or message[:200]
+        if _new_task:
+            try:
+                _sp_store = getattr(self.memory_manager, "store", None)
+                if _sp_store:
+                    from ..memory.types import Scratchpad as _Sp
+                    _pad = _sp_store.get_scratchpad() or _Sp()
+                    _old_focus = _pad.current_focus
+                    if topic_changed and _old_focus:
+                        _pad.active_projects = (
+                            [f"[{datetime.now().strftime('%m-%d %H:%M')}] {_old_focus}"]
+                            + _pad.active_projects
+                        )[:5]
+                    _pad.current_focus = _new_task
+                    _pad.content = _pad.to_markdown()
+                    _pad.updated_at = datetime.now()
+                    _sp_store.save_scratchpad(_pad)
+            except Exception as _sp_err:
+                logger.debug(f"[Scratchpad] sync failed: {_sp_err}")
 
         # 10. Message history build
         # session_messages 已包含当前轮用户消息（gateway 调用前 add_message），
@@ -3880,6 +3919,82 @@ search_github → install_skill → 使用
         # 其他情况都进行编译
         return True
 
+    async def _detect_topic_change(
+        self, session_messages: list[dict], new_message: str, session: Any = None
+    ) -> bool:
+        """检测当前消息是否是新话题（与近期对话无关）。
+
+        结合多层上下文（当前任务、对话摘要、近期消息）让 LLM 做综合判断。
+        仅在 IM 通道调用。
+
+        Returns:
+            True 表示检测到话题切换
+        """
+        if not new_message or len(new_message.strip()) < 5:
+            return False
+        if not session_messages:
+            return False
+
+        _new = new_message.strip()
+
+        # ---- 构建多层上下文 ----
+
+        context_parts: list[str] = []
+
+        # Layer 1: 当前任务/话题（如果有）
+        if session:
+            task_desc = session.context.get_variable("task_description") if hasattr(session, "context") else None
+            if task_desc:
+                context_parts.append(f"当前任务: {task_desc}")
+            summary = getattr(session.context, "summary", None) if hasattr(session, "context") else None
+            if summary:
+                context_parts.append(f"对话摘要: {summary[:300]}")
+
+        # Layer 2: 近期对话（取最近 6 轮，每条保留足够内容）
+        recent = session_messages[-6:]
+        dialog_lines: list[str] = []
+        for msg in recent:
+            role = "用户" if msg.get("role") == "user" else "助手"
+            content = msg.get("content", "")
+            if isinstance(content, str) and content:
+                preview = content[:300].replace("\n", " ")
+                if len(content) > 300:
+                    preview += "..."
+                dialog_lines.append(f"{role}: {preview}")
+        if dialog_lines:
+            context_parts.append("近期对话:\n" + "\n".join(dialog_lines))
+
+        if not context_parts:
+            return False
+
+        full_context = "\n\n".join(context_parts)
+
+        try:
+            response = await self.brain.compiler_think(
+                prompt=(
+                    f"{full_context}\n\n"
+                    f"新消息: {_new[:500]}\n\n"
+                    "判断：新消息是延续当前话题(CONTINUE)，还是开启全新话题(NEW)？\n"
+                    "只输出一个单词：CONTINUE 或 NEW"
+                ),
+                system=(
+                    "你是话题切换检测器。结合当前任务和近期对话上下文，"
+                    "判断新消息是否属于同一话题。\n"
+                    "CONTINUE: 新消息是对当前话题的跟进、补充、确认、追问，"
+                    "或与当前任务相关的后续操作。\n"
+                    "NEW: 新消息引入了与当前对话完全无关的新话题或新任务。\n"
+                    "只输出一个单词。"
+                ),
+            )
+            result = (response.content or "").strip().upper()
+            is_new = "NEW" in result and "CONTINUE" not in result
+            if is_new:
+                logger.info(f"[TopicDetect] LLM detected topic change: {_new[:60]}")
+            return is_new
+        except Exception as e:
+            logger.debug(f"[TopicDetect] LLM check failed (non-critical): {e}")
+            return False
+
     def _get_last_user_request(self, messages: list[dict]) -> str:
         """获取最后一条用户请求（当前任务的原始请求）"""
         for msg in reversed(messages):
@@ -4198,9 +4313,9 @@ NEXT: 建议的下一步（如有）"""
             最终响应文本
         """
         # === 构建 System Prompt ===
-        task_description = (getattr(self, "_current_task_query", "") or "").strip()
+        task_description = self._get_last_user_request(messages).strip()
         if not task_description:
-            task_description = self._get_last_user_request(messages).strip()
+            task_description = (getattr(self, "_current_task_query", "") or "").strip()
 
         if use_session_prompt:
             system_prompt = await self._build_system_prompt_compiled(
@@ -4263,9 +4378,9 @@ NEXT: 建议的下一步（如有）"""
 
         # 用于 memory 检索的 query（必须非空，且尽量短）
         # 优先用 compiler 的短摘要（可复用、噪声更小），退化为最后一条用户请求
-        task_description = (getattr(self, "_current_task_query", "") or "").strip()
+        task_description = self._get_last_user_request(messages).strip()
         if not task_description:
-            task_description = self._get_last_user_request(messages).strip()
+            task_description = (getattr(self, "_current_task_query", "") or "").strip()
 
         # 选择 System Prompt
         if use_session_prompt:

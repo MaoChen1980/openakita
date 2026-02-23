@@ -43,6 +43,32 @@ from .vector_store import VectorStore
 logger = logging.getLogger(__name__)
 
 
+def _apply_retention(memory: "SemanticMemory", duration: str | None = None) -> None:
+    """Set expires_at based on duration hint or memory priority."""
+    if memory.expires_at is not None:
+        return
+    if duration and duration in _DURATION_MAP:
+        delta = _DURATION_MAP[duration]
+        memory.expires_at = (datetime.now() + delta) if delta else None
+        return
+    _PRIORITY_TTL = {
+        MemoryPriority.TRANSIENT: timedelta(days=1),
+        MemoryPriority.SHORT_TERM: timedelta(days=3),
+        MemoryPriority.LONG_TERM: timedelta(days=30),
+        MemoryPriority.PERMANENT: None,
+    }
+    delta = _PRIORITY_TTL.get(memory.priority)
+    memory.expires_at = (datetime.now() + delta) if delta else None
+
+
+_DURATION_MAP = {
+    "permanent": None,
+    "7d": timedelta(days=7),
+    "24h": timedelta(hours=24),
+    "session": timedelta(hours=2),
+}
+
+
 class MemoryManager:
     """记忆管理器 (v2)"""
 
@@ -197,6 +223,7 @@ class MemoryManager:
         self._current_session_id = session_id
         self._session_turns = []
         self._recent_messages = []
+        self._extraction_count = 0
         try:
             self._turn_offset = self.store.get_max_turn_index(session_id)
         except Exception:
@@ -264,8 +291,14 @@ class MemoryManager:
         if self._current_session_id:
             self.consolidator.save_conversation_turn(self._current_session_id, turn)
 
-        # Async extraction (user messages only)
-        if role == "user":
+        # Async extraction (user messages only, with frequency control)
+        _extraction_limit = 5
+        _min_content_len = 30
+        if (
+            role == "user"
+            and len(content) >= _min_content_len
+            and getattr(self, "_extraction_count", 0) < _extraction_limit
+        ):
             try:
                 loop = asyncio.get_running_loop()
                 _session_id = self._current_session_id
@@ -278,12 +311,6 @@ class MemoryManager:
                             for item in items:
                                 self._save_extracted_item(item)
                             logger.info(f"[Memory] v2 extraction: {len(items)} items")
-                        else:
-                            memories = await self.extractor.extract_from_turn_with_ai(turn)
-                            for memory in memories:
-                                await asyncio.to_thread(self.add_memory, memory)
-                            if memories:
-                                logger.info(f"[Memory] v1 extraction: {len(memories)} memories")
                     except Exception as e:
                         logger.warning(f"[Memory] Extraction failed (isolated): {e}")
                         self._safe_enqueue_extraction(
@@ -294,6 +321,7 @@ class MemoryManager:
 
                 task = loop.create_task(_extract_and_add())
                 self._pending_tasks.add(task)
+                self._extraction_count = getattr(self, "_extraction_count", 0) + 1
             except RuntimeError:
                 pass
             except Exception as e:
@@ -342,6 +370,7 @@ class MemoryManager:
             source_episode_id=episode_id,
             tags=[item.get("type", "fact").lower()],
         )
+        _apply_retention(mem, item.get("duration"))
         self.store.save_semantic(mem)
 
         # v1 compat: also save to in-memory cache
@@ -384,10 +413,7 @@ class MemoryManager:
                     )
                     if episode:
                         self.store.save_episode(episode)
-                        pad = self.store.get_scratchpad()
-                        new_pad = await self.extractor.update_scratchpad(pad, episode)
-                        self.store.save_scratchpad(new_pad)
-                        logger.info(f"[Memory] Session finalized: episode + scratchpad updated")
+                        logger.info(f"[Memory] Session finalized: episode saved")
                 except Exception as e:
                     logger.warning(f"[Memory] Session finalization failed: {e}")
                 finally:
@@ -398,6 +424,11 @@ class MemoryManager:
         except RuntimeError:
             # 无 event loop（同步环境 / CLI 一次性任务）: 将 turns 入队提取作为 fallback
             self._enqueue_session_turns_for_extraction(session_id, turns)
+
+        try:
+            self.store.db.cleanup_expired()
+        except Exception:
+            pass
 
         logger.info(f"Ended session {session_id}: {len(memories)} memories extracted")
         self._current_session_id = None
@@ -550,7 +581,8 @@ class MemoryManager:
                 tags=memory.tags,
             )
 
-        # v2: also save to SQLite
+        # v2: set TTL then save to SQLite
+        _apply_retention(memory)
         self.store.db.save_memory(memory.to_dict())
 
         logger.debug(f"Added memory: {memory.id} - {memory.content}")

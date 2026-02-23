@@ -26,8 +26,10 @@ DEFAULT_MAX_CONTEXT_TOKENS = 124000
 CHARS_PER_TOKEN = 2  # JSON 序列化后约 2 字符 = 1 token
 MIN_RECENT_TURNS = 8  # 至少保留最近 8 组对话（工具密集型对话需要更多上下文）
 COMPRESSION_RATIO = 0.15  # 目标压缩到原上下文的 15%
+BOUNDARY_COMPRESSION_RATIO = 0.05  # 上下文边界前的旧话题压缩到 5%
 CHUNK_MAX_TOKENS = 30000  # 每次发给 LLM 压缩的单块上限
 LARGE_TOOL_RESULT_THRESHOLD = 5000  # 单条 tool_result 超过此 token 数时独立压缩
+CONTEXT_BOUNDARY_MARKER = "[上下文边界]"  # 话题切换边界标记
 
 
 class _CancelledError(Exception):
@@ -308,6 +310,13 @@ class ContextManager:
             logger.info(f"After tool_result compression: {current_tokens} tokens, within limit")
             return _end_ctx_span(messages)
 
+        # Step 1.5: 上下文边界感知 — 如果存在边界标记，对旧话题使用更激进的压缩
+        messages = await self._compress_across_boundary(messages, soft_limit, memory_manager)
+        current_tokens = self.estimate_messages_tokens(messages)
+        if current_tokens <= soft_limit:
+            logger.info(f"After boundary compression: {current_tokens} tokens, within limit")
+            return _end_ctx_span(messages)
+
         # Step 2: 按工具交互组分组
         groups = self.group_messages(messages)
 
@@ -356,6 +365,131 @@ class ContextManager:
 
         # Step 5: 硬保底
         return _end_ctx_span(self._hard_truncate_if_needed(compressed, hard_limit, memory_manager))
+
+    @staticmethod
+    def _find_last_boundary_index(messages: list[dict]) -> int:
+        """找到消息列表中最后一个上下文边界标记的位置，返回 -1 表示未找到。"""
+        for i in range(len(messages) - 1, -1, -1):
+            content = messages[i].get("content", "")
+            if isinstance(content, str) and CONTEXT_BOUNDARY_MARKER in content:
+                return i
+        return -1
+
+    async def _compress_across_boundary(
+        self,
+        messages: list[dict],
+        soft_limit: int,
+        memory_manager: object | None = None,
+    ) -> list[dict]:
+        """上下文边界感知压缩：对边界之前的旧话题使用更激进的压缩策略。
+
+        如果消息中包含 [上下文边界] 标记，将边界之前的消息压缩为极简摘要（5%），
+        仅保留可能对当前话题有用的关键信息。
+        """
+        boundary_idx = self._find_last_boundary_index(messages)
+        if boundary_idx <= 0:
+            return messages
+
+        pre_boundary = messages[:boundary_idx]
+        post_boundary = messages[boundary_idx:]  # includes the boundary marker message
+
+        pre_tokens = self.estimate_messages_tokens(pre_boundary)
+        if pre_tokens < 200:
+            return messages
+
+        logger.info(
+            f"[Compress] Found context boundary at index {boundary_idx}, "
+            f"compressing {len(pre_boundary)} pre-boundary messages "
+            f"(~{pre_tokens} tokens) with aggressive ratio"
+        )
+
+        target_tokens = max(int(pre_tokens * BOUNDARY_COMPRESSION_RATIO), 100)
+        summary = await self._summarize_messages_chunked_for_boundary(
+            pre_boundary, target_tokens
+        )
+
+        result = []
+        if summary:
+            result.append({
+                "role": "user",
+                "content": (
+                    f"[旧话题摘要（已结束）]\n{summary}\n\n"
+                    "---\n以上是之前话题的简要背景，当前已切换到新话题。"
+                ),
+            })
+
+        result.extend(post_boundary)
+
+        compressed_tokens = self.estimate_messages_tokens(result)
+        logger.info(
+            f"[Compress] Boundary compression: {pre_tokens + self.estimate_messages_tokens(post_boundary)} "
+            f"-> {compressed_tokens} tokens"
+        )
+        return result
+
+    async def _summarize_messages_chunked_for_boundary(
+        self, messages: list[dict], target_tokens: int
+    ) -> str:
+        """针对上下文边界前的旧话题消息，使用更激进的摘要策略。
+
+        与普通摘要不同，这里强调"只保留可能对新话题有用的关键信息"。
+        """
+        if not messages:
+            return ""
+
+        text_parts = []
+        for msg in messages:
+            text_parts.append(self._extract_message_text(msg))
+
+        combined = "".join(text_parts)
+        if not combined.strip():
+            return ""
+
+        if self.estimate_tokens(combined) > CHUNK_MAX_TOKENS:
+            max_chars = CHUNK_MAX_TOKENS * CHARS_PER_TOKEN
+            combined = combined[:max_chars] + "\n...(更早的内容已省略)..."
+
+        target_chars = target_tokens * CHARS_PER_TOKEN
+
+        _tt = set_tracking_context(TokenTrackingContext(
+            operation_type="context_compress",
+            operation_detail="boundary_old_topic",
+        ))
+        try:
+            response = await self._cancellable_llm(
+                model=self._brain.model,
+                max_tokens=target_tokens,
+                system=(
+                    "你是一个对话压缩助手。用户已切换到新话题，"
+                    "请将以下旧话题对话压缩为极简摘要（2-3 句话）。\n"
+                    "只保留：用户身份信息、重要的配置/环境信息、"
+                    "可能与未来任务相关的关键结论。\n"
+                    "不要保留旧任务的具体步骤、工具调用细节或中间过程。"
+                ),
+                messages=[{
+                    "role": "user",
+                    "content": f"请将以下旧话题对话压缩到 {target_chars} 字以内:\n\n{combined}",
+                }],
+                use_thinking=False,
+            )
+
+            summary = ""
+            for block in response.content:
+                if block.type == "text":
+                    summary += block.text
+                elif block.type == "thinking" and hasattr(block, "thinking"):
+                    if not summary:
+                        summary = block.thinking if isinstance(block.thinking, str) else str(block.thinking)
+
+            return summary.strip() if summary else ""
+
+        except _CancelledError:
+            raise
+        except Exception as e:
+            logger.warning(f"[Compress] Boundary summarization failed: {e}")
+            return ""
+        finally:
+            reset_tracking_context(_tt)
 
     async def _compress_large_tool_results(
         self, messages: list[dict], threshold: int = LARGE_TOOL_RESULT_THRESHOLD

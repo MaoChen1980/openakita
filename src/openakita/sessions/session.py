@@ -69,12 +69,33 @@ class SessionContext:
     current_task: str | None = None  # 当前任务 ID
     memory_scope: str | None = None  # 记忆范围 ID
     summary: str | None = None  # 对话摘要（用于长对话压缩）
+    topic_boundaries: list[int] = field(default_factory=list)  # 话题边界的消息索引
+    current_topic_start: int = 0  # 当前话题起始消息索引
 
     def add_message(self, role: str, content: str, **metadata) -> None:
         """添加消息"""
         self.messages.append(
             {"role": role, "content": content, "timestamp": datetime.now().isoformat(), **metadata}
         )
+
+    def mark_topic_boundary(self) -> None:
+        """在当前消息位置标记话题边界。
+
+        后续可用 get_current_topic_messages() 只获取当前话题的消息。
+        """
+        boundary_idx = len(self.messages)
+        self.topic_boundaries.append(boundary_idx)
+        self.current_topic_start = boundary_idx
+
+    def get_current_topic_messages(self) -> list[dict]:
+        """获取当前话题的消息（从最后一个边界开始）。"""
+        if self.current_topic_start >= len(self.messages):
+            return []
+        return self.messages[self.current_topic_start:]
+
+    def get_pre_topic_messages(self) -> list[dict]:
+        """获取当前话题边界之前的消息。"""
+        return self.messages[:self.current_topic_start]
 
     def get_messages(self, limit: int | None = None) -> list[dict]:
         """获取消息历史"""
@@ -93,6 +114,8 @@ class SessionContext:
     def clear_messages(self) -> None:
         """清空消息历史"""
         self.messages = []
+        self.topic_boundaries = []
+        self.current_topic_start = 0
 
     def to_dict(self) -> dict:
         """序列化"""
@@ -102,6 +125,8 @@ class SessionContext:
             "current_task": self.current_task,
             "memory_scope": self.memory_scope,
             "summary": self.summary,
+            "topic_boundaries": self.topic_boundaries,
+            "current_topic_start": self.current_topic_start,
         }
 
     @classmethod
@@ -113,6 +138,8 @@ class SessionContext:
             current_task=data.get("current_task"),
             memory_scope=data.get("memory_scope"),
             summary=data.get("summary"),
+            topic_boundaries=data.get("topic_boundaries", []),
+            current_topic_start=data.get("current_topic_start", 0),
         )
 
 
@@ -278,26 +305,29 @@ class Session:
         dropped = messages[:-keep_count]
         kept = messages[-keep_count:]
 
-        # v2: 标记被截断的消息需要记忆提取
         self._mark_dropped_for_extraction(dropped)
 
-        summary_parts: list[str] = []
+        max_summary_len = 300
+        keywords: list[str] = []
         for msg in dropped:
-            role = msg.get("role", "?")
+            if msg.get("role") != "user":
+                continue
             content = msg.get("content", "")
             if isinstance(content, str) and content:
-                preview = content[:80].replace("\n", " ")
-                if len(content) > 80:
-                    preview += "..."
-                summary_parts.append(f"{role}: {preview}")
-        if summary_parts:
-            summary_text = (
-                "[早期对话摘要（已截断的消息概要）]\n"
-                + "\n".join(summary_parts[-20:])
-            )
-            if kept and kept[0].get("role") == "user":
-                kept.insert(0, {"role": "assistant", "content": "好的，我已了解之前的对话概要。"})
-            kept.insert(0, {"role": "user", "content": summary_text})
+                preview = content[:40].replace("\n", " ").strip()
+                if len(content) > 40:
+                    preview += "…"
+                keywords.append(preview)
+
+        if keywords:
+            header = "[历史背景，非当前任务]\n"
+            body = ""
+            for kw in keywords:
+                candidate = (body + "\n" + kw).strip() if body else kw
+                if len(header) + len(candidate) > max_summary_len:
+                    break
+                body = candidate
+            kept.insert(0, {"role": "system", "content": header + body})
 
         self.context.messages = kept
         logger.debug(

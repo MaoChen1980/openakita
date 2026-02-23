@@ -261,6 +261,10 @@ class MemoryStorage:
             )
         """)
         c.execute("CREATE INDEX IF NOT EXISTS idx_eq_status ON extraction_queue(status)")
+        try:
+            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_eq_session_turn ON extraction_queue(session_id, turn_index)")
+        except sqlite3.OperationalError:
+            pass
 
         # --- attachments (文件/媒体记忆) ---
         c.execute("""
@@ -879,6 +883,45 @@ class MemoryStorage:
                 logger.warning(f"Failed to get recent turns for {session_id}: {e}")
                 return []
 
+    def search_turns(
+        self,
+        keyword: str,
+        session_id: str | None = None,
+        days_back: int = 7,
+        limit: int = 20,
+    ) -> list[dict]:
+        """按关键词搜索 conversation_turns（content + tool_calls + tool_results）"""
+        if not self._conn or not keyword:
+            return []
+        cutoff = (datetime.now() - timedelta(days=days_back)).isoformat()
+        pattern = f"%{keyword}%"
+        with self._lock:
+            try:
+                if session_id:
+                    cur = self._conn.execute(
+                        "SELECT session_id, turn_index, role, content, "
+                        "tool_calls, tool_results, timestamp "
+                        "FROM conversation_turns "
+                        "WHERE session_id = ? AND timestamp >= ? "
+                        "AND (content LIKE ? OR tool_calls LIKE ? OR tool_results LIKE ?) "
+                        "ORDER BY timestamp DESC LIMIT ?",
+                        (session_id, cutoff, pattern, pattern, pattern, limit),
+                    )
+                else:
+                    cur = self._conn.execute(
+                        "SELECT session_id, turn_index, role, content, "
+                        "tool_calls, tool_results, timestamp "
+                        "FROM conversation_turns "
+                        "WHERE timestamp >= ? "
+                        "AND (content LIKE ? OR tool_calls LIKE ? OR tool_results LIKE ?) "
+                        "ORDER BY timestamp DESC LIMIT ?",
+                        (cutoff, pattern, pattern, pattern, limit),
+                    )
+                return self._rows_to_dicts(cur, json_fields=["tool_calls", "tool_results"])
+            except Exception as e:
+                logger.warning(f"Failed to search turns for '{keyword}': {e}")
+                return []
+
     # ======================================================================
     # Extraction Queue
     # ======================================================================
@@ -897,7 +940,7 @@ class MemoryStorage:
             try:
                 self._conn.execute(
                     """
-                    INSERT INTO extraction_queue
+                    INSERT OR IGNORE INTO extraction_queue
                     (session_id, turn_index, content, tool_calls, tool_results, created_at)
                     VALUES (?, ?, ?, ?, ?, ?)
                     """,

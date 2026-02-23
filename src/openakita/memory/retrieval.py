@@ -135,8 +135,11 @@ class RetrievalEngine:
 
     def _search_semantic(self, query: str, limit: int = 15) -> list[RetrievalCandidate]:
         memories = self.store.search_semantic(query, limit=limit)
+        now = datetime.now()
         candidates = []
         for mem in memories:
+            if mem.expires_at and mem.expires_at < now:
+                continue
             candidates.append(RetrievalCandidate(
                 memory_id=mem.id,
                 content=mem.to_markdown(),
@@ -158,13 +161,6 @@ class RetrievalEngine:
             found = self.store.search_episodes(entity=entity, limit=3)
             episodes.extend(found)
 
-        recent_eps = self.store.get_recent_episodes(days=7, limit=5)
-        seen_ids = {e.id for e in episodes}
-        for ep in recent_eps:
-            if ep.id not in seen_ids:
-                episodes.append(ep)
-                seen_ids.add(ep.id)
-
         candidates = []
         for ep in episodes[:limit]:
             candidates.append(RetrievalCandidate(
@@ -184,8 +180,11 @@ class RetrievalEngine:
         memories = self.store.query_semantic(
             min_importance=0.6, limit=limit
         )
+        now = datetime.now()
         candidates = []
         for mem in memories:
+            if mem.expires_at and mem.expires_at < now:
+                continue
             recency = self._compute_recency(mem.updated_at)
             if recency < 0.3:
                 continue
@@ -500,6 +499,11 @@ class RetrievalEngine:
     # Reranking
     # ==================================================================
 
+    _ACTION_WORDS = frozenset({
+        "打开", "关闭", "运行", "执行", "安装", "部署", "启动", "停止",
+        "创建", "删除", "修改", "搜索", "下载", "上传", "去", "进入", "访问",
+    })
+
     def _rerank(
         self,
         candidates: list[RetrievalCandidate],
@@ -516,6 +520,8 @@ class RetrievalEngine:
             if persona and persona in ("tech_expert", "jarvis"):
                 if c.memory_type in ("skill", "error"):
                     c.score *= 1.2
+            if c.memory_type == "fact" and any(w in c.content[:30] for w in self._ACTION_WORDS):
+                c.score *= 0.3
 
         return sorted(candidates, key=lambda c: c.score, reverse=True)
 
