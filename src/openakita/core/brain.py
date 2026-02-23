@@ -534,17 +534,25 @@ class Brain:
                         elif part_type == "tool_result":
                             tool_content = part.get("content", "")
                             if isinstance(tool_content, list):
-                                # 提取文本
-                                texts = [
-                                    p.get("text", "")
+                                has_images = any(
+                                    p.get("type") in ("image_url", "image")
                                     for p in tool_content
-                                    if p.get("type") == "text"
-                                ]
-                                tool_content = "\n".join(texts)
+                                    if isinstance(p, dict)
+                                )
+                                if has_images:
+                                    # 保留多模态内容（文本+图片），让 LLM 能看到
+                                    tool_content = tool_content
+                                else:
+                                    texts = [
+                                        p.get("text", "")
+                                        for p in tool_content
+                                        if isinstance(p, dict) and p.get("type") == "text"
+                                    ]
+                                    tool_content = "\n".join(texts)
                             blocks.append(
                                 ToolResultBlock(
                                     tool_use_id=part.get("tool_use_id", ""),
-                                    content=str(tool_content),
+                                    content=tool_content if isinstance(tool_content, list) else str(tool_content),
                                     is_error=part.get("is_error", False),
                                 )
                             )

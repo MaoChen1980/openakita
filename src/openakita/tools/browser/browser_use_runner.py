@@ -85,6 +85,16 @@ class BrowserUseRunner:
 
             logger.info(f"[BrowserTask] Starting task: {task}")
 
+            # 记录任务执行前的页面状态，用于变化检测
+            pre_url, pre_title = "", ""
+            try:
+                page = self._manager.page
+                if page:
+                    pre_url = page.url or ""
+                    pre_title = await page.title() or ""
+            except Exception:
+                pass
+
             bu_browser = None
             cdp_url = self._manager.cdp_url
             if cdp_url:
@@ -140,17 +150,48 @@ class BrowserUseRunner:
             if not cdp_url:
                 await bu_browser.close()
 
+            # 检测页面是否发生变化
+            post_url, post_title = "", ""
+            try:
+                page = self._manager.page
+                if page:
+                    post_url = page.url or ""
+                    post_title = await page.title() or ""
+            except Exception:
+                pass
+
+            steps_taken = len(history.history) if hasattr(history, "history") else 0
             logger.info(f"[BrowserTask] Task completed: {task}")
 
-            return {
-                "success": True,
-                "result": {
-                    "task": task,
-                    "steps_taken": len(history.history) if hasattr(history, "history") else 0,
-                    "final_result": final_result,
-                    "message": f"任务完成: {task}",
-                },
+            result_data: dict[str, Any] = {
+                "task": task,
+                "steps_taken": steps_taken,
+                "final_result": final_result,
+                "message": f"任务完成: {task}",
+                "page_url": post_url,
+                "page_title": post_title,
             }
+
+            page_unchanged = (
+                pre_url and post_url
+                and pre_url == post_url
+                and pre_title == post_title
+            )
+            if page_unchanged:
+                result_data["warning"] = (
+                    "⚠️ 页面在任务执行前后没有变化（URL 和 title 均未改变），"
+                    "任务可能实际上没有生效。建议：\n"
+                    "1. 使用 browser_screenshot + view_image 查看当前页面状态\n"
+                    "2. 改用 browser_navigate 直接通过 URL 参数访问目标页（如搜索类任务"
+                    "可用 https://www.baidu.com/s?wd=关键词）\n"
+                    "3. 不要反复重试 browser_task，连续失败 2 次应切换策略"
+                )
+                logger.warning(
+                    f"[BrowserTask] Page unchanged after task: "
+                    f"url={post_url}, title={post_title}"
+                )
+
+            return {"success": True, "result": result_data}
 
         except ImportError as e:
             from openakita.tools._import_helper import import_or_hint

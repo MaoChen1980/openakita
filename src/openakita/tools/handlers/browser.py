@@ -8,16 +8,22 @@
 - browser_get_content: 获取页面内容（支持 max_length 截断）
 - browser_screenshot: 截取页面截图
 - browser_close: 关闭浏览器
+- view_image: 查看/分析本地图片
 """
 
+import base64
 import logging
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ...core.agent import Agent
 
 logger = logging.getLogger(__name__)
+
+_IMAGE_MAX_PIXELS = 1024 * 1024  # 缩放阈值（宽×高），大于此值会缩放
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 
 
 class BrowserHandler:
@@ -34,6 +40,7 @@ class BrowserHandler:
         "browser_get_content",
         "browser_screenshot",
         "browser_close",
+        "view_image",
     ]
 
     # browser_get_content 默认最大字符数
@@ -53,8 +60,13 @@ class BrowserHandler:
                 return "❌ 浏览器模块未启动。请安装: pip install playwright && playwright install chromium"
         return None
 
-    async def handle(self, tool_name: str, params: dict[str, Any]) -> str:
-        """处理工具调用"""
+    async def handle(self, tool_name: str, params: dict[str, Any]) -> str | list:
+        """处理工具调用，返回 str 或多模态 list（view_image/browser_screenshot）。"""
+
+        # view_image 不依赖浏览器，直接处理
+        if tool_name == "view_image":
+            return await self._handle_view_image(params)
+
         err = self._check_ready()
         if err:
             return err
@@ -74,6 +86,12 @@ class BrowserHandler:
 
         if actual_tool_name == "browser_get_content":
             output = self._maybe_truncate(output, params)
+
+        # browser_screenshot: 自动附带图片内容（如果模型支持 vision）
+        if actual_tool_name == "browser_screenshot" and result.get("success"):
+            multimodal = self._try_embed_screenshot(result)
+            if multimodal is not None:
+                return multimodal
 
         return output
 
@@ -284,6 +302,174 @@ class BrowserHandler:
             )
 
         return output
+
+
+    # ── view_image / screenshot 多模态支持 ────────────
+
+    def _model_supports_vision(self) -> bool:
+        """检查当前 LLM 是否支持 vision（图片输入）。"""
+        try:
+            from ...llm.capabilities import infer_capabilities, get_provider_slug_from_base_url
+            brain = getattr(self.agent, "brain", None)
+            if not brain:
+                return False
+            model = getattr(brain, "model_name", "") or ""
+            base_url = ""
+            llm_client = getattr(brain, "_llm_client", None)
+            if llm_client:
+                base_url = getattr(llm_client, "base_url", "") or ""
+            provider = get_provider_slug_from_base_url(base_url) if base_url else None
+            caps = infer_capabilities(model, provider)
+            return caps.get("vision", False)
+        except Exception:
+            return False
+
+    @staticmethod
+    def _load_image_as_base64(path_str: str) -> tuple[str, str, int, int] | None:
+        """读取图片文件，缩放后编码为 base64。
+
+        Returns:
+            (base64_data, media_type, width, height) 或 None（失败时）
+        """
+        p = Path(path_str)
+        if not p.is_file():
+            return None
+        if p.suffix.lower() not in _IMAGE_EXTENSIONS:
+            return None
+
+        try:
+            from PIL import Image
+            import io
+
+            img = Image.open(p)
+            w, h = img.size
+
+            if w * h > _IMAGE_MAX_PIXELS:
+                ratio = (_IMAGE_MAX_PIXELS / (w * h)) ** 0.5
+                new_w, new_h = int(w * ratio), int(h * ratio)
+                img = img.resize((new_w, new_h), Image.LANCZOS)
+                w, h = new_w, new_h
+
+            if img.mode == "RGBA":
+                img = img.convert("RGB")
+
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=85)
+            b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+            return b64, "image/jpeg", w, h
+        except ImportError:
+            raw = p.read_bytes()
+            b64 = base64.b64encode(raw).decode("ascii")
+            ext = p.suffix.lower()
+            media_map = {
+                ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
+            }
+            return b64, media_map.get(ext, "image/jpeg"), 0, 0
+        except Exception as e:
+            logger.error(f"[view_image] Failed to load image {path_str}: {e}")
+            return None
+
+    async def _handle_view_image(self, params: dict[str, Any]) -> str | list:
+        """view_image 工具处理：读取图片并返回多模态 tool result。"""
+        path_str = params.get("path", "")
+        question = params.get("question", "")
+
+        if not path_str:
+            return "❌ view_image 缺少必要参数 'path'。"
+
+        loaded = self._load_image_as_base64(path_str)
+        if loaded is None:
+            return f"❌ 无法读取图片: {path_str}（文件不存在或格式不支持）"
+
+        b64_data, media_type, w, h = loaded
+
+        if self._model_supports_vision():
+            # 模型支持 vision → 直接嵌入图片
+            content: list[dict] = [
+                {"type": "text", "text": f"✅ 已加载图片: {path_str} ({w}x{h})"},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{media_type};base64,{b64_data}"},
+                },
+            ]
+            if question:
+                content.append({"type": "text", "text": f"请回答: {question}"})
+            return content
+
+        # 模型不支持 vision → 用 VL 模型生成文字描述
+        description = await self._describe_image_with_vl(b64_data, media_type, question)
+        return f"✅ 图片: {path_str} ({w}x{h})\n\n{description}"
+
+    async def _describe_image_with_vl(
+        self, b64_data: str, media_type: str, question: str = "",
+    ) -> str:
+        """使用 VL 模型对图片进行文字描述（当主模型不支持 vision 时的降级方案）。"""
+        try:
+            from ...llm.client import get_default_client
+            from ...llm.types import ImageBlock, ImageContent, Message, TextBlock
+
+            prompt = question or "请描述这张图片的内容，包括关键元素、文字、布局等。"
+            messages = [
+                Message(
+                    role="user",
+                    content=[
+                        ImageBlock(image=ImageContent(media_type=media_type, data=b64_data)),
+                        TextBlock(text=prompt),
+                    ],
+                )
+            ]
+
+            client = get_default_client()
+            response = await client.chat(messages=messages, max_tokens=1024)
+            if response.content:
+                for block in response.content:
+                    if hasattr(block, "text"):
+                        return f"[图片分析结果]\n{block.text}"
+
+            return "[图片分析] 无法获取描述"
+        except Exception as e:
+            logger.warning(f"[view_image] VL fallback failed: {e}")
+            return f"[图片分析失败: {e}]\n提示: 当前模型不支持图片输入，建议切换到支持 vision 的模型（如 qwen-vl-plus）。"
+
+    def _try_embed_screenshot(self, result: dict) -> list | None:
+        """尝试将 browser_screenshot 的结果嵌入图片内容。
+
+        仅在模型支持 vision 时生效，否则返回 None（走普通文本路径）。
+        """
+        if not self._model_supports_vision():
+            return None
+
+        inner = result.get("result", {})
+        if not isinstance(inner, dict):
+            return None
+
+        saved_to = inner.get("saved_to", "")
+        if not saved_to:
+            return None
+
+        loaded = self._load_image_as_base64(saved_to)
+        if loaded is None:
+            return None
+
+        b64_data, media_type, w, h = loaded
+        page_url = inner.get("page_url", "")
+        page_title = inner.get("page_title", "")
+
+        return [
+            {
+                "type": "text",
+                "text": (
+                    f"✅ 截图已保存: {saved_to} ({w}x{h})\n"
+                    f"页面: {page_title}\nURL: {page_url}\n"
+                    f"提示: 如需将截图交付给用户，请使用 deliver_artifacts 工具"
+                ),
+            },
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{media_type};base64,{b64_data}"},
+            },
+        ]
 
 
 def create_handler(agent: "Agent"):

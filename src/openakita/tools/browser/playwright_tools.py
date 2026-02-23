@@ -104,6 +104,18 @@ class PlaywrightTools:
         screenshot_bytes = await self._page.screenshot(full_page=full_page)
         page_title = await self._page.title()
 
+        # 提取页面简要文本（帮助 LLM 判断页面状态，即使无 vision 也能了解页面内容）
+        page_text_brief = ""
+        try:
+            raw_text = await self._page.inner_text("body")
+            # 去掉多余空白，截取前 500 字
+            import re as _re
+            cleaned = _re.sub(r"\s+", " ", raw_text).strip()
+            if cleaned:
+                page_text_brief = cleaned[:500]
+        except Exception:
+            pass
+
         if not path:
             from datetime import datetime
             screenshots_dir = Path("data/screenshots")
@@ -112,16 +124,19 @@ class PlaywrightTools:
             path = str(screenshots_dir / f"screenshot_{timestamp}.png")
 
         Path(path).write_bytes(screenshot_bytes)
-        return {
-            "success": True,
-            "result": {
-                "saved_to": path,
-                "page_url": current_url,
-                "page_title": page_title,
-                "message": f"截图已保存到: {path}",
-                "hint": "如需将截图交付给用户，请使用 deliver_artifacts 工具，把此路径作为 artifacts[].path 传入",
-            },
+        result_data: dict = {
+            "saved_to": path,
+            "page_url": current_url,
+            "page_title": page_title,
+            "message": f"截图已保存到: {path}",
+            "hint": (
+                "如需将截图交付给用户，请使用 deliver_artifacts 工具。"
+                "如需确认截图内容，可使用 view_image 工具查看截图。"
+            ),
         }
+        if page_text_brief:
+            result_data["page_text_brief"] = page_text_brief
+        return {"success": True, "result": result_data}
 
     async def get_content(self, selector: str | None = None, format: str = "text") -> dict:
         """获取页面内容"""

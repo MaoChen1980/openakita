@@ -219,10 +219,11 @@ class Identity:
 ```
 用户: "打开百度搜索天气截图发我"
 → 1. create_plan(steps=[打开百度搜索天气并截图, 发送])
-→ 2. browser_task("打开百度搜索天气并截图") + update_plan_step
+→ 2. browser_navigate("https://www.baidu.com/s?wd=天气") + browser_screenshot + update_plan_step
 → 3. deliver_artifacts + update_plan_step
 → 4. complete_plan
 ```
+⚠️ 搜索类任务直接用 browser_navigate 拼 URL 参数，不要用 browser_task
 
 ### 请求类型判断（重要！先判断再行动）
 

@@ -111,13 +111,16 @@ def _convert_single_message_to_openai(
 
     # 处理 tool_result（OpenAI 使用独立的 tool 角色消息）
     for tr in tool_results:
-        result.append(
-            {
-                "role": "tool",
-                "tool_call_id": tr.tool_use_id,
-                "content": tr.content,
-            }
-        )
+        tool_msg: dict = {
+            "role": "tool",
+            "tool_call_id": tr.tool_use_id,
+        }
+        if isinstance(tr.content, list):
+            # 多模态 tool result（文本 + 图片等），直接透传
+            tool_msg["content"] = tr.content
+        else:
+            tool_msg["content"] = tr.content
+        result.append(tool_msg)
 
     # 处理其他内容块
     if other_blocks:

@@ -213,12 +213,32 @@ class ToolUseBlock(ContentBlock):
 
 @dataclass
 class ToolResultBlock(ContentBlock):
-    """工具结果内容块"""
+    """工具结果内容块
+
+    content 可以是纯文本字符串，也可以是多模态内容列表（文本 + 图片等）。
+    列表格式示例::
+
+        [
+            {"type": "text", "text": "截图已保存到 ..."},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
+        ]
+    """
 
     tool_use_id: str
-    content: str  # 工具执行结果
+    content: str | list  # 工具执行结果，str 或多模态 content list
     is_error: bool = False
     type: str = field(default="tool_result", init=False)
+
+    @property
+    def text_content(self) -> str:
+        """提取纯文本内容（用于压缩、摘要等场景）。"""
+        if isinstance(self.content, str):
+            return self.content
+        texts = []
+        for part in self.content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                texts.append(part.get("text", ""))
+        return "\n".join(texts)
 
     def to_dict(self) -> dict:
         result = {

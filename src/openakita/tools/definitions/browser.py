@@ -2,11 +2,12 @@
 Browser 工具定义
 
 包含浏览器自动化相关的工具（遵循 tool-definition-spec.md 规范）：
-- browser_task: 【推荐优先使用】智能浏览器任务
+- browser_navigate: 导航到 URL（搜索类任务推荐直接拼 URL 参数）
+- browser_task: 智能浏览器任务（适合复杂交互，不适合简单搜索）
 - browser_open: 启动浏览器 + 状态查询
-- browser_navigate: 导航到 URL
 - browser_get_content: 获取页面内容
 - browser_screenshot: 截取页面截图
+- view_image: 查看/分析本地图片
 - browser_close: 关闭浏览器
 """
 
@@ -15,25 +16,24 @@ from .base import build_detail
 # ==================== 工具定义 ====================
 
 BROWSER_TOOLS = [
-    # ---------- browser_task ---------- 【推荐优先使用】
+    # ---------- browser_task ----------
     {
         "name": "browser_task",
         "category": "Browser",
-        "description": "【推荐优先使用】Intelligent browser task - describe what you want to accomplish and browser-use Agent will automatically plan and execute all steps. Best for: (1) Multi-step operations like search + filter + sort, (2) Complex web interactions including clicking, typing, form filling, (3) Tasks where you're unsure of exact steps, (4) Any task requiring element interaction (clicks, inputs, tab management). For simple URL opening only, use browser_navigate.",
+        "description": "Intelligent browser task - delegates to browser-use Agent for complex multi-step interactions. Best for: (1) Complex workflows like login + fill form + submit, (2) Tasks requiring multiple clicks and interactions on the SAME page. **NOT recommended for search tasks** - use browser_navigate with URL params instead (e.g. https://www.baidu.com/s?wd=keyword). If browser_task fails once, switch to manual steps (browser_navigate + browser_get_content).",
         "related_tools": [
             {"name": "web_search", "relation": "仅需快速获取搜索结果（无需页面交互）时改用 web_search，更快更省资源"},
+            {"name": "browser_navigate", "relation": "搜索类任务优先用 browser_navigate 拼 URL 参数直达，更可靠"},
         ],
         "detail": build_detail(
-            summary="智能浏览器任务 - 描述你想完成的任务，browser-use Agent 会自动规划和执行所有步骤。",
+            summary="智能浏览器任务 - 委托 browser-use Agent 自动执行复杂交互。",
             scenarios=[
-                "多步骤操作（如：搜索商品 → 筛选价格 → 按销量排序）",
                 "复杂网页交互（如：登录 → 填表 → 提交）",
-                "不确定具体步骤的任务",
-                "需要智能判断和处理的场景",
-                "点击按钮、输入文本、管理标签页等所有页面交互",
+                "需要多次点击、选择的操作（如：筛选 → 排序 → 翻页）",
+                "不确定具体步骤的复杂任务",
             ],
             params_desc={
-                "task": "要完成的任务描述，越详细越好。例如：'打开淘宝搜索机械键盘，筛选价格200-500元，按销量排序'",
+                "task": "要完成的任务描述，越详细越好。例如：'登录后填写表单并提交'",
                 "max_steps": "最大执行步骤数，默认15步。复杂任务可以增加。",
             },
             workflow_steps=[
@@ -44,51 +44,44 @@ BROWSER_TOOLS = [
                 "返回执行结果",
             ],
             notes=[
-                "✅ 推荐用于多步骤、复杂的浏览器任务",
-                "✅ 推荐用于所有需要点击、输入、表单填写的操作",
-                "自动继承系统 LLM 配置，无需额外设置 API Key",
+                "⚠️ 搜索类任务请不要用 browser_task！直接用 browser_navigate 拼 URL 参数更可靠",
+                "⚠️ 如果 browser_task 失败 1 次，立即切换为手动分步操作",
+                "适合需要多次 UI 交互的复杂场景（登录、填表、筛选等）",
                 "通过 CDP 复用已启动的浏览器",
                 "任务描述要清晰具体，避免歧义",
-                "复杂任务可能需要增加 max_steps",
+                "任务完成后用 browser_screenshot + view_image 验证结果",
             ],
         ),
         "triggers": [
-            "When user asks to do something complex on a website",
-            "When task involves multiple steps (search, filter, sort, etc.)",
-            "When exact steps are unclear",
-            "When task description is high-level like '帮我在淘宝上找...'",
-            "When clicking buttons, filling forms, or interacting with page elements",
-            "When managing multiple tabs or switching between pages",
+            "When task involves complex multi-step UI interactions (login, form filling, etc.)",
+            "When exact steps are unclear and the task requires intelligent planning",
+            "When managing multiple tabs or complex page interactions",
         ],
         "prerequisites": [],
         "warnings": [
-            "Task description should be clear and specific",
-            "Complex tasks may need higher max_steps",
+            "Do NOT use for search tasks - use browser_navigate with URL params instead",
+            "If browser_task fails once, immediately switch to manual browser tools",
+            "Always verify results with browser_screenshot + view_image after completion",
         ],
         "examples": [
             {
-                "scenario": "淘宝搜索筛选排序",
+                "scenario": "淘宝筛选排序（复杂交互）",
                 "params": {
-                    "task": "打开淘宝搜索机械键盘，筛选价格200-500元，按销量排序，截图发给我"
+                    "task": "在淘宝商品列表页筛选价格200-500元，按销量排序"
                 },
-                "expected": "Agent automatically: opens Taobao → searches → filters price → sorts by sales → screenshots",
+                "expected": "Agent automatically: filters price → sorts by sales",
             },
             {
-                "scenario": "GitHub 查找项目",
-                "params": {"task": "在 GitHub 找 star 数最多的 Python 项目"},
-                "expected": "Agent automatically: opens GitHub → navigates to search → sorts by stars → filters Python",
-            },
-            {
-                "scenario": "新闻搜索",
-                "params": {"task": "打开百度搜索今天的科技新闻，截图给我"},
-                "expected": "Agent automatically: opens Baidu → searches → takes screenshot",
+                "scenario": "表单填写",
+                "params": {"task": "填写注册表单：用户名test，邮箱test@example.com，点击提交"},
+                "expected": "Agent fills form fields and submits",
             },
         ],
         "related_tools": [
-            {"name": "browser_navigate", "relation": "alternative for simple URL opening"},
+            {"name": "browser_navigate", "relation": "搜索类任务优先使用，拼 URL 参数直达"},
             {
-                "name": "browser_screenshot",
-                "relation": "can be used after task for manual screenshot",
+                "name": "view_image",
+                "relation": "browser_task 完成后务必截图+view_image 验证结果",
             },
         ],
         "input_schema": {
@@ -156,9 +149,9 @@ BROWSER_TOOLS = [
             },
         ],
         "related_tools": [
-            {"name": "browser_navigate", "relation": "commonly used after opening"},
-            {"name": "browser_task", "relation": "recommended for complex tasks"},
-            {"name": "browser_close", "relation": "close browser when done"},
+            {"name": "browser_navigate", "relation": "打开后导航到目标 URL（搜索任务推荐直接拼 URL 参数）"},
+            {"name": "browser_task", "relation": "仅在需要复杂 UI 交互时使用"},
+            {"name": "browser_close", "relation": "使用完毕后关闭"},
         ],
         "input_schema": {
             "type": "object",
@@ -176,10 +169,11 @@ BROWSER_TOOLS = [
     {
         "name": "browser_navigate",
         "category": "Browser",
-        "description": "Navigate browser to specified URL to open a webpage. For simple URL opening only. For multi-step tasks (search + click + type), use browser_task instead. Auto-starts browser if not running.",
+        "description": "Navigate browser to URL. **Recommended for search tasks** - directly use URL with query params (e.g. https://www.baidu.com/s?wd=keyword, https://image.baidu.com/search/index?tn=baiduimage&word=keyword, https://www.google.com/search?q=keyword). Much more reliable than browser_task for searches. Auto-starts browser if not running.",
         "detail": build_detail(
-            summary="导航到指定 URL。",
+            summary="导航到指定 URL。搜索类任务推荐直接拼 URL 参数，比 browser_task 更可靠。",
             scenarios=[
+                "搜索类任务：直接用 URL 参数（如 baidu.com/s?wd=关键词）",
                 "打开网页查看内容",
                 "Web 自动化任务的第一步",
                 "切换到新页面",
@@ -193,14 +187,19 @@ BROWSER_TOOLS = [
                 "使用 browser_get_content 获取内容 或 browser_screenshot 截图",
             ],
             notes=[
+                "⚠️ 搜索类任务优先用此工具，直接在 URL 中带搜索参数",
+                "常用搜索 URL 模板：百度搜索 https://www.baidu.com/s?wd=关键词",
+                "百度图片 https://image.baidu.com/search/index?tn=baiduimage&word=关键词",
+                "Google https://www.google.com/search?q=keyword",
                 "如果浏览器未启动会自动启动",
                 "URL 必须包含协议（http:// 或 https://）",
-                "如需与页面交互（点击、输入），请改用 browser_task",
             ],
         ),
         "triggers": [
+            "When user asks to search for something on the web",
             "When user asks to open a webpage",
             "When starting web automation task with a known URL",
+            "When browser_task has failed - use URL params as fallback",
         ],
         "prerequisites": [],
         "warnings": [],
@@ -217,14 +216,15 @@ BROWSER_TOOLS = [
             },
         ],
         "related_tools": [
-            {"name": "browser_task", "relation": "recommended for multi-step tasks or page interaction"},
-            {"name": "browser_get_content", "relation": "extract content after navigation"},
-            {"name": "browser_screenshot", "relation": "capture page after navigation"},
+            {"name": "browser_get_content", "relation": "导航后获取页面文本内容"},
+            {"name": "browser_screenshot", "relation": "导航后截图"},
+            {"name": "view_image", "relation": "截图后查看图片内容，验证页面状态"},
+            {"name": "browser_task", "relation": "仅在需要复杂 UI 交互（登录、填表）时使用"},
         ],
         "input_schema": {
             "type": "object",
             "properties": {
-                "url": {"type": "string", "description": "要访问的 URL（必须包含协议）"},
+                "url": {"type": "string", "description": "要访问的 URL（必须包含协议）。搜索类任务直接在 URL 中带参数"},
             },
             "required": ["url"],
         },
@@ -370,6 +370,70 @@ BROWSER_TOOLS = [
                 "path": {"type": "string", "description": "保存路径（可选，不填自动生成）"},
             },
             "required": [],
+        },
+    },
+    # ---------- view_image ----------
+    {
+        "name": "view_image",
+        "category": "Browser",
+        "description": "View/analyze a local image file. Load the image and send it to the LLM for visual understanding. Use this when you need to: (1) Verify browser screenshots show the expected content, (2) Analyze any local image file, (3) Understand what's in an image before deciding next steps. The image content will be embedded in the tool result so the LLM can SEE it directly.",
+        "detail": build_detail(
+            summary="查看/分析本地图片文件。将图片加载并嵌入到工具结果中，让 LLM 能直接看到图片内容。",
+            scenarios=[
+                "截图验证：截图后查看截图内容，确认页面状态是否符合预期",
+                "分析任意本地图片文件",
+                "在决策前理解图片内容",
+            ],
+            params_desc={
+                "path": "图片文件路径（支持 png/jpg/jpeg/gif/webp）",
+                "question": "可选，关于图片的具体问题（如'搜索结果有多少条？'）",
+            },
+            notes=[
+                "⚠️ 重要：browser_screenshot 截图后，如果需要确认页面内容，一定要用此工具查看截图",
+                "支持格式: PNG, JPEG, GIF, WebP",
+                "图片会被自动缩放以适配 LLM 上下文限制",
+                "如果当前模型不支持视觉，将使用 VL 模型生成文字描述",
+            ],
+        ),
+        "triggers": [
+            "When you need to verify what a screenshot actually shows",
+            "After browser_screenshot, to check if the page state matches expectations",
+            "When analyzing any local image file",
+            "When user asks to look at or describe an image",
+        ],
+        "prerequisites": [],
+        "warnings": [],
+        "examples": [
+            {
+                "scenario": "验证浏览器截图",
+                "params": {"path": "data/screenshots/screenshot_20260224_015625.png"},
+                "expected": "Returns the image embedded in tool result, LLM can see and analyze the page content",
+            },
+            {
+                "scenario": "带问题的图片分析",
+                "params": {
+                    "path": "data/screenshots/screenshot.png",
+                    "question": "页面是否显示了搜索结果？搜索关键词是什么？",
+                },
+                "expected": "LLM sees the image and can answer the specific question",
+            },
+        ],
+        "related_tools": [
+            {"name": "browser_screenshot", "relation": "take screenshot first, then view_image to analyze"},
+        ],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "图片文件路径（支持 png/jpg/jpeg/gif/webp/bmp）",
+                },
+                "question": {
+                    "type": "string",
+                    "description": "关于图片的具体问题（可选，留空则返回图片让 LLM 自行分析）",
+                },
+            },
+            "required": ["path"],
         },
     },
     # ---------- browser_close ----------

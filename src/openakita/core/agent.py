@@ -571,7 +571,18 @@ class Agent:
                     )
 
                 result = tool_task.result()
-                result_str = str(result) if result is not None else "操作已完成"
+
+                # 支持多模态 tool result：处理器可返回 list（文本+图片）
+                if isinstance(result, list):
+                    result_content = result
+                    # 提取纯文本用于日志/监控
+                    result_str = "\n".join(
+                        p.get("text", "") for p in result
+                        if isinstance(p, dict) and p.get("type") == "text"
+                    ) or "(multimodal content)"
+                else:
+                    result_str = str(result) if result is not None else "操作已完成"
+                    result_content = result_str
 
                 _preview = result_str if len(result_str) <= 800 else result_str[:800] + "\n... (已截断)"
                 logger.info(f"[Tool] {tool_name} → {_preview}")
@@ -590,7 +601,7 @@ class Agent:
                 out = {
                     "type": "tool_result",
                     "tool_use_id": tool_use_id,
-                    "content": result_str,
+                    "content": result_content,
                 }
                 return idx, out, tool_name, receipts
             except Exception as e:
@@ -787,6 +798,7 @@ class Agent:
                 "browser_get_content",
                 "browser_screenshot",
                 "browser_close",
+                "view_image",
             ],
         )
 
@@ -2311,7 +2323,17 @@ search_github → install_skill → 使用
                 new_content = []
                 for item in content:
                     if isinstance(item, dict) and item.get("type") == "tool_result":
-                        result_text = str(item.get("content", ""))
+                        raw_content = item.get("content", "")
+                        if isinstance(raw_content, list):
+                            # 多模态 tool_result（含图片）：压缩时只保留文本，丢弃图片以节省 context
+                            text_parts = [
+                                p.get("text", "")
+                                for p in raw_content
+                                if isinstance(p, dict) and p.get("type") == "text"
+                            ]
+                            result_text = "\n".join(text_parts)
+                        else:
+                            result_text = str(raw_content)
                         # 含 OVERFLOW_MARKER 的为 handler 故意放行的长输出（如 get_skill_info），不压缩以免丢失技能全文
                         if OVERFLOW_MARKER in result_text:
                             new_content.append(item)
@@ -2516,7 +2538,16 @@ search_github → install_skill → 使用
                             input_summary = input_summary[:1500] + "...(省略)..." + input_summary[-400:]
                         texts.append(f"[调用工具: {name}, 参数: {input_summary}]")
                     elif item.get("type") == "tool_result":
-                        result_text = str(item.get("content", ""))
+                        raw_content = item.get("content", "")
+                        if isinstance(raw_content, list):
+                            text_parts = [
+                                p.get("text", "")
+                                for p in raw_content
+                                if isinstance(p, dict) and p.get("type") == "text"
+                            ]
+                            result_text = "\n".join(text_parts)
+                        else:
+                            result_text = str(raw_content)
                         if len(result_text) > 8000:
                             result_text = result_text[:6000] + "...(省略)..." + result_text[-1500:]
                         is_error = item.get("is_error", False)
