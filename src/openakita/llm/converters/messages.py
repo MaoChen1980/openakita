@@ -95,7 +95,19 @@ def _convert_single_message_to_openai(
         # 简单文本消息
         converted = {"role": msg.role, "content": msg.content}
         if msg.role == "assistant" and _needs_reasoning_content(provider):
-            converted["reasoning_content"] = msg.reasoning_content or ""
+            if msg.reasoning_content:
+                converted["reasoning_content"] = msg.reasoning_content
+                # 文本中可能残留 <thinking> 标签，需清理
+                _, clean = _extract_thinking_content(converted["content"])
+                converted["content"] = clean
+            else:
+                # 尝试从文本中提取 reasoning_content
+                extracted, clean = _extract_thinking_content(converted["content"])
+                if extracted:
+                    converted["reasoning_content"] = extracted
+                    converted["content"] = clean
+                else:
+                    converted["reasoning_content"] = ""
         elif msg.reasoning_content:
             converted["reasoning_content"] = msg.reasoning_content
         return converted
@@ -147,6 +159,11 @@ def _convert_single_message_to_openai(
             if _needs_reasoning_content(provider):
                 if msg.reasoning_content:
                     reasoning_content = msg.reasoning_content
+                    # reasoning_content 已直接提供，但文本中可能仍残留 <thinking> 标签
+                    # （brain.py 将 reasoning_content 包装为 <thinking> 嵌入 TextBlock），
+                    # 需要清理以免标签泄漏到 content 字段
+                    if text_content:
+                        _, text_content = _extract_thinking_content(text_content)
                 elif text_content:
                     reasoning_content, text_content = _extract_thinking_content(text_content)
 

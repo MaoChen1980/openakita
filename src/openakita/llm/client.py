@@ -922,6 +922,7 @@ class LLMClient:
                     # 无需维护 thinking-only 模型列表，运行时检测并自动修正。
                     _reasoning_err_patterns = [
                         "reasoning_content is missing",
+                        "missing reasoning_content",
                         "missing `reasoning_content`",
                         "missing 'reasoning_content'",
                         "thinking is enabled but reasoning_content is missing",
@@ -948,6 +949,7 @@ class LLMClient:
                         "does not support",  # Ollama: "model does not support thinking" 等
                         "not supported",     # 通用的"不支持"格式
                         "reasoning_content is missing",  # 自愈失败后仍作为结构性错误
+                        "missing reasoning_content",
                         "missing 'reasoning_content'",
                     ]
                     is_non_retryable = any(

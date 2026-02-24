@@ -792,6 +792,7 @@ class ReasoningEngine:
                     working_messages.append({
                         "role": "assistant",
                         "content": decision.assistant_content,
+                        "reasoning_content": decision.thinking_content or None,
                     })
 
                     # 如果同时还有其他工具调用，先执行它们
@@ -926,6 +927,7 @@ class ReasoningEngine:
                 working_messages.append({
                     "role": "assistant",
                     "content": decision.assistant_content,
+                    "reasoning_content": decision.thinking_content or None,
                 })
 
                 # 检查取消
@@ -1547,6 +1549,7 @@ class ReasoningEngine:
                     working_messages.append({
                         "role": "assistant",
                         "content": decision.assistant_content or [{"type": "text", "text": ""}],
+                        "reasoning_content": decision.thinking_content or None,
                     })
 
                     # ---- ask_user 拦截 ----
@@ -2603,6 +2606,7 @@ class ReasoningEngine:
                 working_messages.append({
                     "role": "assistant",
                     "content": [{"type": "text", "text": decision.text_content}],
+                    "reasoning_content": decision.thinking_content or None,
                 })
 
                 if has_plan_pending:
@@ -2666,6 +2670,7 @@ class ReasoningEngine:
                 working_messages.append({
                     "role": "assistant",
                     "content": [{"type": "text", "text": stripped_text}],
+                    "reasoning_content": decision.thinking_content or None,
                 })
             if intent == "ACTION":
                 logger.warning(
