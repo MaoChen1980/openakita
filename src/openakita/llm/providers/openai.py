@@ -390,14 +390,27 @@ class OpenAIProvider(LLMProvider):
         }
 
         # max_tokens 处理策略：
-        # OpenAI 兼容 API 中 max_tokens 是可选参数。
-        # 不传时，API 会使用模型的默认最大输出上限，LLM 可以生成到自然结束。
-        # 这对 Agent 场景非常重要——工具调用（如 write_file）可能产生极长的 JSON 参数，
-        # 人为限制 max_tokens 会导致 JSON 被截断、工具调用失败。
-        # 因此：仅当调用方显式传了 max_tokens 且 > 0 时才发送，否则不传（让 API 用模型默认值）。
+        # 理想情况下不传 max_tokens 可让 API 使用模型默认上限，但实际上部分 OpenAI 兼容
+        # API（如 NVIDIA NIM）默认 max_tokens 极低（~200），开启 thinking 后所有输出预算
+        # 被思考内容耗尽，导致无可见文本返回。
+        # 因此：调用方传了 max_tokens > 0 时直接使用，否则用端点配置值或兜底 16384。
+        #
+        # 特殊情况 — OpenAI o1/o3/o4 推理模型：
+        # 这些模型拒绝 max_tokens 参数，要求使用 max_completion_tokens。
+        # 检测方式：模型名含 "o1-"/"o3-"/"o4-" 且 provider 为 openai。
+        _model_lower = self.config.model.lower()
+        _is_openai_reasoning = (
+            self.config.provider == "openai"
+            and any(tag in _model_lower for tag in ("o1-", "o3-", "o4-", "/o1", "/o3", "/o4"))
+        )
+        _token_key = "max_completion_tokens" if _is_openai_reasoning else "max_tokens"
+
         _max_tokens = request.max_tokens
         if _max_tokens and _max_tokens > 0:
-            body["max_tokens"] = _max_tokens
+            body[_token_key] = _max_tokens
+        else:
+            _fallback = self.config.max_tokens or 16384
+            body[_token_key] = _fallback
 
         # 工具
         if request.tools:

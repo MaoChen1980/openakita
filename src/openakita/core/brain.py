@@ -82,8 +82,8 @@ class Brain:
         model: str | None = None,
         max_tokens: int | None = None,
     ):
-        # max_tokens=0 表示"不限制输出"：
-        # - 对 OpenAI 兼容 API：不传 max_tokens 参数，让模型生成到自然结束
+        # max_tokens=0 表示"使用合理默认值"：
+        # - 对 OpenAI 兼容 API：使用端点配置值或兜底 16384（部分 API 如 NVIDIA NIM 默认极低）
         # - 对 Anthropic API：使用端点配置值或兜底 16384（该 API 强制要求此参数）
         self.max_tokens = max_tokens if max_tokens is not None else settings.max_tokens
 
