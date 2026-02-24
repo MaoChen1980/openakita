@@ -575,7 +575,7 @@ class MemoryStorage:
     # ======================================================================
 
     def search_fts(self, query: str, limit: int = 10) -> list[dict]:
-        """Full-text search using FTS5 with BM25 ranking."""
+        """Full-text search using FTS5 with BM25 ranking, with LIKE fallback for CJK."""
         if not self._conn or not query.strip():
             return []
         with self._lock:
@@ -592,9 +592,26 @@ class MemoryStorage:
                     """,
                     (safe_query, limit),
                 )
-                return self._rows_to_dicts(cursor)
+                results = self._rows_to_dicts(cursor)
+                if results:
+                    return results
             except Exception as e:
                 logger.debug(f"FTS5 search failed (query={query!r}): {e}")
+
+            # Fallback: LIKE search for CJK text that FTS5 unicode61 can't tokenize
+            try:
+                keywords = query.strip().split()
+                if not keywords:
+                    return []
+                conditions = " OR ".join(["content LIKE ?"] * len(keywords))
+                params = [f"%{kw}%" for kw in keywords] + [limit]
+                cursor = self._conn.execute(
+                    f"SELECT * FROM memories WHERE {conditions} LIMIT ?",
+                    params,
+                )
+                return self._rows_to_dicts(cursor)
+            except Exception as e:
+                logger.debug(f"LIKE fallback search failed: {e}")
                 return []
 
     @staticmethod

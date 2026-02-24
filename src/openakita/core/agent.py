@@ -2988,6 +2988,20 @@ search_github → install_skill → 使用
             try:
                 mined_traits = await self.trait_miner.mine_from_message(message, role="user")
                 for trait in mined_traits:
+                    store = getattr(self.memory_manager, "store", None)
+                    if store:
+                        existing = store.query_semantic(memory_type="persona_trait", limit=50)
+                        found = False
+                        for old in existing:
+                            if old.content.startswith(f"{trait.dimension}="):
+                                store.update_semantic(old.id, {
+                                    "content": f"{trait.dimension}={trait.preference}",
+                                    "importance_score": max(old.importance_score, trait.confidence),
+                                })
+                                found = True
+                                break
+                        if found:
+                            continue
                     from ..memory.types import Memory, MemoryPriority, MemoryType
                     mem = Memory(
                         type=MemoryType.PERSONA_TRAIT,
@@ -3372,7 +3386,9 @@ search_github → install_skill → 使用
 
             # 及时结束 memory session，触发记忆提取
             try:
-                task_desc = response_text[:200] if response_text else "task completed"
+                task_desc = self._get_last_user_request(messages).strip()[:200]
+                if not task_desc:
+                    task_desc = (getattr(self, "_current_task_query", "") or "").strip()[:200]
                 self.memory_manager.end_session(task_desc, success=True)
                 logger.debug(f"[Session:{session_id}] memory_manager.end_session() called")
             except Exception as e:

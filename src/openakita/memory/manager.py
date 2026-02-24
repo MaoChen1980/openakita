@@ -347,11 +347,11 @@ class MemoryManager:
         else:
             priority = MemoryPriority.SHORT_TERM
 
-        # v2: update detection
-        if item.get("is_update"):
-            existing = self.store.find_similar(
-                item.get("subject", ""), item.get("predicate", "")
-            )
+        # v2: always check for existing memory with same subject+predicate
+        subject = item.get("subject", "")
+        predicate = item.get("predicate", "")
+        if subject and predicate:
+            existing = self.store.find_similar(subject, predicate)
             if existing:
                 self.store.update_semantic(existing.id, {
                     "content": item["content"],
@@ -416,6 +416,19 @@ class MemoryManager:
                         logger.info(f"[Memory] Session finalized: episode saved")
                 except Exception as e:
                     logger.warning(f"[Memory] Session finalization failed: {e}")
+
+                # Drain pending extraction_queue items
+                try:
+                    from .lifecycle import LifecycleManager
+                    from ..config import settings
+                    lm = LifecycleManager(
+                        store=self.store,
+                        extractor=self.extractor,
+                        identity_dir=settings.identity_path,
+                    )
+                    await lm.process_unextracted_turns()
+                except Exception as e:
+                    logger.debug(f"[Memory] extraction_queue drain failed: {e}")
                 finally:
                     self._pending_tasks.discard(task)
 
@@ -581,9 +594,20 @@ class MemoryManager:
                 tags=memory.tags,
             )
 
-        # v2: set TTL then save to SQLite
+        # v2: set TTL then save to SQLite + FTS
         _apply_retention(memory)
-        self.store.db.save_memory(memory.to_dict())
+        sem = SemanticMemory(
+            id=memory.id,
+            type=memory.type,
+            priority=memory.priority,
+            content=memory.content,
+            source=memory.source,
+            importance_score=memory.importance_score,
+            tags=memory.tags,
+        )
+        if hasattr(memory, "expires_at"):
+            sem.expires_at = memory.expires_at
+        self.store.save_semantic(sem)
 
         logger.debug(f"Added memory: {memory.id} - {memory.content}")
         return memory.id

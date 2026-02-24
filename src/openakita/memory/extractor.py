@@ -573,53 +573,8 @@ duration 参考:
         self, task_description: str, success: bool,
         tool_calls: list[dict], errors: list[str],
     ) -> list[Memory]:
-        """从任务完成结果中提取记忆 (保留)"""
-        memories = []
-        if not task_description or len(task_description.strip()) < 10:
-            return memories
-
-        if success:
-            if len(task_description) > 20:
-                memories.append(Memory(
-                    type=MemoryType.SKILL,
-                    priority=MemoryPriority.LONG_TERM,
-                    content=f"成功完成: {task_description}",
-                    source="task_completion",
-                    importance_score=0.7,
-                    tags=["success", "task"],
-                ))
-            if tool_calls and len(tool_calls) >= 3:
-                tools_used = list({tc.get("name", "") for tc in tool_calls if tc.get("name")})
-                if len(tools_used) >= 2:
-                    memories.append(Memory(
-                        type=MemoryType.SKILL,
-                        priority=MemoryPriority.SHORT_TERM,
-                        content=f"任务 '{task_description}' 使用工具组合: {', '.join(tools_used)}",
-                        source="task_completion",
-                        importance_score=0.5,
-                        tags=["tools", "pattern"],
-                    ))
-        else:
-            memories.append(Memory(
-                type=MemoryType.ERROR,
-                priority=MemoryPriority.LONG_TERM,
-                content=f"任务失败: {task_description}",
-                source="task_completion",
-                importance_score=0.7,
-                tags=["failure"],
-            ))
-            for error in errors:
-                if len(error) > 20:
-                    memories.append(Memory(
-                        type=MemoryType.ERROR,
-                        priority=MemoryPriority.LONG_TERM,
-                        content=f"错误教训: {error}",
-                        source="task_completion",
-                        importance_score=0.8,
-                        tags=["error", "lesson"],
-                    ))
-
-        return memories
+        """Deprecated: Episode 已接管会话总结，不再自动创建低质量 skill 记忆。"""
+        return []
 
     async def extract_with_llm(
         self, conversation: list[ConversationTurn], context: str = "",

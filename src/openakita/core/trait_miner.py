@@ -233,6 +233,12 @@ class TraitMiner:
                 )
                 continue
 
+            # 过滤自由文本维度的无效值
+            _INVALID_FREETEXT = {"任意文本", "unknown", "无", "null", "none", "n/a", "未知", ""}
+            if preference.lower().strip() in _INVALID_FREETEXT:
+                logger.debug(f"[TraitMiner] Rejected invalid freetext: {dimension}={preference}")
+                continue
+
             # 限制置信度范围（防御 LLM 返回非数字值）
             try:
                 confidence = max(0.1, min(0.95, float(raw_confidence)))

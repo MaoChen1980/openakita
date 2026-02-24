@@ -114,7 +114,8 @@ async def _stream_chat(
             await actual_agent.initialize()
 
         # --- Session management ---
-        conversation_id = chat_request.conversation_id or ""
+        import uuid as _uuid
+        conversation_id = chat_request.conversation_id or f"api_{_uuid.uuid4().hex[:12]}"
         session = None
         session_messages_history: list[dict] = []
 
@@ -168,7 +169,9 @@ async def _stream_chat(
             # Inject artifact events for deliver_artifacts results
             yield _sse(event_type, {k: v for k, v in event.items() if k != "type"})
 
-            if event_type == "tool_call_end" and event.get("tool") == "deliver_artifacts":
+            # deliver_artifacts / send_sticker 都可能返回带 receipts 的 JSON
+            _artifact_tools = ("deliver_artifacts", "send_sticker")
+            if event_type == "tool_call_end" and event.get("tool") in _artifact_tools:
                 try:
                     result_str = event.get("result", "{}")
                     # tool_executor may append "\n\n[执行日志]:\n..." to the result,
@@ -187,11 +190,8 @@ async def _stream_chat(
                                 "caption": receipt.get("caption", ""),
                                 "size": receipt.get("size"),
                             })
-                except (json.JSONDecodeError, TypeError, KeyError) as _exc:
-                    logger.warning(
-                        f"[Chat API] Failed to parse deliver_artifacts result: {_exc} "
-                        f"| result_preview={event.get('result', '')[:200]}"
-                    )
+                except (json.JSONDecodeError, TypeError, KeyError):
+                    pass
 
             # Inject ui_preference events for system_config set_ui results
             if event_type == "tool_call_end" and event.get("tool") == "system_config":
