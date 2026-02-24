@@ -1665,10 +1665,16 @@ class ReasoningEngine:
                             cancel_waiter = asyncio.create_task(cancel_event.wait())
                             skip_waiter = asyncio.create_task(skip_event.wait())
 
-                            done_set, pending_set = await asyncio.wait(
-                                {tool_exec_task, cancel_waiter, skip_waiter},
-                                return_when=asyncio.FIRST_COMPLETED,
-                            )
+                            pending_set = {tool_exec_task, cancel_waiter, skip_waiter}
+                            done_set: set[asyncio.Task] = set()
+                            while not done_set:
+                                done_set, pending_set = await asyncio.wait(
+                                    pending_set,
+                                    timeout=self._HEARTBEAT_INTERVAL,
+                                    return_when=asyncio.FIRST_COMPLETED,
+                                )
+                                if not done_set:
+                                    yield {"type": "heartbeat"}
 
                             for t in pending_set:
                                 t.cancel()
