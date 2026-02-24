@@ -91,6 +91,17 @@ class UnifiedStore:
         self.search.delete(memory_id)
         return self.db.delete_memory(memory_id)
 
+    def bump_access(self, memory_ids: list[str]) -> None:
+        """Batch-increment access_count for memories confirmed useful by LLM."""
+        if not memory_ids:
+            return
+        now = datetime.now().isoformat()
+        for mid in memory_ids:
+            self.db.update_memory(mid, {
+                "access_count": (self.db.get_memory(mid) or {}).get("access_count", 0) + 1,
+                "last_accessed_at": now,
+            })
+
     def get_semantic(self, memory_id: str) -> SemanticMemory | None:
         d = self.db.get_memory(memory_id)
         if d is None:

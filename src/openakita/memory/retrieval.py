@@ -49,10 +49,10 @@ class RetrievalEngine:
     """多路召回 + 重排序的记忆检索引擎"""
 
     # 排序权重
-    W_RELEVANCE = 0.4
-    W_RECENCY = 0.25
-    W_IMPORTANCE = 0.2
-    W_ACCESS = 0.15
+    W_RELEVANCE = 0.40
+    W_RECENCY = 0.20
+    W_IMPORTANCE = 0.20
+    W_ACCESS = 0.20
 
     QUERY_DECOMPOSE_PROMPT = (
         "从用户消息中提取用于记忆检索的搜索关键词。\n\n"

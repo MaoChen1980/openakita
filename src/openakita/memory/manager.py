@@ -97,19 +97,22 @@ class MemoryManager:
         self.extractor = MemoryExtractor(brain)
         self.consolidator = MemoryConsolidator(data_dir, brain, self.extractor)
 
-        # v1: VectorStore (kept for ChromaDB backend and backward compat)
-        self.vector_store = VectorStore(
-            data_dir=self.data_dir,
-            model_name=embedding_model,
-            device=embedding_device,
-            download_source=model_download_source,
-        )
+        # VectorStore: only create when chromadb backend is selected
+        if search_backend == "chromadb":
+            self.vector_store = VectorStore(
+                data_dir=self.data_dir,
+                model_name=embedding_model,
+                device=embedding_device,
+                download_source=model_download_source,
+            )
+        else:
+            self.vector_store = None
 
         # v2: Unified Store + Search Backend
         db_path = self.data_dir / "openakita.db"
         self.store = UnifiedStore(
             db_path,
-            vector_store=self.vector_store if search_backend == "chromadb" else None,
+            vector_store=self.vector_store,
             backend_type=search_backend,
             api_provider=embedding_api_provider,
             api_key=embedding_api_key,
@@ -127,6 +130,9 @@ class MemoryManager:
         self._current_session_id: str | None = None
         self._session_turns: list[ConversationTurn] = []
         self._recent_messages: list[dict] = []
+
+        # Citation tracking: memories retrieved via search_memory this session
+        self._session_cited_memories: list[dict] = []
 
         # Track pending async tasks to await on shutdown
         self._pending_tasks: set[asyncio.Task] = set()
@@ -204,6 +210,7 @@ class MemoryManager:
         self._current_session_id = session_id
         self._session_turns = []
         self._recent_messages = []
+        self._session_cited_memories = []
         try:
             self._turn_offset = self.store.get_max_turn_index(session_id)
         except Exception:
@@ -271,6 +278,38 @@ class MemoryManager:
         if self._current_session_id:
             self.consolidator.save_conversation_turn(self._current_session_id, turn)
 
+    def record_cited_memories(self, memories: list[dict]) -> None:
+        """Record memories retrieved via search_memory for later LLM scoring.
+
+        Args:
+            memories: list of {id, content} dicts
+        """
+        seen = {m["id"] for m in self._session_cited_memories}
+        for m in memories:
+            mid = m.get("id", "")
+            if mid and mid not in seen:
+                self._session_cited_memories.append({"id": mid, "content": m.get("content", "")})
+                seen.add(mid)
+
+    def _consume_cited_memories(self) -> list[dict]:
+        """Consume and return accumulated cited memories, clearing the buffer."""
+        cited = list(self._session_cited_memories)
+        self._session_cited_memories = []
+        return cited
+
+    def _apply_citation_scores(self, scores: list[dict]) -> int:
+        """Apply LLM citation scores: bump access_count for useful memories.
+
+        Args:
+            scores: list of {memory_id, useful} dicts from LLM
+        Returns:
+            Number of memories marked as useful
+        """
+        useful_ids = [s["memory_id"] for s in scores if s.get("useful")]
+        if useful_ids:
+            self.store.bump_access(useful_ids)
+        return len(useful_ids)
+
     async def extract_on_topic_change(self) -> int:
         """主题切换时，从已积累的对话中提取记忆，然后重置 turns 缓冲。
 
@@ -282,7 +321,12 @@ class MemoryManager:
             return 0
 
         try:
-            items = await self.extractor.extract_from_conversation(turns)
+            cited = self._consume_cited_memories()
+            items, scores = await self.extractor.extract_from_conversation(turns, cited_memories=cited or None)
+
+            if scores:
+                self._apply_citation_scores(scores)
+
             saved = 0
             for item in items:
                 await self._save_extracted_item(item)
@@ -305,6 +349,7 @@ class MemoryManager:
             "ERROR": MemoryType.ERROR,
             "RULE": MemoryType.RULE,
             "PERSONA_TRAIT": MemoryType.PERSONA_TRAIT,
+            "EXPERIENCE": MemoryType.EXPERIENCE,
         }
         mem_type = type_map.get(item.get("type", "FACT"), MemoryType.FACT)
         importance = item.get("importance", 0.5)
@@ -317,17 +362,14 @@ class MemoryManager:
         else:
             priority = MemoryPriority.SHORT_TERM
 
-        # Dedup layer 1: exact subject+predicate match → update existing
+        # Dedup layer 1: exact subject+predicate match → evolve existing
         subject = item.get("subject", "")
         predicate = item.get("predicate", "")
         if subject and predicate:
             existing = self.store.find_similar(subject, predicate)
             if existing:
-                self.store.update_semantic(existing.id, {
-                    "content": content,
-                    "importance_score": max(existing.importance_score, importance),
-                })
-                logger.debug(f"[Memory] Dedup L1: updated {existing.id[:8]} (subject+predicate)")
+                self._evolve_memory(existing, content, importance)
+                logger.debug(f"[Memory] Dedup L1: evolved {existing.id[:8]} (subject+predicate)")
                 return
 
         # Dedup layer 2: content similarity search
@@ -339,22 +381,15 @@ class MemoryManager:
                     dup_level = self._fast_dedup_check(content, existing_content)
 
                     if dup_level == "exact":
-                        if importance > s.importance_score:
-                            self.store.update_semantic(s.id, {"importance_score": importance})
-                        logger.debug(f"[Memory] Dedup L2: exact match {s.id[:8]}")
+                        self._evolve_memory(s, content, importance)
+                        logger.debug(f"[Memory] Dedup L2: exact match, evolved {s.id[:8]}")
                         return
 
                     if dup_level == "likely":
                         is_dup = await self._check_duplicate_with_llm(content, existing_content)
                         if is_dup:
-                            if importance > s.importance_score:
-                                self.store.update_semantic(s.id, {
-                                    "content": content,
-                                    "importance_score": importance,
-                                })
-                                logger.debug(f"[Memory] Dedup L2: LLM confirmed dup, upgraded {s.id[:8]}")
-                            else:
-                                logger.debug(f"[Memory] Dedup L2: LLM confirmed dup, skipped")
+                            self._evolve_memory(s, content, importance)
+                            logger.debug(f"[Memory] Dedup L2: LLM confirmed dup, evolved {s.id[:8]}")
                             return
             except Exception as e:
                 logger.debug(f"[Memory] Dedup search failed: {e}")
@@ -421,49 +456,89 @@ class MemoryManager:
         except Exception:
             return False
 
+    def _evolve_memory(
+        self, existing: SemanticMemory, new_content: str, new_importance: float
+    ) -> None:
+        """Evolve an existing memory: boost confidence/importance, optionally update content.
+
+        If the new content is longer or higher importance, update the content.
+        Always boost confidence (capped at 1.0) to signal repeated reinforcement.
+        """
+        updates: dict = {
+            "confidence": min(1.0, existing.confidence + 0.1),
+        }
+        should_update_content = (
+            new_importance > existing.importance_score
+            or (new_importance >= existing.importance_score and len(new_content) > len(existing.content or ""))
+        )
+        if should_update_content:
+            updates["content"] = new_content
+        updates["importance_score"] = max(existing.importance_score, new_importance)
+
+        self.store.update_semantic(existing.id, updates)
+
     def end_session(
         self, task_description: str = "", success: bool = True, errors: list | None = None
     ) -> None:
-        """结束会话: 生成 Episode + 从完整对话中提取记忆（去重后保存）"""
+        """结束会话: 生成 Episode + 双轨提取（用户画像 + 任务经验）+ 引用评分"""
         if not self._current_session_id:
             return
 
         session_id = self._current_session_id
         turns = list(self._session_turns)
+        cited = self._consume_cited_memories()
 
         try:
             loop = asyncio.get_running_loop()
 
             async def _finalize_session():
+                episode = None
                 try:
-                    # 1. Generate episode summary
                     episode = await self.extractor.generate_episode(
                         turns, session_id, source="session_end"
                     )
                     if episode:
                         self.store.save_episode(episode)
-                        logger.info(f"[Memory] Session finalized: episode saved")
+                        logger.info("[Memory] Session finalized: episode saved")
                 except Exception as e:
                     logger.warning(f"[Memory] Episode generation failed: {e}")
 
-                # 2. Extract memories from full conversation (LLM judges what to keep)
+                ep_id = episode.id if episode else None
+
+                # Track 1: User profile extraction (+ citation scoring in same LLM call)
                 try:
-                    items = await self.extractor.extract_from_conversation(turns)
+                    items, scores = await self.extractor.extract_from_conversation(
+                        turns, cited_memories=cited or None,
+                    )
+                    if scores:
+                        useful = self._apply_citation_scores(scores)
+                        logger.info(f"[Memory] Citation scores applied: {useful} useful")
                     saved = 0
                     for item in items:
-                        await self._save_extracted_item(item, episode_id=episode.id if episode else None)
+                        await self._save_extracted_item(item, episode_id=ep_id)
                         saved += 1
                     if saved:
-                        logger.info(f"[Memory] Session extraction: {saved}/{len(items)} items saved (deduped)")
+                        logger.info(f"[Memory] Profile extraction: {saved}/{len(items)} items saved")
                 except Exception as e:
-                    logger.warning(f"[Memory] Session extraction failed: {e}")
+                    logger.warning(f"[Memory] Profile extraction failed: {e}")
+
+                # Track 2: Task experience extraction
+                try:
+                    exp_items = await self.extractor.extract_experience_from_conversation(turns)
+                    exp_saved = 0
+                    for item in exp_items:
+                        await self._save_extracted_item(item, episode_id=ep_id)
+                        exp_saved += 1
+                    if exp_saved:
+                        logger.info(f"[Memory] Experience extraction: {exp_saved}/{len(exp_items)} items saved")
+                except Exception as e:
+                    logger.warning(f"[Memory] Experience extraction failed: {e}")
 
                 self._pending_tasks.discard(task)
 
             task = loop.create_task(_finalize_session())
             self._pending_tasks.add(task)
         except RuntimeError:
-            # 无 event loop（同步环境 / CLI 一次性任务）: 将 turns 入队提取作为 fallback
             self._enqueue_session_turns_for_extraction(session_id, turns)
 
         try:
@@ -598,7 +673,7 @@ class MemoryManager:
                 return ""
             memory = unique[0]
 
-            if self.vector_store.enabled and len(self._memories) > 0:
+            if self.vector_store is not None and self.vector_store.enabled and len(self._memories) > 0:
                 core_content = self._strip_common_prefix(memory.content)
                 similar = self.vector_store.search(core_content, limit=3)
                 for mid, distance in similar:
@@ -613,14 +688,15 @@ class MemoryManager:
             self._memories[memory.id] = memory
             self._save_memories()
 
-            self.vector_store.add_memory(
-                memory_id=memory.id,
-                content=memory.content,
-                memory_type=memory.type.value,
-                priority=memory.priority.value,
-                importance=memory.importance_score,
-                tags=memory.tags,
-            )
+            if self.vector_store is not None:
+                self.vector_store.add_memory(
+                    memory_id=memory.id,
+                    content=memory.content,
+                    memory_type=memory.type.value,
+                    priority=memory.priority.value,
+                    importance=memory.importance_score,
+                    tags=memory.tags,
+                )
 
         # v2: set TTL then save to SQLite + FTS
         _apply_retention(memory)
@@ -673,7 +749,8 @@ class MemoryManager:
             if memory_id in self._memories:
                 del self._memories[memory_id]
                 self._save_memories()
-                self.vector_store.delete_memory(memory_id)
+                if self.vector_store is not None:
+                    self.vector_store.delete_memory(memory_id)
                 self.store.delete_semantic(memory_id)
                 return True
             return False
@@ -765,7 +842,8 @@ class MemoryManager:
             self._save_memories()
             for memory_id in expired:
                 with contextlib.suppress(Exception):
-                    self.vector_store.delete_memory(memory_id)
+                    if self.vector_store is not None:
+                        self.vector_store.delete_memory(memory_id)
                     self.store.delete_semantic(memory_id)
             logger.info(f"Cleaned up {len(expired)} expired memories")
         return len(expired)

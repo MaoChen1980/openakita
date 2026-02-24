@@ -44,6 +44,7 @@ const TYPE_LABELS: Record<string, string> = {
   skill: "技能",
   rule: "规则",
   error: "经验教训",
+  experience: "经验",
   persona_trait: "人格特征",
   context: "上下文",
 };
@@ -54,6 +55,7 @@ const TYPE_COLORS: Record<string, string> = {
   skill: "#10b981",
   rule: "#f59e0b",
   error: "#ef4444",
+  experience: "#06b6d4",
   persona_trait: "#ec4899",
   context: "#6b7280",
 };

@@ -42,8 +42,8 @@ def _lazy_import():
         except ImportError as e:
             from openakita.tools._import_helper import import_or_hint
             hint = import_or_hint("sentence_transformers")
-            logger.warning(f"向量搜索不可用: {hint}")
-            logger.warning(f"sentence_transformers ImportError 详情: {e}", exc_info=True)
+            logger.info(f"[VectorStore] 向量搜索未启用: {hint}")
+            logger.debug(f"sentence_transformers ImportError 详情: {e}", exc_info=True)
             _sentence_transformers_available = False
             return False
 
@@ -64,8 +64,8 @@ def _lazy_import():
         except ImportError as e:
             from openakita.tools._import_helper import import_or_hint
             hint = import_or_hint("chromadb")
-            logger.warning(f"ChromaDB 不可用: {hint}")
-            logger.warning(f"chromadb ImportError 详情: {e}", exc_info=True)
+            logger.info(f"[VectorStore] ChromaDB 未启用: {hint}")
+            logger.debug(f"chromadb ImportError 详情: {e}", exc_info=True)
             return False
 
     return True

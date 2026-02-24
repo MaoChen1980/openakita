@@ -482,8 +482,7 @@ class DailyConsolidator:
             if memory.id in deleted_ids:
                 continue
 
-            if self.memory_manager.vector_store.enabled:
-                # 向量搜索找相似记忆
+            if self.memory_manager.vector_store is not None and self.memory_manager.vector_store.enabled:
                 similar = self.memory_manager.vector_store.search(
                     memory.content,
                     limit=5,

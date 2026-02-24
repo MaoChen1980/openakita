@@ -681,6 +681,7 @@ def _build_memory_section(
     0. 记忆系统自描述 (告知 LLM 记忆系统的运作方式)
     1. Scratchpad (当前任务 + 近期完成)
     2. Core Memory (MEMORY.md 用户基本信息 + 永久规则)
+    3. Experience Hints (高权重经验记忆)
 
     Dynamic Memories 不再自动注入，由 LLM 按需调用 search_memory 检索。
     """
@@ -702,6 +703,11 @@ def _build_memory_section(
     core_memory = _get_core_memory(memory_manager, max_chars=core_budget * 3)
     if core_memory:
         parts.append(f"## 核心记忆\n\n{core_memory}")
+
+    # Layer 3: Experience Hints (高权重经验/教训/技能记忆)
+    experience_text = _build_experience_section(memory_manager, max_items=5)
+    if experience_text:
+        parts.append(experience_text)
 
     return "\n\n".join(parts)
 
@@ -753,6 +759,44 @@ def _get_core_memory(memory_manager: Optional["MemoryManager"], max_chars: int =
             current_len += len(line) + 1
         return "\n".join(result_lines)
     return content
+
+
+def _build_experience_section(
+    memory_manager: Optional["MemoryManager"],
+    max_items: int = 5,
+) -> str:
+    """Inject top experience/lesson/skill memories as proactive hints."""
+    store = getattr(memory_manager, "store", None)
+    if store is None:
+        return ""
+    try:
+        exp_types = ("experience", "skill", "error")
+        all_exp = []
+        for t in exp_types:
+            try:
+                results = store.query_semantic(memory_type=t, limit=10)
+                all_exp.extend(results)
+            except Exception:
+                continue
+        if not all_exp:
+            return ""
+
+        # Rank by (access_count * importance) descending, take top N
+        all_exp.sort(
+            key=lambda m: m.access_count * m.importance_score + m.importance_score,
+            reverse=True,
+        )
+        top = [m for m in all_exp[:max_items] if m.importance_score >= 0.6 and not m.superseded_by]
+        if not top:
+            return ""
+
+        lines = ["## 历史经验（执行任务前请参考）\n"]
+        for m in top:
+            icon = {"error": "⚠️", "skill": "💡", "experience": "📝"}.get(m.type.value, "📝")
+            lines.append(f"- {icon} {m.content}")
+        return "\n".join(lines)
+    except Exception:
+        return ""
 
 
 def _build_user_section(

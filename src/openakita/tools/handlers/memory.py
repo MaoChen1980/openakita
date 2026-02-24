@@ -149,17 +149,22 @@ class MemoryHandler:
         type_filter = params.get("type")
         now = datetime.now()
 
+        mm = self.agent.memory_manager
+
         # 路径 A: 无类型过滤 → RetrievalEngine 多路召回
         if not type_filter:
-            retrieval_engine = getattr(self.agent.memory_manager, "retrieval_engine", None)
+            retrieval_engine = getattr(mm, "retrieval_engine", None)
             if retrieval_engine:
                 try:
                     candidates = retrieval_engine.retrieve_candidates(
                         query=query,
-                        recent_messages=getattr(self.agent.memory_manager, "_recent_messages", None),
+                        recent_messages=getattr(mm, "_recent_messages", None),
                     )
                     if candidates:
                         logger.info(f"[search_memory] RetrievalEngine: {len(candidates)} candidates for '{query[:50]}'")
+                        cited = [{"id": c.memory_id, "content": c.content[:200]} for c in candidates[:10] if c.memory_id]
+                        if cited:
+                            mm.record_cited_memories(cited)
                         output = f"找到 {len(candidates)} 条相关记忆:\n\n"
                         for c in candidates[:10]:
                             output += f"- [{c.source_type}] {c.content[:200]}\n\n"
@@ -168,13 +173,15 @@ class MemoryHandler:
                     logger.warning(f"[search_memory] RetrievalEngine failed: {e}")
 
         # 路径 B: 有类型过滤 或 RetrievalEngine 无结果 → SQLite 搜索
-        store = getattr(self.agent.memory_manager, "store", None)
+        store = getattr(mm, "store", None)
         if store:
             try:
                 memories = store.search_semantic(query, limit=10, filter_type=type_filter)
                 memories = [m for m in memories if not m.expires_at or m.expires_at >= now]
                 if memories:
                     logger.info(f"[search_memory] SQLite: {len(memories)} results for '{query[:50]}'")
+                    cited = [{"id": m.id, "content": m.content[:200]} for m in memories]
+                    mm.record_cited_memories(cited)
                     output = f"找到 {len(memories)} 条相关记忆:\n\n"
                     for m in memories:
                         output += f"- [{m.type.value}] {m.content}\n"
@@ -192,16 +199,20 @@ class MemoryHandler:
                 "skill": MemoryType.SKILL,
                 "error": MemoryType.ERROR,
                 "rule": MemoryType.RULE,
+                "experience": MemoryType.EXPERIENCE,
             }
             mem_type = type_map.get(type_filter)
 
-        memories = self.agent.memory_manager.search_memories(
+        memories = mm.search_memories(
             query=query, memory_type=mem_type, limit=10
         )
         memories = [m for m in memories if not m.expires_at or m.expires_at >= now]
 
         if not memories:
             return f"未找到与 '{query}' 相关的记忆"
+
+        cited = [{"id": m.id, "content": m.content[:200]} for m in memories]
+        mm.record_cited_memories(cited)
 
         output = f"找到 {len(memories)} 条相关记忆:\n\n"
         for m in memories:

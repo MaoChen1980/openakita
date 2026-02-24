@@ -703,7 +703,8 @@ class Agent:
 
             # 2) 预热向量库（embedding 模型 + ChromaDB）
             # 放到线程中执行，避免阻塞事件循环；初始化完成后后续搜索会明显更快。
-            await asyncio.to_thread(lambda: bool(self.memory_manager.vector_store.enabled))
+            if self.memory_manager.vector_store is not None:
+                await asyncio.to_thread(lambda: bool(self.memory_manager.vector_store.enabled))
         except Exception as e:
             # 预热失败不应影响启动（例如 chromadb 未安装时会自动禁用）
             logger.debug(f"[Prewarm] skipped/failed: {e}")

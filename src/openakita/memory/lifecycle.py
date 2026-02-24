@@ -92,6 +92,9 @@ class LifecycleManager:
         review_result = await self.review_memories_with_llm()
         report["llm_review"] = review_result
 
+        synthesized = await self.synthesize_experiences()
+        report["experience_synthesized"] = synthesized
+
         if self.identity_dir:
             self.refresh_memory_md(self.identity_dir)
             await self.refresh_user_md(self.identity_dir)
@@ -326,7 +329,7 @@ class LifecycleManager:
             decay_factor = (1 - mem.decay_rate) ** days_since
             effective_score = mem.importance_score * decay_factor
 
-            if effective_score < 0.1 and mem.access_count < 2:
+            if effective_score < 0.1 and mem.access_count < 3:
                 self.store.delete_semantic(mem.id)
                 decayed += 1
             elif effective_score < 0.3:
@@ -393,6 +396,7 @@ class LifecycleManager:
 - 技术环境：OS、常用工具、技术栈
 - 可复用经验：特定类型问题的通用解决方法
 - 有价值的教训：需要长期避免的操作模式
+- **高引用记忆**（cited>=5 次）：说明实际使用中多次被证实有用，除非明显过期否则应保留
 
 **删除**（不应存在的垃圾）：
 - 一次性任务请求：「需要XX照片」「下载XX」「帮我搜索XX」「整理XX新闻」
@@ -401,6 +405,7 @@ class LifecycleManager:
 - 过期的临时信息：特定时间点、一次性定时任务参数
 - 重复/冗余：与其他记忆语义重复的
 - 无上下文的碎片：缺乏主语、无法独立理解的短句
+- **零引用+低分记忆**（cited=0 且 score<0.5）：从未被证实有用，优先清理
 
 **合并**：如果两条记忆说的是同一件事，标记为 merge 并给出合并后的内容。
 
@@ -450,7 +455,7 @@ class LifecycleManager:
 
             memories_text = "\n".join(
                 f"- ID={m.id} | type={m.type.value} | score={m.importance_score:.2f} "
-                f"| subject={m.subject or ''} | content={m.content}"
+                f"| cited={m.access_count} | subject={m.subject or ''} | content={m.content}"
                 for m in batch
             )
 
@@ -531,6 +536,107 @@ class LifecycleManager:
         return report
 
     # ==================================================================
+    # Experience Synthesis (归纳经验记忆为通用原则)
+    # ==================================================================
+
+    EXPERIENCE_SYNTHESIS_PROMPT = """你是经验归纳专家。以下是近期积累的具体经验/教训/技能记忆。
+请判断其中是否有多条经验可以归纳为一条**更通用的原则**。
+
+## 经验记忆列表
+
+{experience_memories}
+
+## 归纳规则
+
+- 如果 2+ 条经验描述的是同一类问题的不同方面，归纳为一条通用原则
+- 归纳后的原则应该比原始经验更抽象、更具指导性
+- 不要强行归纳不相关的经验
+- 如果没有可归纳的，输出空数组
+
+## 输出格式
+
+[
+  {{
+    "synthesized_from": ["源记忆ID1", "源记忆ID2"],
+    "content": "归纳后的通用原则",
+    "subject": "主题",
+    "predicate": "经验类型",
+    "importance": 0.8-1.0
+  }}
+]
+
+只输出 JSON 数组。如果没有可归纳的经验，输出 []。"""
+
+    async def synthesize_experiences(self) -> int:
+        """Synthesize specific experience memories into general principles."""
+        import json
+        import re
+
+        exp_types = {MemoryType.EXPERIENCE.value, MemoryType.SKILL.value, MemoryType.ERROR.value}
+        all_mems = self.store.load_all_memories()
+        experiences = [m for m in all_mems if m.type.value in exp_types]
+
+        if len(experiences) < 3:
+            return 0
+
+        if not self.extractor or not self.extractor.brain:
+            return 0
+
+        exp_text = "\n".join(
+            f"- ID={m.id} | type={m.type.value} | cited={m.access_count} | content={m.content}"
+            for m in experiences[:30]
+        )
+
+        prompt = self.EXPERIENCE_SYNTHESIS_PROMPT.format(experience_memories=exp_text)
+
+        try:
+            response = await self.extractor.brain.think(
+                prompt, system="你是经验归纳专家。只输出 JSON 数组。",
+            )
+            text = (getattr(response, "content", None) or str(response)).strip()
+            json_match = re.search(r"\[[\s\S]*\]", text)
+            if not json_match:
+                return 0
+
+            syntheses = json.loads(json_match.group())
+            if not isinstance(syntheses, list):
+                return 0
+
+            saved = 0
+            for synth in syntheses:
+                if not isinstance(synth, dict):
+                    continue
+                content = (synth.get("content") or "").strip()
+                source_ids = synth.get("synthesized_from", [])
+                if len(content) < 10 or len(source_ids) < 2:
+                    continue
+
+                mem = SemanticMemory(
+                    type=MemoryType.EXPERIENCE,
+                    priority=MemoryPriority.LONG_TERM,
+                    content=content,
+                    source="experience_synthesis",
+                    subject=(synth.get("subject") or "").strip(),
+                    predicate=(synth.get("predicate") or "").strip(),
+                    importance_score=min(1.0, max(0.7, float(synth.get("importance", 0.85)))),
+                    confidence=0.8,
+                )
+                self.store.save_semantic(mem)
+                saved += 1
+
+                # Mark source memories as superseded
+                for sid in source_ids:
+                    self.store.update_semantic(sid, {"superseded_by": mem.id})
+
+            if saved:
+                logger.info(f"[Lifecycle] Synthesized {saved} experience principles from {len(experiences)} memories")
+            return saved
+
+        except Exception as e:
+            logger.error(f"[Lifecycle] Experience synthesis failed: {e}")
+            return 0
+
+    # ==================================================================
     # Refresh MEMORY.md (post-review, no keyword filter needed)
     # ==================================================================
 
@@ -549,6 +655,7 @@ class LifecycleManager:
             "fact": "事实",
             "error": "教训",
             "skill": "技能",
+            "experience": "经验",
         }
 
         total_chars = 0

@@ -31,6 +31,7 @@ class MemoryType(Enum):
     RULE = "rule"
     ERROR = "error"
     PERSONA_TRAIT = "persona_trait"
+    EXPERIENCE = "experience"  # 任务经验教训（可复用的流程/方法/踩坑总结）
 
 
 class MemoryPriority(Enum):

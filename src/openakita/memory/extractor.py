@@ -316,19 +316,155 @@ duration 参考:
 - 对话中多次提到同一信息只提取一次
 - 绝大部分对话不需要记录任何信息，输出 NONE 是最常见的正确答案"""
 
+    EXPERIENCE_EXTRACTION_PROMPT = """回顾整段对话，判断是否包含值得总结的**任务经验或教训**。
+
+## 完整对话
+{conversation}
+
+### 核心原则：提取「可复用的经验」，而非「任务本身」
+
+经验记忆存的是「做某类事情应该怎么做/不该怎么做」，不是「这次做了什么」。
+
+判断标准：「下次遇到类似任务时，这条经验能帮助少走弯路吗？」
+- "Docker 命令前必须先确认 Docker Desktop 已启动" → 有用 → 记录
+- "这次帮用户下载了3张图片" → 没用（只是任务执行记录） → 不记录
+
+### 值得记录的
+- 踩坑教训：某个操作导致失败的原因和避免方法
+- 有效方法：解决某类问题的最佳实践
+- 工具使用经验：哪个工具在什么场景下更合适
+- 流程优化：任务执行中发现的更好方式
+- 环境注意事项：特定环境下需要注意的配置或限制
+
+### 绝对不要记录的
+- 任务执行报告：「成功完成XX」「帮用户做了XX」
+- 具体的文件路径、URL、参数值
+- 一次性操作的细节
+- 用户身份信息（那属于用户画像记忆，不在此处提取）
+
+对于每条值得记录的经验，用 JSON 输出:
+[
+  {{
+    "type": "EXPERIENCE|SKILL|ERROR",
+    "subject": "经验主题 (什么类型的任务/问题)",
+    "predicate": "经验属性 (最佳实践/踩坑教训/工具经验/...)",
+    "content": "简练描述经验教训（可直接指导下次操作）",
+    "importance": 0.5-1.0,
+    "duration": "permanent|7d"
+  }}
+]
+
+如果没有值得记录的经验，只输出: NONE
+
+注意:
+- 最多输出 2 条（宁少勿多）
+- 只记录可泛化的经验，不记录一次性操作"""
+
+    CITATION_SCORING_SECTION = """
+
+## 本次对话中检索过的记忆（请评分）
+
+以下是本次对话中被检索到的历史记忆，请逐条评判它对本次任务是否有实际帮助：
+{cited_memories}
+
+在你的 JSON 输出中，增加一个 "citation_scores" 字段：
+"citation_scores": [
+  {{"memory_id": "xxx", "useful": true/false}}
+]
+如果该记忆确实帮助了本次任务的执行（提供了有用的信息、避免了错误等），标记 useful=true。
+如果该记忆与本次任务无关或没有实际帮助，标记 useful=false。"""
+
     async def extract_from_conversation(
         self,
         turns: list[ConversationTurn],
-    ) -> list[dict]:
-        """
-        会话结束时，从完整对话中提取值得长期保存的记忆。
-        LLM 看到完整上下文后自行判断是否需要提取。
+        cited_memories: list[dict] | None = None,
+    ) -> tuple[list[dict], list[dict]]:
+        """Extract memories from conversation + score cited memories.
+
+        Returns:
+            (extracted_items, citation_scores)
+            - extracted_items: list of memory dicts to save
+            - citation_scores: list of {memory_id, useful} dicts
         """
         if not self.brain or not turns:
-            return []
+            return [], []
 
         user_turns = [t for t in turns if t.role == "user" and t.content and len(t.content.strip()) >= 10]
         if not user_turns:
+            return [], []
+
+        conv_lines = []
+        for t in turns[-30:]:
+            role_label = "用户" if t.role == "user" else "助手"
+            content = (t.content or "")[:500]
+            if content.strip():
+                conv_lines.append(f"[{role_label}]: {content}")
+            tool_ctx = self._build_tool_context(t.tool_calls, t.tool_results)
+            if tool_ctx:
+                conv_lines.append(tool_ctx)
+
+        if not conv_lines:
+            return [], []
+
+        conversation = "\n".join(conv_lines)
+        prompt = self.CONVERSATION_EXTRACTION_PROMPT.format(conversation=conversation)
+
+        has_citations = cited_memories and len(cited_memories) > 0
+        if has_citations:
+            cited_text = "\n".join(
+                f"- ID={m['id']} | {m.get('content', '')[:150]}"
+                for m in cited_memories
+            )
+            prompt += self.CITATION_SCORING_SECTION.format(cited_memories=cited_text)
+            prompt += "\n\n最终输出格式: {\"memories\": [...], \"citation_scores\": [...]}\n如果没有要提取的记忆，memories 为空数组。只输出 JSON。"
+            system_msg = "你是记忆提取+评分专家。输出 JSON 对象，包含 memories 和 citation_scores 两个字段。"
+        else:
+            system_msg = "你是记忆提取专家。只输出 NONE 或 JSON 数组。"
+
+        try:
+            response = await self._call_brain_main(prompt, system=system_msg)
+            text = (getattr(response, "content", None) or str(response)).strip()
+
+            if not has_citations:
+                if "NONE" in text.upper() or not text:
+                    return [], []
+                return self._parse_memory_list(text), []
+
+            json_match = re.search(r"\{[\s\S]*\}", text)
+            if not json_match:
+                return self._parse_memory_list(text), []
+
+            data = json.loads(json_match.group())
+            if not isinstance(data, dict):
+                return self._parse_memory_list(text), []
+
+            items = self._parse_memory_items(data.get("memories", []))
+            scores = [
+                s for s in data.get("citation_scores", [])
+                if isinstance(s, dict) and "memory_id" in s
+            ]
+
+            if items:
+                logger.info(f"[Extractor] Conversation extraction: {len(items)} items from {len(turns)} turns")
+            if scores:
+                useful_count = sum(1 for s in scores if s.get("useful"))
+                logger.info(f"[Extractor] Citation scoring: {useful_count}/{len(scores)} marked useful")
+            return items, scores
+
+        except Exception as e:
+            logger.error(f"[Extractor] Conversation extraction failed: {e}")
+            return [], []
+
+    async def extract_experience_from_conversation(
+        self,
+        turns: list[ConversationTurn],
+    ) -> list[dict]:
+        """Extract task experience/lessons from conversation (separate from user profile)."""
+        if not self.brain or not turns:
+            return []
+
+        assistant_turns = [t for t in turns if t.role == "assistant" and t.content]
+        if len(assistant_turns) < 2:
             return []
 
         conv_lines = []
@@ -345,57 +481,61 @@ duration 参考:
             return []
 
         conversation = "\n".join(conv_lines)
-        prompt = self.CONVERSATION_EXTRACTION_PROMPT.format(conversation=conversation)
+        prompt = self.EXPERIENCE_EXTRACTION_PROMPT.format(conversation=conversation)
 
         try:
             response = await self._call_brain_main(
-                prompt, system="你是记忆提取专家。只输出 NONE 或 JSON 数组。",
+                prompt, system="你是任务经验总结专家。只输出 NONE 或 JSON 数组。",
             )
-
             text = (getattr(response, "content", None) or str(response)).strip()
             if "NONE" in text.upper() or not text:
                 return []
+            return self._parse_memory_list(text)
+        except Exception as e:
+            logger.error(f"[Extractor] Experience extraction failed: {e}")
+            return []
 
-            json_match = re.search(r"\[[\s\S]*\]", text)
-            if not json_match:
-                return []
-
+    def _parse_memory_list(self, text: str) -> list[dict]:
+        """Parse a JSON array of memory items from LLM output."""
+        json_match = re.search(r"\[[\s\S]*\]", text)
+        if not json_match:
+            return []
+        try:
             data = json.loads(json_match.group())
             if not isinstance(data, list):
                 return []
-
-            results = []
-            for item in data:
-                if not isinstance(item, dict):
-                    continue
-                c = (item.get("content") or "").strip()
-                if len(c) < 5:
-                    continue
-                mem_type = (item.get("type") or "FACT").upper()
-                duration = (item.get("duration") or "").strip()
-                if duration not in ("permanent", "7d", "24h", "session"):
-                    duration = {
-                        "RULE": "24h", "PREFERENCE": "permanent",
-                        "SKILL": "permanent", "ERROR": "7d", "FACT": "permanent",
-                    }.get(mem_type, "permanent")
-                results.append({
-                    "type": mem_type,
-                    "subject": (item.get("subject") or "").strip(),
-                    "predicate": (item.get("predicate") or "").strip(),
-                    "content": c,
-                    "importance": min(1.0, max(0.3, float(item.get("importance", 0.5)))),
-                    "duration": duration,
-                    "is_update": bool(item.get("is_update", False)),
-                    "update_hint": "",
-                })
-
-            if results:
-                logger.info(f"[Extractor] Conversation extraction: {len(results)} items from {len(turns)} turns")
-            return results
-
-        except Exception as e:
-            logger.error(f"[Extractor] Conversation extraction failed: {e}")
+            return self._parse_memory_items(data)
+        except (json.JSONDecodeError, ValueError):
             return []
+
+    def _parse_memory_items(self, items: list) -> list[dict]:
+        """Normalize a list of raw memory dicts."""
+        results = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            c = (item.get("content") or "").strip()
+            if len(c) < 5:
+                continue
+            mem_type = (item.get("type") or "FACT").upper()
+            duration = (item.get("duration") or "").strip()
+            if duration not in ("permanent", "7d", "24h", "session"):
+                duration = {
+                    "RULE": "24h", "PREFERENCE": "permanent",
+                    "SKILL": "permanent", "ERROR": "7d", "FACT": "permanent",
+                    "EXPERIENCE": "permanent",
+                }.get(mem_type, "permanent")
+            results.append({
+                "type": mem_type,
+                "subject": (item.get("subject") or "").strip(),
+                "predicate": (item.get("predicate") or "").strip(),
+                "content": c,
+                "importance": min(1.0, max(0.3, float(item.get("importance", 0.5)))),
+                "duration": duration,
+                "is_update": bool(item.get("is_update", False)),
+                "update_hint": "",
+            })
+        return results
 
     def _build_tool_context(
         self,
