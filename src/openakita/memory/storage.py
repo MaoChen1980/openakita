@@ -263,6 +263,17 @@ class MemoryStorage:
         c.execute("CREATE INDEX IF NOT EXISTS idx_eq_status ON extraction_queue(status)")
         try:
             c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_eq_session_turn ON extraction_queue(session_id, turn_index)")
+        except sqlite3.IntegrityError:
+            # 已有重复 (session_id, turn_index) 数据，先去重再建索引
+            logger.warning("[MemoryStorage] extraction_queue has duplicate (session_id, turn_index), deduplicating...")
+            c.execute("""
+                DELETE FROM extraction_queue
+                WHERE id NOT IN (
+                    SELECT MAX(id) FROM extraction_queue
+                    GROUP BY session_id, turn_index
+                )
+            """)
+            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_eq_session_turn ON extraction_queue(session_id, turn_index)")
         except sqlite3.OperationalError:
             pass
 
