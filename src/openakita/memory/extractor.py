@@ -217,7 +217,7 @@ duration 参考:
         )
 
         try:
-            response = await self._call_brain(
+            response = await self._call_brain_main(
                 prompt, system="你是记忆提取专家。只输出 NONE 或 JSON 数组。",
             )
 
@@ -267,6 +267,134 @@ duration 参考:
 
         except Exception as e:
             logger.error(f"[Extractor v2] Extraction failed: {e}")
+            return []
+
+    CONVERSATION_EXTRACTION_PROMPT = """回顾整段对话，判断是否包含值得长期记住的用户信息。
+
+## 完整对话
+{conversation}
+
+### 核心原则：区分「用户是谁」和「用户要做什么」
+
+**记忆只存「用户是谁」**（身份、性格、长期偏好），**不存「用户要做什么」**（任务、指令、请求）。
+
+判断标准：「这条信息在一个月后的新对话中还有用吗？」
+- "用户喜欢简洁风格" → 有用 → 记录
+- "用户需要苹果照片" → 没用（那是当时的任务） → 不记录
+
+### 值得记录的
+- 用户身份：名字、称呼、职业、时区
+- 用户长期偏好：沟通风格、语言习惯、审美取向、通知渠道偏好
+- 行为规则：用户对 AI 行为的持久要求
+- 技术环境：常用技术栈、开发工具、OS 信息
+- 可复用经验：解决特定类型问题的通用方法
+- 失败教训：需要长期避免的操作模式
+
+### 绝对不要记录的
+- 一次性任务请求：「下载X」「搜索Y」「帮我找Z」「整理XX」
+- 任务产物细节：文件大小、路径、下载链接
+- 临时性需求：「需要XX照片」「希望获取XX」
+- 打招呼、寒暄、确认、感谢
+- AI 的回复内容、任务完成报告
+
+对于每条值得记录的信息，用 JSON 输出:
+[
+  {{
+    "type": "FACT|PREFERENCE|RULE|SKILL|ERROR",
+    "subject": "实体主语 (谁/什么)",
+    "predicate": "属性/关系 (偏好/版本/位于/...)",
+    "content": "完整描述（精炼表达，不照抄原文）",
+    "importance": 0.5-1.0,
+    "duration": "permanent|7d|24h|session"
+  }}
+]
+
+如果没有值得记录的信息，只输出: NONE
+
+注意:
+- 最多输出 3 条记忆（宁少勿多）
+- 对话中多次提到同一信息只提取一次
+- 绝大部分对话不需要记录任何信息，输出 NONE 是最常见的正确答案"""
+
+    async def extract_from_conversation(
+        self,
+        turns: list[ConversationTurn],
+    ) -> list[dict]:
+        """
+        会话结束时，从完整对话中提取值得长期保存的记忆。
+        LLM 看到完整上下文后自行判断是否需要提取。
+        """
+        if not self.brain or not turns:
+            return []
+
+        user_turns = [t for t in turns if t.role == "user" and t.content and len(t.content.strip()) >= 10]
+        if not user_turns:
+            return []
+
+        conv_lines = []
+        for t in turns[-30:]:
+            role_label = "用户" if t.role == "user" else "助手"
+            content = (t.content or "")[:500]
+            if content.strip():
+                conv_lines.append(f"[{role_label}]: {content}")
+            tool_ctx = self._build_tool_context(t.tool_calls, t.tool_results)
+            if tool_ctx:
+                conv_lines.append(tool_ctx)
+
+        if not conv_lines:
+            return []
+
+        conversation = "\n".join(conv_lines)
+        prompt = self.CONVERSATION_EXTRACTION_PROMPT.format(conversation=conversation)
+
+        try:
+            response = await self._call_brain_main(
+                prompt, system="你是记忆提取专家。只输出 NONE 或 JSON 数组。",
+            )
+
+            text = (getattr(response, "content", None) or str(response)).strip()
+            if "NONE" in text.upper() or not text:
+                return []
+
+            json_match = re.search(r"\[[\s\S]*\]", text)
+            if not json_match:
+                return []
+
+            data = json.loads(json_match.group())
+            if not isinstance(data, list):
+                return []
+
+            results = []
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                c = (item.get("content") or "").strip()
+                if len(c) < 5:
+                    continue
+                mem_type = (item.get("type") or "FACT").upper()
+                duration = (item.get("duration") or "").strip()
+                if duration not in ("permanent", "7d", "24h", "session"):
+                    duration = {
+                        "RULE": "24h", "PREFERENCE": "permanent",
+                        "SKILL": "permanent", "ERROR": "7d", "FACT": "permanent",
+                    }.get(mem_type, "permanent")
+                results.append({
+                    "type": mem_type,
+                    "subject": (item.get("subject") or "").strip(),
+                    "predicate": (item.get("predicate") or "").strip(),
+                    "content": c,
+                    "importance": min(1.0, max(0.3, float(item.get("importance", 0.5)))),
+                    "duration": duration,
+                    "is_update": bool(item.get("is_update", False)),
+                    "update_hint": "",
+                })
+
+            if results:
+                logger.info(f"[Extractor] Conversation extraction: {len(results)} items from {len(turns)} turns")
+            return results
+
+        except Exception as e:
+            logger.error(f"[Extractor] Conversation extraction failed: {e}")
             return []
 
     def _build_tool_context(
@@ -515,7 +643,7 @@ duration 参考:
                 context=context_text,
             )
 
-            response = await self._call_brain(
+            response = await self._call_brain_main(
                 prompt,
                 system="你是记忆提取专家。只输出 NONE 或 JSON 数组，不要其他内容。",
             )
@@ -544,6 +672,13 @@ duration 参考:
                 return await think_lw(prompt, **kwargs)
             except Exception:
                 pass
+        return await self.brain.think(prompt, **kwargs)
+
+    async def _call_brain_main(self, prompt: str, system: str = "", max_tokens: int | None = None):
+        """Always use main model — for critical tasks like memory extraction."""
+        kwargs: dict = {"system": system} if system else {}
+        if max_tokens:
+            kwargs["max_tokens"] = max_tokens
         return await self.brain.think(prompt, **kwargs)
 
     def extract_from_turn(self, turn: ConversationTurn) -> list[Memory]:

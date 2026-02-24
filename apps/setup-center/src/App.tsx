@@ -12,6 +12,7 @@ import { IMView } from "./views/IMView";
 import { TokenStatsView } from "./views/TokenStatsView";
 import { MCPView } from "./views/MCPView";
 import { SchedulerView } from "./views/SchedulerView";
+import { MemoryView } from "./views/MemoryView";
 import { FeedbackModal } from "./views/FeedbackModal";
 import type { EndpointSummary as EndpointSummaryType } from "./types";
 import {
@@ -21,7 +22,7 @@ import {
   IconEdit, IconTrash, IconEye, IconEyeOff, IconInfo, IconClipboard,
   DotGreen, DotGray, DotYellow, DotRed,
   IconBook, IconZap, IconGear, IconMoon, IconSun, IconLaptop, IconPlug, IconCalendar,
-  IconBug,
+  IconBug, IconBrain,
   LogoTelegram, LogoFeishu, LogoWework, LogoDingtalk, LogoQQ,
 } from "./icons";
 import logoUrl from "./assets/logo.png";
@@ -926,7 +927,7 @@ export function App() {
     [configMode, t],
   );
 
-  const [view, setView] = useState<"wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats" | "mcp" | "scheduler">("wizard");
+  const [view, setView] = useState<"wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats" | "mcp" | "scheduler" | "memory">("wizard");
   const [appInitializing, setAppInitializing] = useState(true); // 首次加载检测中，防止闪烁
   const [configExpanded, setConfigExpanded] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -8870,6 +8871,20 @@ export function App() {
         </div>
       );
     }
+    if (view === "memory") {
+      return (
+        <div>
+          {_disableToggle("memory", "记忆管理")}
+          {disabledViews.includes("memory") ? (
+            <div className="card" style={{ opacity: 0.5, textAlign: "center", padding: 40 }}>
+              <p style={{ color: "#94a3b8", fontSize: 15 }}>此模块已禁用，点击上方开关启用</p>
+            </div>
+          ) : (
+            <MemoryView serviceRunning={serviceStatus?.running ?? false} />
+          )}
+        </div>
+      );
+    }
     if (view === "modules") {
       return (
         <div>
@@ -9110,6 +9125,9 @@ export function App() {
           </div>
           <div className={`navItem ${view === "scheduler" ? "navItemActive" : ""}`} onClick={() => setView("scheduler")} role="button" tabIndex={0} title={t("sidebar.scheduler")} style={disabledViews.includes("scheduler") ? { opacity: 0.4 } : undefined}>
             <IconCalendar size={16} /> {!sidebarCollapsed && <span>{t("sidebar.scheduler")} <sup style={{ fontSize: 9, color: "var(--primary, #3b82f6)", fontWeight: 600 }}>Beta</sup></span>}
+          </div>
+          <div className={`navItem ${view === "memory" ? "navItemActive" : ""}`} onClick={() => setView("memory")} role="button" tabIndex={0} title="记忆管理" style={disabledViews.includes("memory") ? { opacity: 0.4 } : undefined}>
+            <IconBrain size={16} /> {!sidebarCollapsed && <span>记忆管理</span>}
           </div>
           <div className={`navItem ${view === "modules" ? "navItemActive" : ""}`} onClick={() => { setView("modules"); obLoadModules(); }} role="button" tabIndex={0} title={t("sidebar.modules")} style={disabledViews.includes("modules") ? { opacity: 0.4 } : undefined}>
             <IconGear size={16} /> {!sidebarCollapsed && <span>{t("sidebar.modules")}</span>}

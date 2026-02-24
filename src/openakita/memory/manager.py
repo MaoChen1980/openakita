@@ -223,7 +223,6 @@ class MemoryManager:
         self._current_session_id = session_id
         self._session_turns = []
         self._recent_messages = []
-        self._extraction_count = 0
         try:
             self._turn_offset = self.store.get_max_turn_index(session_id)
         except Exception:
@@ -291,44 +290,33 @@ class MemoryManager:
         if self._current_session_id:
             self.consolidator.save_conversation_turn(self._current_session_id, turn)
 
-        # Async extraction (user messages only, with frequency control)
-        _extraction_limit = 5
-        _min_content_len = 30
-        if (
-            role == "user"
-            and len(content) >= _min_content_len
-            and getattr(self, "_extraction_count", 0) < _extraction_limit
-        ):
-            try:
-                loop = asyncio.get_running_loop()
-                _session_id = self._current_session_id
-                _turn_index = len(self._session_turns) - 1
+    async def extract_on_topic_change(self) -> int:
+        """主题切换时，从已积累的对话中提取记忆，然后重置 turns 缓冲。
 
-                async def _extract_and_add() -> None:
-                    try:
-                        items = await self.extractor.extract_from_turn_v2(turn)
-                        if items:
-                            for item in items:
-                                self._save_extracted_item(item)
-                            logger.info(f"[Memory] v2 extraction: {len(items)} items")
-                    except Exception as e:
-                        logger.warning(f"[Memory] Extraction failed (isolated): {e}")
-                        self._safe_enqueue_extraction(
-                            _session_id, _turn_index, content, tool_calls, tool_results
-                        )
-                    finally:
-                        self._pending_tasks.discard(task)
+        Returns:
+            提取并保存的记忆条数
+        """
+        turns = list(self._session_turns)
+        if len(turns) < 3:
+            return 0
 
-                task = loop.create_task(_extract_and_add())
-                self._pending_tasks.add(task)
-                self._extraction_count = getattr(self, "_extraction_count", 0) + 1
-            except RuntimeError:
-                pass
-            except Exception as e:
-                logger.warning(f"[Memory] Extraction scheduling failed: {e}")
+        try:
+            items = await self.extractor.extract_from_conversation(turns)
+            saved = 0
+            for item in items:
+                await self._save_extracted_item(item)
+                saved += 1
+            if saved:
+                logger.info(f"[Memory] Topic-change extraction: {saved} items saved from {len(turns)} turns")
+            # Reset turn buffer — new topic starts fresh
+            self._session_turns.clear()
+            return saved
+        except Exception as e:
+            logger.warning(f"[Memory] Topic-change extraction failed: {e}")
+            return 0
 
-    def _save_extracted_item(self, item: dict, episode_id: str | None = None) -> None:
-        """Save a v2 extracted item as SemanticMemory."""
+    async def _save_extracted_item(self, item: dict, episode_id: str | None = None) -> None:
+        """Save a v2 extracted item as SemanticMemory, with multi-layer dedup."""
         type_map = {
             "PREFERENCE": MemoryType.PREFERENCE,
             "FACT": MemoryType.FACT,
@@ -339,6 +327,7 @@ class MemoryManager:
         }
         mem_type = type_map.get(item.get("type", "FACT"), MemoryType.FACT)
         importance = item.get("importance", 0.5)
+        content = item.get("content", "").strip()
 
         if importance >= 0.85 or mem_type == MemoryType.RULE:
             priority = MemoryPriority.PERMANENT
@@ -347,25 +336,55 @@ class MemoryManager:
         else:
             priority = MemoryPriority.SHORT_TERM
 
-        # v2: always check for existing memory with same subject+predicate
+        # Dedup layer 1: exact subject+predicate match → update existing
         subject = item.get("subject", "")
         predicate = item.get("predicate", "")
         if subject and predicate:
             existing = self.store.find_similar(subject, predicate)
             if existing:
                 self.store.update_semantic(existing.id, {
-                    "content": item["content"],
+                    "content": content,
                     "importance_score": max(existing.importance_score, importance),
                 })
+                logger.debug(f"[Memory] Dedup L1: updated {existing.id[:8]} (subject+predicate)")
                 return
+
+        # Dedup layer 2: content similarity search
+        if content and len(content) >= 10:
+            try:
+                similar = self.store.search_semantic(content, limit=5)
+                for s in similar:
+                    existing_content = (s.content or "").strip()
+                    dup_level = self._fast_dedup_check(content, existing_content)
+
+                    if dup_level == "exact":
+                        if importance > s.importance_score:
+                            self.store.update_semantic(s.id, {"importance_score": importance})
+                        logger.debug(f"[Memory] Dedup L2: exact match {s.id[:8]}")
+                        return
+
+                    if dup_level == "likely":
+                        is_dup = await self._check_duplicate_with_llm(content, existing_content)
+                        if is_dup:
+                            if importance > s.importance_score:
+                                self.store.update_semantic(s.id, {
+                                    "content": content,
+                                    "importance_score": importance,
+                                })
+                                logger.debug(f"[Memory] Dedup L2: LLM confirmed dup, upgraded {s.id[:8]}")
+                            else:
+                                logger.debug(f"[Memory] Dedup L2: LLM confirmed dup, skipped")
+                            return
+            except Exception as e:
+                logger.debug(f"[Memory] Dedup search failed: {e}")
 
         mem = SemanticMemory(
             type=mem_type,
             priority=priority,
-            content=item["content"],
-            source="realtime_extraction",
-            subject=item.get("subject", ""),
-            predicate=item.get("predicate", ""),
+            content=content,
+            source="session_extraction",
+            subject=subject,
+            predicate=predicate,
             importance_score=importance,
             source_episode_id=episode_id,
             tags=[item.get("type", "fact").lower()],
@@ -373,33 +392,61 @@ class MemoryManager:
         _apply_retention(mem, item.get("duration"))
         self.store.save_semantic(mem)
 
-        # v1 compat: also save to in-memory cache
         with self._memories_lock:
             self._memories[mem.id] = mem
             self._save_memories()
 
+    @staticmethod
+    def _fast_dedup_check(new: str, existing: str) -> str:
+        """Fast local dedup: returns 'exact', 'likely', or 'no'.
+
+        - exact: definitely duplicate (skip without LLM)
+        - likely: might be duplicate (needs LLM confirmation)
+        - no: not duplicate
+        """
+        if not new or not existing:
+            return "no"
+        a, b = new.lower().strip(), existing.lower().strip()
+        if a == b:
+            return "exact"
+        if len(a) > 15 and len(b) > 15 and (a in b or b in a):
+            return "exact"
+        if len(a) >= 10 and len(b) >= 10:
+            bigrams_a = {a[i:i+2] for i in range(len(a) - 1)}
+            bigrams_b = {b[i:i+2] for i in range(len(b) - 1)}
+            if bigrams_a and bigrams_b:
+                overlap = len(bigrams_a & bigrams_b) / len(bigrams_a | bigrams_b)
+                if overlap > 0.8:
+                    return "exact"
+                if overlap > 0.3:
+                    return "likely"
+        return "no"
+
+    async def _check_duplicate_with_llm(self, new_content: str, existing_content: str) -> bool:
+        """Ask LLM whether two memory entries are semantically the same."""
+        brain = getattr(self.extractor, "brain", None)
+        if not brain:
+            return False
+        try:
+            resp = await brain.think(
+                f"判断这两条记忆是否表达相同的信息（语义重复）。\n"
+                f"记忆A: {new_content}\n"
+                f"记忆B: {existing_content}\n\n"
+                f"只回答 YES 或 NO。",
+                system="你是记忆去重判断器。如果两条记忆表达的核心信息相同（即使措辞不同），回答YES。否则回答NO。只输出一个词。",
+            )
+            text = (getattr(resp, "content", None) or str(resp)).strip().upper()
+            return "YES" in text and "NO" not in text
+        except Exception:
+            return False
+
     def end_session(
         self, task_description: str = "", success: bool = True, errors: list | None = None
     ) -> None:
-        """结束会话 (v2: 生成 Episode + 更新 Scratchpad)"""
+        """结束会话: 生成 Episode + 从完整对话中提取记忆（去重后保存）"""
         if not self._current_session_id:
             return
 
-        # v1: task completion extraction
-        tool_calls = []
-        for turn in self._session_turns:
-            tool_calls.extend(turn.tool_calls)
-
-        memories = self.extractor.extract_from_task_completion(
-            task_description=task_description,
-            success=success,
-            tool_calls=tool_calls,
-            errors=errors or [],
-        )
-        for memory in memories:
-            self.add_memory(memory)
-
-        # v2: Generate episode + update scratchpad (async, with tracking)
         session_id = self._current_session_id
         turns = list(self._session_turns)
 
@@ -408,6 +455,7 @@ class MemoryManager:
 
             async def _finalize_session():
                 try:
+                    # 1. Generate episode summary
                     episode = await self.extractor.generate_episode(
                         turns, session_id, source="session_end"
                     )
@@ -415,22 +463,21 @@ class MemoryManager:
                         self.store.save_episode(episode)
                         logger.info(f"[Memory] Session finalized: episode saved")
                 except Exception as e:
-                    logger.warning(f"[Memory] Session finalization failed: {e}")
+                    logger.warning(f"[Memory] Episode generation failed: {e}")
 
-                # Drain pending extraction_queue items
+                # 2. Extract memories from full conversation (LLM judges what to keep)
                 try:
-                    from .lifecycle import LifecycleManager
-                    from ..config import settings
-                    lm = LifecycleManager(
-                        store=self.store,
-                        extractor=self.extractor,
-                        identity_dir=settings.identity_path,
-                    )
-                    await lm.process_unextracted_turns()
+                    items = await self.extractor.extract_from_conversation(turns)
+                    saved = 0
+                    for item in items:
+                        await self._save_extracted_item(item, episode_id=episode.id if episode else None)
+                        saved += 1
+                    if saved:
+                        logger.info(f"[Memory] Session extraction: {saved}/{len(items)} items saved (deduped)")
                 except Exception as e:
-                    logger.debug(f"[Memory] extraction_queue drain failed: {e}")
-                finally:
-                    self._pending_tasks.discard(task)
+                    logger.warning(f"[Memory] Session extraction failed: {e}")
+
+                self._pending_tasks.discard(task)
 
             task = loop.create_task(_finalize_session())
             self._pending_tasks.add(task)
@@ -443,7 +490,7 @@ class MemoryManager:
         except Exception:
             pass
 
-        logger.info(f"Ended session {session_id}: {len(memories)} memories extracted")
+        logger.info(f"Ended session {session_id}: finalization scheduled")
         self._current_session_id = None
         self._session_turns = []
 

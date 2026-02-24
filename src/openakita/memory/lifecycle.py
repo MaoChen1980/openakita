@@ -457,7 +457,8 @@ class LifecycleManager:
             prompt = self.MEMORY_REVIEW_PROMPT.format(memories_text=memories_text)
 
             try:
-                response = await self.extractor._call_brain(
+                # Memory review is critical — use main model, not think_lightweight
+                response = await self.extractor.brain.think(
                     prompt,
                     system="你是记忆质量审查专家。只输出 JSON 数组。",
                 )

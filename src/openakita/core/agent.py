@@ -3076,6 +3076,13 @@ search_github → install_skill → 使用
                     f"[Session:{session_id}] Topic change detected, "
                     f"inserted context boundary"
                 )
+                # Extract memories from the previous topic before starting new one
+                try:
+                    saved = await self.memory_manager.extract_on_topic_change()
+                    if saved:
+                        logger.info(f"[Session:{session_id}] Topic-change extraction: {saved} memories")
+                except Exception as _tc_err:
+                    logger.debug(f"[Session:{session_id}] Topic-change extraction failed: {_tc_err}")
 
         # 9.7 同步更新 Scratchpad 当前任务
         _new_task = compiler_summary or message[:200]
