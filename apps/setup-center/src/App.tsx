@@ -9127,7 +9127,7 @@ export function App() {
             <IconCalendar size={16} /> {!sidebarCollapsed && <span>{t("sidebar.scheduler")} <sup style={{ fontSize: 9, color: "var(--primary, #3b82f6)", fontWeight: 600 }}>Beta</sup></span>}
           </div>
           <div className={`navItem ${view === "memory" ? "navItemActive" : ""}`} onClick={() => setView("memory")} role="button" tabIndex={0} title="记忆管理" style={disabledViews.includes("memory") ? { opacity: 0.4 } : undefined}>
-            <IconBrain size={16} /> {!sidebarCollapsed && <span>记忆管理</span>}
+            <IconBrain size={16} /> {!sidebarCollapsed && <span>记忆管理 <sup style={{ fontSize: 9, color: "var(--primary, #3b82f6)", fontWeight: 600 }}>Beta</sup></span>}
           </div>
           <div className={`navItem ${view === "modules" ? "navItemActive" : ""}`} onClick={() => { setView("modules"); obLoadModules(); }} role="button" tabIndex={0} title={t("sidebar.modules")} style={disabledViews.includes("modules") ? { opacity: 0.4 } : undefined}>
             <IconGear size={16} /> {!sidebarCollapsed && <span>{t("sidebar.modules")}</span>}
