@@ -18,24 +18,21 @@ router = APIRouter()
 SKILLS_SH_API = "https://skills.sh/api/search"
 
 
-@router.get("/api/skills")
-async def list_skills(request: Request):
-    """List all available skills with their config schemas.
+def _read_external_allowlist() -> tuple["Path", set[str] | None]:
+    """Read external_allowlist from data/skills.json.
 
-    Returns ALL discovered skills (including disabled ones) with correct
-    ``enabled`` status derived from ``data/skills.json`` allowlist.
+    Returns (base_path, allowlist). allowlist is None when the file doesn't
+    exist or has no external_allowlist key (meaning "all external skills enabled").
     """
     import json
     from pathlib import Path
 
     try:
         from openakita.config import settings
-
         base_path = settings.project_root
     except Exception:
         base_path = Path.cwd()
 
-    # Read external_allowlist from skills.json
     external_allowlist: set[str] | None = None
     try:
         cfg_path = base_path / "data" / "skills.json"
@@ -47,6 +44,52 @@ async def list_skills(request: Request):
                 external_allowlist = {str(x).strip() for x in al if str(x).strip()}
     except Exception:
         pass
+    return base_path, external_allowlist
+
+
+def _apply_allowlist_and_rebuild_catalog(request: Request) -> int:
+    """Re-read skills.json allowlist, prune agent's loader & registry, rebuild catalog.
+
+    Call this after any operation that changes loaded skills or the allowlist.
+    Returns the number of pruned external skills.
+    """
+    from openakita.core.agent import Agent
+
+    agent = getattr(request.app.state, "agent", None)
+    actual_agent = agent
+    if not isinstance(agent, Agent):
+        actual_agent = getattr(agent, "_local_agent", None)
+    if actual_agent is None:
+        return 0
+
+    _, external_allowlist = _read_external_allowlist()
+
+    loader = getattr(actual_agent, "skill_loader", None)
+    removed = 0
+    if loader:
+        effective = loader.compute_effective_allowlist(external_allowlist)
+        removed = loader.prune_external_by_allowlist(effective)
+
+    catalog = getattr(actual_agent, "skill_catalog", None)
+    if catalog:
+        catalog.invalidate_cache()
+        new_text = catalog.generate_catalog()
+        if hasattr(actual_agent, "_skill_catalog_text"):
+            actual_agent._skill_catalog_text = new_text
+
+    return removed
+
+
+@router.get("/api/skills")
+async def list_skills(request: Request):
+    """List all available skills with their config schemas.
+
+    Returns ALL discovered skills (including disabled ones) with correct
+    ``enabled`` status derived from ``data/skills.json`` allowlist.
+    """
+    from pathlib import Path
+
+    base_path, external_allowlist = _read_external_allowlist()
 
     # Load all skills via a fresh SkillLoader (not pruned by allowlist)
     try:
@@ -55,6 +98,7 @@ async def list_skills(request: Request):
         loader = SkillLoader()
         loader.load_all(base_path=base_path)
         all_skills = loader.registry.list_all()
+        effective_allowlist = loader.compute_effective_allowlist(external_allowlist)
     except Exception:
         # Fallback to agent's registry (only enabled skills)
         from openakita.core.agent import Agent
@@ -69,6 +113,7 @@ async def list_skills(request: Request):
         if registry is None:
             return {"skills": []}
         all_skills = registry.list_all()
+        effective_allowlist = external_allowlist
 
     skills = []
     for skill in all_skills:
@@ -78,7 +123,7 @@ async def list_skills(request: Request):
             config = getattr(parsed.metadata, "config", None) or None
 
         is_system = bool(skill.system)
-        is_enabled = is_system or external_allowlist is None or skill.name in external_allowlist
+        is_enabled = is_system or effective_allowlist is None or skill.name in effective_allowlist
 
         # Read install origin (.openakita-source) for marketplace matching
         source_url = None
@@ -121,8 +166,11 @@ async def install_skill(request: Request):
     """安装技能（远程模式替代 Tauri openakita_install_skill 命令）。
 
     POST body: { "url": "github:user/repo/skill" }
+    安装完成后自动重新加载技能并应用 allowlist。
     """
     import asyncio
+
+    from openakita.core.agent import Agent
 
     body = await request.json()
     url = body.get("url", "").strip()
@@ -139,20 +187,37 @@ async def install_skill(request: Request):
     try:
         from openakita.setup_center.bridge import install_skill as _install_skill
 
-        # install_skill 是同步函数（可能执行 git clone），放到线程中避免阻塞事件循环
         await asyncio.to_thread(_install_skill, workspace_dir, url)
-        return {"status": "ok", "url": url}
     except Exception as e:
         logger.error(f"Skill install failed: {e}")
         return {"error": str(e)}
 
+    # 安装成功后：重新加载技能到 agent 运行时，并应用 allowlist
+    try:
+        agent = getattr(request.app.state, "agent", None)
+        actual_agent = agent
+        if not isinstance(agent, Agent):
+            actual_agent = getattr(agent, "_local_agent", None)
+
+        if actual_agent is not None:
+            loader = getattr(actual_agent, "skill_loader", None)
+            if loader:
+                base_path, _ = _read_external_allowlist()
+                loader.load_all(base_path)
+            _apply_allowlist_and_rebuild_catalog(request)
+    except Exception as e:
+        logger.warning(f"Post-install reload failed (skill was installed): {e}")
+
+    return {"status": "ok", "url": url}
+
 
 @router.post("/api/skills/reload")
 async def reload_skills(request: Request):
-    """热重载技能（安装新技能后、修改 SKILL.md 后调用）。
+    """热重载技能（安装新技能后、修改 SKILL.md 后、切换启用/禁用后调用）。
 
     POST body: { "skill_name": "optional-name" }
     如果 skill_name 为空或未提供，则重新扫描并加载所有技能。
+    全量重载后会重新读取 data/skills.json 的 allowlist 并裁剪禁用技能。
     """
     from openakita.core.agent import Agent
 
@@ -174,20 +239,25 @@ async def reload_skills(request: Request):
 
     try:
         if skill_name:
-            # 重载单个技能
             reloaded = loader.reload_skill(skill_name)
             if reloaded:
+                _apply_allowlist_and_rebuild_catalog(request)
                 return {"status": "ok", "reloaded": [skill_name]}
             else:
                 return {"error": f"Skill '{skill_name}' not found or reload failed"}
         else:
-            # 全量重新扫描：让 loader 发现新技能并重新加载
-            from openakita.config import settings
-
-            base_path = getattr(settings, "project_root", None)
+            base_path, _ = _read_external_allowlist()
             loaded_count = loader.load_all(base_path)
+
+            pruned = _apply_allowlist_and_rebuild_catalog(request)
             total = len(registry.list_all())
-            return {"status": "ok", "reloaded": "all", "loaded": loaded_count, "total": total}
+            return {
+                "status": "ok",
+                "reloaded": "all",
+                "loaded": loaded_count,
+                "pruned": pruned,
+                "total": total,
+            }
     except Exception as e:
         logger.error(f"Skill reload failed: {e}")
         return {"error": str(e)}

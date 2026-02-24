@@ -54,6 +54,26 @@ SYSTEM_SKILL_DIRECTORIES = [
     "skills",  # 系统技能也放在 skills/ 目录下，通过 system: true 标记区分
 ]
 
+# 打包时默认不启用的外部技能（新安装 / 无 data/skills.json 时生效）。
+# 用户通过前端面板手动勾选后会创建 skills.json，之后以用户选择为准。
+DEFAULT_DISABLED_SKILLS: frozenset[str] = frozenset({
+    "algorithmic-art",
+    "brand-guidelines",
+    "changelog-generator",
+    "code-reviewer",
+    "frontend-design",
+    "github-automation",
+    "gmail-automation",
+    "google-calendar-automation",
+    "image-understander",
+    "internal-comms",
+    "moltbook",
+    "slack-gif-creator",
+    "theme-factory",
+    "video-downloader",
+    "webapp-testing",
+})
+
 
 class SkillLoader:
     """
@@ -211,6 +231,27 @@ class SkillLoader:
         if skill:
             return skill.body
         return None
+
+    def compute_effective_allowlist(
+        self, external_allowlist: set[str] | None
+    ) -> set[str] | None:
+        """根据 skills.json 的 allowlist 和默认禁用列表，计算最终的有效 allowlist。
+
+        - skills.json 存在且有 external_allowlist -> 直接使用（用户显式选择）
+        - skills.json 不存在（external_allowlist is None）-> 用全部外部技能 - DEFAULT_DISABLED_SKILLS
+        """
+        if external_allowlist is not None:
+            return external_allowlist
+
+        if not DEFAULT_DISABLED_SKILLS:
+            return None
+
+        all_external = {
+            name
+            for name, skill in self._loaded_skills.items()
+            if not getattr(skill.metadata, "system", False)
+        }
+        return all_external - DEFAULT_DISABLED_SKILLS
 
     def prune_external_by_allowlist(self, external_allowlist: set[str] | None) -> int:
         """

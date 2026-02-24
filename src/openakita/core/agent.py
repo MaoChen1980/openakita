@@ -947,8 +947,8 @@ class Agent:
 
         # 外部技能启用/禁用（系统技能永远启用）
         # 配置文件：<workspace>/data/skills.json
-        # - 不存在 / 无 external_allowlist => 外部技能全部启用（兼容历史行为）
-        # - external_allowlist: [] => 禁用所有外部技能
+        # - 存在且有 external_allowlist => 使用用户显式选择
+        # - 不存在 => 应用 DEFAULT_DISABLED_SKILLS 默认禁用列表
         try:
             cfg_path = settings.project_root / "data" / "skills.json"
             external_allowlist: set[str] | None = None
@@ -958,9 +958,10 @@ class Agent:
                 al = cfg.get("external_allowlist", None)
                 if isinstance(al, list):
                     external_allowlist = {str(x).strip() for x in al if str(x).strip()}
-            removed = self.skill_loader.prune_external_by_allowlist(external_allowlist)
+            effective = self.skill_loader.compute_effective_allowlist(external_allowlist)
+            removed = self.skill_loader.prune_external_by_allowlist(effective)
             if removed:
-                logger.info(f"External skills filtered by {cfg_path}")
+                logger.info(f"External skills filtered: {removed} disabled")
         except Exception as e:
             logger.warning(f"Failed to apply skills allowlist: {e}")
 

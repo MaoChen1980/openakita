@@ -67,7 +67,7 @@ class SkillManager:
         loaded = self._loader.load_all(settings.project_root)
         logger.info(f"Loaded {loaded} skills from standard directories")
 
-        # 外部技能 allowlist 过滤
+        # 外部技能 allowlist 过滤（支持 DEFAULT_DISABLED_SKILLS 默认禁用）
         try:
             cfg_path = settings.project_root / "data" / "skills.json"
             external_allowlist: set[str] | None = None
@@ -77,9 +77,10 @@ class SkillManager:
                 al = cfg.get("external_allowlist", None)
                 if isinstance(al, list):
                     external_allowlist = {str(x).strip() for x in al if str(x).strip()}
-            removed = self._loader.prune_external_by_allowlist(external_allowlist)
+            effective = self._loader.compute_effective_allowlist(external_allowlist)
+            removed = self._loader.prune_external_by_allowlist(effective)
             if removed:
-                logger.info(f"External skills filtered by {cfg_path}")
+                logger.info(f"External skills filtered: {removed} disabled")
         except Exception as e:
             logger.warning(f"Failed to apply skills allowlist: {e}")
 
