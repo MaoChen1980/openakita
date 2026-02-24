@@ -221,19 +221,19 @@ export function MemoryView({ serviceRunning }: Props) {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Stats bar */}
       {stats && (
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <div className="card" style={{ flex: 1, minWidth: 100, padding: "12px 16px", textAlign: "center" }}>
-            <div style={{ fontSize: 24, fontWeight: 700, color: "var(--text)" }}>{stats.total}</div>
-            <div style={{ fontSize: 12, color: "var(--muted)" }}>总记忆数</div>
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${2 + Object.keys(stats.by_type).length}, 1fr)`, gap: 10 }}>
+          <div className="card" style={{ padding: "10px 12px", textAlign: "center" }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text)" }}>{stats.total}</div>
+            <div style={{ fontSize: 11, color: "var(--muted)" }}>总记忆数</div>
           </div>
-          <div className="card" style={{ flex: 1, minWidth: 100, padding: "12px 16px", textAlign: "center" }}>
-            <div style={{ fontSize: 24, fontWeight: 700, color: "var(--text)" }}>{stats.avg_score}</div>
-            <div style={{ fontSize: 12, color: "var(--muted)" }}>平均分数</div>
+          <div className="card" style={{ padding: "10px 12px", textAlign: "center" }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text)" }}>{stats.avg_score}</div>
+            <div style={{ fontSize: 11, color: "var(--muted)" }}>平均分数</div>
           </div>
           {Object.entries(stats.by_type).map(([t, c]) => (
-            <div key={t} className="card" style={{ flex: 1, minWidth: 80, padding: "12px 16px", textAlign: "center" }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: TYPE_COLORS[t] || "var(--text)" }}>{c}</div>
-              <div style={{ fontSize: 12, color: "var(--muted)" }}>{TYPE_LABELS[t] || t}</div>
+            <div key={t} className="card" style={{ padding: "10px 12px", textAlign: "center" }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: TYPE_COLORS[t] || "var(--text)" }}>{c}</div>
+              <div style={{ fontSize: 11, color: "var(--muted)" }}>{TYPE_LABELS[t] || t}</div>
             </div>
           ))}
         </div>
@@ -243,7 +243,9 @@ export function MemoryView({ serviceRunning }: Props) {
       <div className="card" style={{ padding: "12px 16px" }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <div style={{ position: "relative", flex: 1, minWidth: 200 }}>
-            <IconSearch size={14} />
+            <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", color: "var(--muted)", pointerEvents: "none", display: "flex" }}>
+              <IconSearch size={14} />
+            </span>
             <input
               type="text"
               placeholder="搜索记忆内容..."

@@ -687,7 +687,7 @@ export function SchedulerView({ serviceRunning }: { serviceRunning: boolean }) {
           {t("scheduler.title")}
         </h2>
         <div style={{ display: "flex", gap: 8 }}>
-          <button className="btnSmall" onClick={fetchTasks} disabled={loading}>
+          <button className="btnSmall" onClick={() => fetchTasks()} disabled={loading}>
             <IconRefresh size={14} /> {t("scheduler.refresh")}
           </button>
           <button className="btn" onClick={openCreate}>
