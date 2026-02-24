@@ -161,19 +161,12 @@ jobs:
             build_mode: "core"
             suffix: ""
           # macOS - Apple Silicon (arm64)
+          # Intel Mac 用户可通过 Rosetta 2 运行 arm64 版本
           - platform: macos-latest
             bundles: "dmg"
             args: ""
             build_mode: "core"
             suffix: ""
-          # macOS - Intel (x86_64) 在 Apple Silicon runner 上通过 Rosetta 2 交叉编译
-          - platform: macos-latest
-            bundles: "dmg"
-            args: "--target x86_64-apple-darwin"
-            build_mode: "core"
-            suffix: "-x86_64"
-            rust_target: "x86_64-apple-darwin"
-            python_arch: "x64"
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -427,7 +420,7 @@ jobs:
   # ── Job 3: 全部成功后发布 Release + 生成 latest.json ──
   publish_release:
     needs: [create_release, python_release, desktop_release]
-    if: ${{ !cancelled() && needs.desktop_release.result == 'success' }}
+    if: ${{ !cancelled() && needs.create_release.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
