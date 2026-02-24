@@ -152,6 +152,16 @@ class MCPHandler:
         if success:
             tools = self.agent.mcp_client.list_tools(server)
             tool_names = [t.name for t in tools]
+
+            if tools:
+                tool_dicts = [
+                    {"name": t.name, "description": t.description,
+                     "input_schema": t.input_schema}
+                    for t in tools
+                ]
+                self.agent.mcp_catalog.sync_tools_from_client(server, tool_dicts)
+                self.agent._mcp_catalog_text = self.agent.mcp_catalog.generate_catalog()
+
             return (
                 f"✅ 已连接到 MCP 服务器: {server}\n"
                 f"发现 {len(tools)} 个工具: {', '.join(tool_names)}"
@@ -186,6 +196,7 @@ class MCPHandler:
         url = params.get("url", "")
         description = params.get("description", name)
         instructions_text = params.get("instructions", "")
+        auto_connect = params.get("auto_connect", False)
 
         if transport == "stdio" and not command:
             return "❌ stdio 模式需要指定 command 参数"
@@ -204,6 +215,7 @@ class MCPHandler:
             "env": env,
             "transport": transport,
             "url": url,
+            "autoConnect": auto_connect,
         }
 
         metadata_file = server_dir / "SERVER_METADATA.json"

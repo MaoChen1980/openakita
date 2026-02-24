@@ -1373,13 +1373,36 @@ class Agent:
             self._mcp_catalog_text = ""
             logger.info("No MCP servers configured")
 
-        # 自动连接（可选）
-        if settings.mcp_auto_connect and total_count > 0:
+        # 按 per-server autoConnect 标志自动连接
+        auto_connect_ids = {
+            s.identifier for s in self.mcp_catalog.servers if s.auto_connect
+        }
+        if auto_connect_ids:
+            synced_any = False
             for server_name in self.mcp_client.list_servers():
+                if server_name not in auto_connect_ids:
+                    continue
                 try:
                     await self.mcp_client.connect(server_name)
+                    logger.info(f"Auto-connected MCP server: {server_name}")
+                    runtime_tools = self.mcp_client.list_tools(server_name)
+                    if runtime_tools:
+                        tool_dicts = [
+                            {"name": t.name, "description": t.description,
+                             "input_schema": t.input_schema}
+                            for t in runtime_tools
+                        ]
+                        count = self.mcp_catalog.sync_tools_from_client(
+                            server_name, tool_dicts,
+                        )
+                        if count > 0:
+                            synced_any = True
                 except Exception as e:
                     logger.warning(f"Auto-connect to MCP server {server_name} failed: {e}")
+
+            if synced_any:
+                self._mcp_catalog_text = self.mcp_catalog.generate_catalog()
+                logger.info("MCP catalog refreshed after auto-connect tool discovery")
 
     async def _start_builtin_mcp_servers(self) -> None:
         """启动内置浏览器服务 (Playwright，独立于 MCP 体系)"""

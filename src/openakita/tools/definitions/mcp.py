@@ -117,6 +117,7 @@ HTTP 模式: add_mcp_server(name="remote-api", transport="streamable_http", url=
                 "url": {"type": "string", "description": "服务 URL (streamable_http 模式必填)"},
                 "description": {"type": "string", "description": "服务器描述 (可选)"},
                 "instructions": {"type": "string", "description": "使用说明文本 (可选，将写入 INSTRUCTIONS.md)"},
+                "auto_connect": {"type": "boolean", "description": "启动时是否自动连接此服务器 (默认 false)", "default": False},
             },
             "required": ["name"],
         },

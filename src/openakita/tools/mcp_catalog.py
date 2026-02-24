@@ -40,6 +40,7 @@ class MCPServerInfo:
     env: dict[str, str] = field(default_factory=dict)
     transport: str = "stdio"  # "stdio" | "streamable_http"
     url: str = ""  # streamable_http 模式使用
+    auto_connect: bool = False
 
 
 class MCPCatalog:
@@ -179,6 +180,7 @@ Use `call_mcp_tool(server, tool_name, arguments)` to call an MCP tool when neede
             if metadata.get("type") == "streamableHttp":
                 transport = "streamable_http"
             url = metadata.get("url", "")
+            auto_connect = metadata.get("autoConnect", False)
 
             # 加载工具
             tools = []
@@ -205,6 +207,7 @@ Use `call_mcp_tool(server, tool_name, arguments)` to call an MCP tool when neede
                 env=env,
                 transport=transport,
                 url=url,
+                auto_connect=auto_connect,
             )
 
         except Exception as e:
@@ -324,6 +327,43 @@ Use `call_mcp_tool(server, tool_name, arguments)` to call an MCP tool when neede
         for server in self._servers:
             all_tools.extend(server.tools)
         return all_tools
+
+    def sync_tools_from_client(self, server_id: str, tools: list[dict]) -> int:
+        """
+        将运行时发现的工具同步到 catalog（连接后调用）。
+
+        Args:
+            server_id: 服务器标识符
+            tools: 工具列表，每项需有 name / description / input_schema
+
+        Returns:
+            同步的工具数量
+        """
+        target = None
+        for s in self._servers:
+            if s.identifier == server_id:
+                target = s
+                break
+
+        if target is None:
+            target = MCPServerInfo(identifier=server_id, name=server_id)
+            self._servers.append(target)
+
+        if target.tools:
+            return 0
+
+        tool_infos = []
+        for t in tools:
+            tool_infos.append(MCPToolInfo(
+                name=t.get("name", ""),
+                description=t.get("description", ""),
+                server=server_id,
+                arguments=t.get("input_schema") or t.get("inputSchema", {}),
+            ))
+        target.tools = tool_infos
+        self._cached_catalog = None
+        logger.info(f"Synced {len(tool_infos)} tools from runtime for MCP server: {server_id}")
+        return len(tool_infos)
 
     def invalidate_cache(self) -> None:
         """使缓存失效"""

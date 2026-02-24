@@ -475,7 +475,6 @@ class ReasoningEngine:
         verify_incomplete_count = 0
         no_confirmation_text_count = 0
         tools_executed_in_task = False
-        _force_tool_next_iter = False
 
         # 循环检测
         recent_tool_signatures: list[str] = []
@@ -602,9 +601,7 @@ class ReasoningEngine:
                     thinking_mode=thinking_mode,
                     thinking_depth=thinking_depth,
                     iteration=iteration,
-                    force_tool_choice=_force_tool_next_iter,
                 )
-                _force_tool_next_iter = False
 
                 if task_monitor:
                     task_monitor.reset_retry_count()
@@ -768,7 +765,6 @@ class ReasoningEngine:
                         verify_incomplete_count,
                         no_confirmation_text_count,
                         max_no_tool_retries,
-                        _force_tool_next_iter,
                     ) = result
                     continue
 
@@ -1236,7 +1232,6 @@ class ReasoningEngine:
             verify_incomplete_count = 0
             no_confirmation_text_count = 0
             tools_executed_in_task = False
-            _force_tool_next_iter = False
 
             # 循环检测
             recent_tool_signatures: list[str] = []
@@ -1350,13 +1345,11 @@ class ReasoningEngine:
                         thinking_mode=thinking_mode,
                         thinking_depth=thinking_depth,
                         iteration=_iteration,
-                        force_tool_choice=_force_tool_next_iter,
                     ):
                         if hb_event["type"] == "heartbeat":
                             yield {"type": "heartbeat"}
                         elif hb_event["type"] == "decision":
                             decision = hb_event["decision"]
-                    _force_tool_next_iter = False
                     if decision is None:
                         raise RuntimeError("_reason returned no decision")
 
@@ -1543,7 +1536,6 @@ class ReasoningEngine:
                             verify_incomplete_count,
                             no_confirmation_text_count,
                             max_no_tool_retries,
-                            _force_tool_next_iter,
                         ) = result
                         continue
 
@@ -2361,7 +2353,6 @@ class ReasoningEngine:
         thinking_mode: str | None = None,
         thinking_depth: str | None = None,
         iteration: int = 0,
-        force_tool_choice: bool = False,
     ):
         """
         包装 _reason()，在等待 LLM 响应期间每隔 HEARTBEAT_INTERVAL 秒
@@ -2393,7 +2384,6 @@ class ReasoningEngine:
                     thinking_mode=thinking_mode,
                     thinking_depth=thinking_depth,
                     iteration=iteration,
-                    force_tool_choice=force_tool_choice,
                 )
                 await queue.put(("result", decision))
             except Exception as exc:
@@ -2458,14 +2448,9 @@ class ReasoningEngine:
         thinking_mode: str | None = None,
         thinking_depth: str | None = None,
         iteration: int = 0,
-        force_tool_choice: bool = False,
     ) -> Decision:
         """
         推理阶段: 调用 LLM，返回结构化 Decision。
-
-        Args:
-            force_tool_choice: 若为 True，通过 API 参数 tool_choice="required"
-                强制模型必须返回工具调用（用于 ForceToolCall 重试防幻觉）。
         """
         # 根据 thinking_mode 决定 use_thinking 参数
         use_thinking = None  # None = 让 Brain 使用默认逻辑
@@ -2474,11 +2459,6 @@ class ReasoningEngine:
         elif thinking_mode == "off":
             use_thinking = False
         # "auto" 或 None: use_thinking=None → Brain 使用自身默认逻辑
-
-        extra_params = None
-        if force_tool_choice and tools:
-            extra_params = {"tool_choice": "required"}
-            logger.info("[Reason] force_tool_choice=True → tool_choice='required'")
 
         tracer = get_tracer()
         with tracer.llm_span(model=current_model) as span:
@@ -2498,7 +2478,6 @@ class ReasoningEngine:
                     tools=tools,
                     messages=messages,
                     conversation_id=conversation_id,
-                    extra_params=extra_params,
                 )
             finally:
                 reset_tracking_context(_tt)
@@ -2648,7 +2627,7 @@ class ReasoningEngine:
                         ),
                     })
                 return (working_messages, no_tool_call_count, verify_incomplete_count,
-                        no_confirmation_text_count, max_no_tool_retries, False)
+                        no_confirmation_text_count, max_no_tool_retries)
             else:
                 # 无可见文本
                 no_confirmation_text_count += 1
@@ -2661,7 +2640,7 @@ class ReasoningEngine:
                         ),
                     })
                     return (working_messages, no_tool_call_count, verify_incomplete_count,
-                            no_confirmation_text_count, max_no_tool_retries, False)
+                            no_confirmation_text_count, max_no_tool_retries)
 
                 return (
                     "⚠️ 大模型返回异常：工具已执行，但多次未返回任何可见文本确认，任务已中断。"
@@ -2696,7 +2675,7 @@ class ReasoningEngine:
             if intent == "ACTION":
                 logger.warning(
                     "[IntentTag] ACTION intent declared but no tool calls — "
-                    "hallucination detected, forcing retry with tool_choice=required"
+                    "hallucination detected, forcing retry"
                 )
                 retry_msg = (
                     "[系统] ⚠️ 你声明了 [ACTION] 意图但没有调用任何工具。"
@@ -2706,7 +2685,7 @@ class ReasoningEngine:
                 logger.warning(
                     f"[IntentTag] No intent tag, text claims completion but tool_calls=0 — "
                     f"hallucination suspected, ForceToolCall retry "
-                    f"({no_tool_call_count}/{max_no_tool_retries}) with tool_choice=required"
+                    f"({no_tool_call_count}/{max_no_tool_retries})"
                 )
                 retry_msg = (
                     "[系统] ⚠️ 你的上一条回复没有调用任何工具（系统日志确认 tool_calls=0）。"
@@ -2714,7 +2693,7 @@ class ReasoningEngine:
                 )
             working_messages.append({"role": "user", "content": retry_msg})
             return (working_messages, no_tool_call_count, verify_incomplete_count,
-                    no_confirmation_text_count, max_no_tool_retries, True)
+                    no_confirmation_text_count, max_no_tool_retries)
 
         # 追问次数用尽
         cleaned_text = clean_llm_response(stripped_text)
