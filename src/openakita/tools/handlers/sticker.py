@@ -5,8 +5,10 @@
 - send_sticker: 搜索并发送表情包
 """
 
+import json
 import logging
 import random
+import urllib.parse
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -70,12 +72,35 @@ class StickerHandler:
                 logger.warning(f"Failed to send sticker via adapter: {e}")
                 return f"❌ 表情包发送失败: {e}"
 
-        # 如果不在 IM 会话中，返回本地路径供 deliver_artifacts 使用
-        return (
-            f"✅ 表情包已准备好: {result.get('name', 'unknown')}\n"
-            f"本地路径: {local_path}\n"
-            f"当前不在 IM 会话中，请使用 deliver_artifacts 工具发送此图片"
-        )
+        # Desktop 模式：直接返回 deliver_artifacts 格式的 JSON 回执，
+        # 让 chat API 能直接注入 artifact 事件，无需 LLM 再次调用 deliver_artifacts。
+        return self._build_desktop_receipt(local_path, result.get("name", "sticker"))
+
+    @staticmethod
+    def _build_desktop_receipt(local_path, name: str) -> str:
+        """构造与 deliver_artifacts desktop 回执相同格式的 JSON，
+        让 chat API 的 send_sticker 拦截逻辑能注入 artifact 事件。"""
+        from pathlib import Path as _Path
+
+        resolved = _Path(local_path).resolve()
+        abs_path = str(resolved)
+        file_url = f"/api/files?path={urllib.parse.quote(abs_path, safe='')}"
+
+        return json.dumps({
+            "ok": True,
+            "channel": "desktop",
+            "receipts": [{
+                "index": 0,
+                "status": "delivered",
+                "type": "image",
+                "path": abs_path,
+                "file_url": file_url,
+                "caption": "",
+                "name": name,
+                "size": resolved.stat().st_size if resolved.exists() else 0,
+                "channel": "desktop",
+            }],
+        }, ensure_ascii=False)
 
     @staticmethod
     def _get_adapter_and_chat_id():
@@ -84,14 +109,12 @@ class StickerHandler:
 
         session = get_im_session()
         if not session:
-            logger.warning("[Sticker] No IM session in context, cannot send sticker")
             return None, None
 
         gateway = session.get_metadata("_gateway")
         current_message = session.get_metadata("_current_message")
 
         if not gateway or not current_message:
-            logger.warning("[Sticker] Missing gateway or current_message in session metadata")
             return None, None
 
         channel = current_message.channel
