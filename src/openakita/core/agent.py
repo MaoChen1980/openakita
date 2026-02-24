@@ -83,6 +83,7 @@ from .reasoning_engine import ReasoningEngine
 from .response_handler import (
     ResponseHandler,
     clean_llm_response,
+    parse_intent_tag,
     strip_thinking_tags,
 )
 from .skill_manager import SkillManager
@@ -3303,7 +3304,10 @@ search_github → install_skill → 使用
         self._current_task_monitor = task_monitor
 
         # session_type 检测
-        session_type = "cli" if (session and session.channel == "cli") else "im"
+        # desktop 聊天面板与 CLI 同属本地交互，应启用 ForceToolCall 验收
+        # 仅真正的 IM 通道（telegram/wechat/feishu 等）使用 im 模式
+        _channel = getattr(session, "channel", None) if session else None
+        session_type = "im" if _channel and _channel not in ("cli", "desktop") else "cli"
 
         return messages, session_type, task_monitor, conversation_id, im_tokens
 
@@ -4467,10 +4471,10 @@ NEXT: 建议的下一步（如有）"""
         current_model = self.brain.model
 
         # 追问计数器：当 LLM 没有调用工具时，最多追问几次
-        # C6: IM 模式下 ForceToolCall retries=0，避免对闲聊/简单问答强制追问工具调用
+        # IM 也保留至少 1 次重试，防止模型声称执行了操作但未调用工具（幻觉）
         no_tool_call_count = 0
         if session_type == "im":
-            base_force_retries = 0
+            base_force_retries = max(1, int(getattr(settings, "force_tool_call_max_retries", 1)))
         else:
             base_force_retries = max(0, int(getattr(settings, "force_tool_call_max_retries", 1)))
 
@@ -4888,6 +4892,7 @@ NEXT: 建议的下一步（如有）"""
                 if tools_executed_in_task:
                     # 只有当 LLM 返回了有意义的文本确认时才检查是否真正完成
                     cleaned_text = strip_thinking_tags(text_content)
+                    _, cleaned_text = parse_intent_tag(cleaned_text)
                     if cleaned_text and len(cleaned_text.strip()) > 0:
                         # === 任务完成度复核 ===
                         # 让 LLM 判断任务是否真正完成用户意图
@@ -4998,36 +5003,51 @@ NEXT: 建议的下一步（如有）"""
                             "请重试、或切换到更稳定的端点/模型后再继续。"
                         )
 
-                # 动态提升：一旦存在活跃 Plan（多步骤），ForceToolCall 至少为 1
+                # 未执行过工具 — 解析意图声明标记
+                intent, stripped_text = parse_intent_tag(text_content or "")
+                logger.info(
+                    f"[IntentTag] intent={intent or 'NONE'}, "
+                    f"has_tool_calls=False, tools_executed_in_task=False, "
+                    f"text_preview=\"{(stripped_text or '')[:80].replace(chr(10), ' ')}\""
+                )
+
+                if intent == "REPLY":
+                    logger.info("[IntentTag] REPLY — accepting text response, skip ForceToolCall retry")
+                    cleaned = clean_llm_response(stripped_text)
+                    return cleaned or stripped_text
+
+                # ACTION 或无标记 → 走 ForceToolCall 重试
                 max_no_tool_retries = _effective_force_retries()
                 no_tool_call_count += 1
 
-                # 如果还有追问次数，强制要求调用工具
                 if no_tool_call_count <= max_no_tool_retries:
-                    logger.warning(
-                        f"[ForceToolCall] LLM returned text without tool calls (attempt {no_tool_call_count}/{max_no_tool_retries})"
-                    )
-
-                    # 将 LLM 的响应加入历史
-                    if text_content:
+                    if stripped_text:
                         working_messages.append(
                             {
                                 "role": "assistant",
-                                "content": [{"type": "text", "text": text_content}],
+                                "content": [{"type": "text", "text": stripped_text}],
                             }
                         )
-
-                    # 追加强制要求调用工具的消息
-                    working_messages.append(
-                        {
-                            "role": "user",
-                            "content": "[系统] 若确实需要工具，请调用相应工具；若不需要工具（纯对话/问答），请直接回答，不要复述系统规则。",
-                        }
-                    )
-                    continue  # 继续循环，让 LLM 调用工具
+                    if intent == "ACTION":
+                        logger.warning(
+                            "[IntentTag] ACTION intent declared but no tool calls — "
+                            "hallucination detected, forcing retry"
+                        )
+                        retry_msg = (
+                            "[系统] ⚠️ 你声明了 [ACTION] 意图但没有调用任何工具。"
+                            "请立即调用所需的工具来完成用户请求，不要只描述你会做什么。"
+                        )
+                    else:
+                        logger.info(
+                            f"[IntentTag] No intent tag, ForceToolCall retry "
+                            f"({no_tool_call_count}/{max_no_tool_retries})"
+                        )
+                        retry_msg = "[系统] 若确实需要工具，请调用相应工具；若不需要工具，请用 [REPLY] 标记直接回答。"
+                    working_messages.append({"role": "user", "content": retry_msg})
+                    continue
 
                 # 追问次数用尽，接受响应
-                cleaned_text = strip_thinking_tags(text_content)
+                cleaned_text = clean_llm_response(stripped_text)
                 return cleaned_text or (
                     "⚠️ 大模型返回异常：未产生可用输出（无工具调用且无文本）。任务已中断。"
                     "请重试、或更换端点/模型后再执行。"
@@ -5118,6 +5138,7 @@ NEXT: 建议的下一步（如有）"""
             # (a) stop_reason 检查：LLM 明确表示结束
             if getattr(response, "stop_reason", None) == "end_turn":
                 cleaned_text = strip_thinking_tags(text_content)
+                _, cleaned_text = parse_intent_tag(cleaned_text)
                 if cleaned_text and cleaned_text.strip():
                     logger.info(
                         f"[LoopGuard] LLM stop_reason=end_turn with text after {consecutive_tool_rounds} tool rounds, ending."
@@ -5161,6 +5182,7 @@ NEXT: 建议的下一步（如有）"""
                             f"[LoopGuard] Confirmed dead loop ({most_common_count} identical repeats). Force terminating."
                         )
                         cleaned_text = strip_thinking_tags(text_content)
+                        _, cleaned_text = parse_intent_tag(cleaned_text)
                         return cleaned_text or "⚠️ 检测到工具调用陷入死循环（完全相同的调用重复了 5 次以上），任务已自动终止。请重新描述您的需求。"
 
             # (c) 定期 LLM 自检提示（每 N 轮）
@@ -5499,7 +5521,9 @@ NEXT: 建议的下一步（如有）"""
 
             # 如果没有工具调用，直接返回文本
             if not tool_calls:
-                return strip_thinking_tags(text_content)
+                _cleaned = strip_thinking_tags(text_content)
+                _, _cleaned = parse_intent_tag(_cleaned)
+                return _cleaned
 
             # 循环检测
             call_signature = "|".join(
@@ -5565,8 +5589,10 @@ NEXT: 建议的下一步（如有）"""
             if response.stop_reason == "end_turn":
                 break
 
-        # 返回最后一次的文本响应（过滤 thinking 标签）
-        return strip_thinking_tags(text_content) or "操作完成"
+        # 返回最后一次的文本响应（过滤 thinking 标签 + 意图标记）
+        _final = strip_thinking_tags(text_content)
+        _, _final = parse_intent_tag(_final)
+        return _final or "操作完成"
 
     async def execute_task_from_message(self, message: str) -> TaskResult:
         """从消息创建并执行任务"""

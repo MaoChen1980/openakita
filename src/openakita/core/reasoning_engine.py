@@ -32,7 +32,7 @@ from ..tracing.tracer import get_tracer
 from .agent_state import AgentState, TaskState, TaskStatus
 from .context_manager import ContextManager, _CancelledError as _CtxCancelledError
 from .errors import UserCancelledError
-from .response_handler import ResponseHandler, clean_llm_response, strip_thinking_tags
+from .response_handler import ResponseHandler, clean_llm_response, parse_intent_tag, strip_thinking_tags
 from .token_tracking import TokenTrackingContext, set_tracking_context, reset_tracking_context
 from .tool_executor import ToolExecutor
 
@@ -454,8 +454,9 @@ class ReasoningEngine:
         current_model = self._brain.model
 
         # ForceToolCall 配置
+        # IM 也保留至少 1 次重试，防止模型声称执行了操作但未调用工具（幻觉）
         if session_type == "im":
-            base_force_retries = 0
+            base_force_retries = max(1, int(getattr(settings, "force_tool_call_max_retries", 1)))
         else:
             base_force_retries = max(0, int(getattr(settings, "force_tool_call_max_retries", 1)))
 
@@ -1034,6 +1035,7 @@ class ReasoningEngine:
                 # stop_reason 检查
                 if decision.stop_reason == "end_turn":
                     cleaned_text = strip_thinking_tags(decision.text_content)
+                    _, cleaned_text = parse_intent_tag(cleaned_text)
                     if cleaned_text and cleaned_text.strip():
                         logger.info(f"[LoopGuard] stop_reason=end_turn after {consecutive_tool_rounds} rounds")
                         self._save_react_trace(react_trace, conversation_id, session_type, "completed_end_turn", _trace_started_at)
@@ -1210,8 +1212,9 @@ class ReasoningEngine:
             working_messages = list(messages)
 
             # ForceToolCall 配置
+            # IM 也保留至少 1 次重试，防止模型声称执行了操作但未调用工具（幻觉）
             if session_type == "im":
-                base_force_retries = 0
+                base_force_retries = max(1, int(getattr(settings, "force_tool_call_max_retries", 1)))
             else:
                 base_force_retries = max(0, int(getattr(settings, "force_tool_call_max_retries", 1)))
 
@@ -1838,6 +1841,7 @@ class ReasoningEngine:
                     # stop_reason 检查
                     if decision.stop_reason == "end_turn":
                         cleaned_text = strip_thinking_tags(decision.text_content)
+                        _, cleaned_text = parse_intent_tag(cleaned_text)
                         if cleaned_text and cleaned_text.strip():
                             logger.info(
                                 f"[ReAct-Stream][LoopGuard] stop_reason=end_turn after {consecutive_tool_rounds} rounds"
@@ -2566,6 +2570,7 @@ class ReasoningEngine:
         """
         if tools_executed_in_task:
             cleaned_text = strip_thinking_tags(decision.text_content)
+            _, cleaned_text = parse_intent_tag(cleaned_text)
             if cleaned_text and len(cleaned_text.strip()) > 0:
                 # 任务完成度验证
                 is_completed = await self._response_handler.verify_task_completion(
@@ -2632,25 +2637,51 @@ class ReasoningEngine:
                     "请重试、或切换到更稳定的端点/模型后再继续。"
                 )
 
-        # 未执行过工具
+        # 未执行过工具 — 解析意图声明标记
+        intent, stripped_text = parse_intent_tag(decision.text_content or "")
+        logger.info(
+            f"[IntentTag] intent={intent or 'NONE'}, "
+            f"has_tool_calls=False, tools_executed_in_task=False, "
+            f"text_preview=\"{(stripped_text or '')[:80].replace(chr(10), ' ')}\""
+        )
+
+        if intent == "REPLY":
+            # 模型明确声明纯文本回复 → 跳过 ForceToolCall 重试
+            logger.info("[IntentTag] REPLY — accepting text response, skip ForceToolCall retry")
+            cleaned = clean_llm_response(stripped_text)
+            return cleaned or stripped_text
+
+        # ACTION 或无标记 → 走 ForceToolCall 重试
         max_no_tool_retries = self._effective_force_retries(base_force_retries, conversation_id)
         no_tool_call_count += 1
 
         if no_tool_call_count <= max_no_tool_retries:
-            if decision.text_content:
+            if stripped_text:
                 working_messages.append({
                     "role": "assistant",
-                    "content": [{"type": "text", "text": decision.text_content}],
+                    "content": [{"type": "text", "text": stripped_text}],
                 })
-            working_messages.append({
-                "role": "user",
-                "content": "[系统] 若确实需要工具，请调用相应工具；若不需要工具，请直接回答。",
-            })
+            if intent == "ACTION":
+                logger.warning(
+                    "[IntentTag] ACTION intent declared but no tool calls — "
+                    "hallucination detected, forcing retry"
+                )
+                retry_msg = (
+                    "[系统] ⚠️ 你声明了 [ACTION] 意图但没有调用任何工具。"
+                    "请立即调用所需的工具来完成用户请求，不要只描述你会做什么。"
+                )
+            else:
+                logger.info(
+                    f"[IntentTag] No intent tag, ForceToolCall retry "
+                    f"({no_tool_call_count}/{max_no_tool_retries})"
+                )
+                retry_msg = "[系统] 若确实需要工具，请调用相应工具；若不需要工具，请用 [REPLY] 标记直接回答。"
+            working_messages.append({"role": "user", "content": retry_msg})
             return (working_messages, no_tool_call_count, verify_incomplete_count,
                     no_confirmation_text_count, max_no_tool_retries)
 
         # 追问次数用尽
-        cleaned_text = clean_llm_response(decision.text_content)
+        cleaned_text = clean_llm_response(stripped_text)
         return cleaned_text or (
             "⚠️ 大模型返回异常：未产生可用输出。任务已中断。"
             "请重试、或更换端点/模型后再执行。"

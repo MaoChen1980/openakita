@@ -93,14 +93,42 @@ def clean_llm_response(text: str) -> str:
     依次应用:
     1. strip_thinking_tags - 移除思考标签
     2. strip_tool_simulation_text - 移除模拟工具调用
+    3. strip_intent_tag - 移除意图声明标记
     """
     if not text:
         return text
 
     cleaned = strip_thinking_tags(text)
     cleaned = strip_tool_simulation_text(cleaned)
+    _, cleaned = parse_intent_tag(cleaned)
 
     return cleaned.strip()
+
+
+# ==================== 意图声明解析 ====================
+
+_INTENT_TAG_RE = re.compile(r"^\s*\[(ACTION|REPLY)\]\s*\n?", re.IGNORECASE)
+
+
+def parse_intent_tag(text: str) -> tuple[str | None, str]:
+    """
+    解析并剥离响应文本开头的意图声明标记。
+
+    模型在纯文本回复时应在第一行声明 [ACTION] 或 [REPLY]：
+    - [ACTION]: 声明需要调用工具（若实际未调用则为幻觉）
+    - [REPLY]: 声明纯对话回复，不需要工具
+
+    Returns:
+        (intent, stripped_text):
+        - intent: "ACTION" / "REPLY" / None（无标记）
+        - stripped_text: 移除标记后的文本
+    """
+    if not text:
+        return None, text or ""
+    m = _INTENT_TAG_RE.match(text)
+    if m:
+        return m.group(1).upper(), text[m.end():]
+    return None, text
 
 
 class ResponseHandler:
