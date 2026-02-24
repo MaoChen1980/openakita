@@ -36,3 +36,9 @@ if sys.platform == "win32":
 # 确保子进程也继承 UTF-8 编码设置
 os.environ.setdefault("PYTHONUTF8", "1")
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
+# PyInstaller 打包环境下，某些第三方包的 METADATA 文件含非 UTF-8 字节，
+# pydantic 导入时通过 importlib.metadata.entry_points() 扫描插件会触发
+# UnicodeDecodeError。本项目不使用 pydantic 插件，直接禁用即可。
+if getattr(sys, "frozen", False):
+    os.environ.setdefault("PYDANTIC_DISABLE_PLUGINS", "1")
