@@ -74,24 +74,25 @@ class MemoryHandler:
                 if since else "全部记录"
             )
 
-            v2_keys = ["unextracted_processed", "duplicates_removed", "memories_decayed"]
-            if any(result.get(k) for k in v2_keys):
-                return (
-                    f"✅ 记忆整理完成:\n"
-                    f"- 提取: {result.get('unextracted_processed', 0)} 条\n"
-                    f"- 去重: {result.get('duplicates_removed', 0)} 条\n"
-                    f"- 衰减: {result.get('memories_decayed', 0)} 条\n"
-                    f"- 时间范围: {time_range}"
-                )
-            else:
-                return (
-                    f"✅ 记忆整理完成:\n"
-                    f"- 处理会话: {result.get('sessions_processed', 0)}\n"
-                    f"- 提取记忆: {result.get('memories_extracted', 0)}\n"
-                    f"- 新增记忆: {result.get('memories_added', 0)}\n"
-                    f"- 去重: {result.get('duplicates_removed', 0)}\n"
-                    f"- 时间范围: {time_range}"
-                )
+            lines = ["✅ 记忆整理完成:"]
+            if result.get("unextracted_processed"):
+                lines.append(f"- 新提取: {result['unextracted_processed']} 条")
+            if result.get("duplicates_removed"):
+                lines.append(f"- 去重: {result['duplicates_removed']} 条")
+            if result.get("memories_decayed"):
+                lines.append(f"- 衰减清理: {result['memories_decayed']} 条")
+
+            review = result.get("llm_review", {})
+            if review.get("deleted") or review.get("updated") or review.get("merged"):
+                lines.append(f"- LLM 审查: 删除 {review.get('deleted', 0)}, "
+                             f"更新 {review.get('updated', 0)}, "
+                             f"合并 {review.get('merged', 0)}, "
+                             f"保留 {review.get('kept', 0)}")
+
+            if result.get("sessions_processed"):
+                lines.append(f"- 处理会话: {result['sessions_processed']}")
+            lines.append(f"- 时间范围: {time_range}")
+            return "\n".join(lines)
 
         except Exception as e:
             logger.error(f"Manual memory consolidation failed: {e}", exc_info=True)

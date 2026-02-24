@@ -89,13 +89,38 @@ class LifecycleManager:
         cleaned_att = self.cleanup_stale_attachments()
         report["stale_attachments_cleaned"] = cleaned_att
 
+        review_result = await self.review_memories_with_llm()
+        report["llm_review"] = review_result
+
         if self.identity_dir:
             self.refresh_memory_md(self.identity_dir)
             await self.refresh_user_md(self.identity_dir)
 
+        self._sync_vector_store()
+
         report["finished_at"] = datetime.now().isoformat()
         logger.info(f"[Lifecycle] Daily consolidation complete: {report}")
         return report
+
+    def _sync_vector_store(self) -> None:
+        """Rebuild vector store index from current SQLite data."""
+        try:
+            if not hasattr(self.store, "search") or not self.store.search:
+                return
+            all_mems = self.store.load_all_memories()
+            mem_ids = {m.id for m in all_mems}
+            search = self.store.search
+            if hasattr(search, "delete_not_in"):
+                search.delete_not_in(mem_ids)
+                logger.info(f"[Lifecycle] Vector store synced ({len(mem_ids)} memories)")
+            elif hasattr(search, "_collection"):
+                existing = set(search._collection.get()["ids"])
+                stale = existing - mem_ids
+                if stale:
+                    search._collection.delete(ids=list(stale))
+                    logger.info(f"[Lifecycle] Removed {len(stale)} stale vectors")
+        except Exception as e:
+            logger.debug(f"[Lifecycle] Vector store sync skipped: {e}")
 
     # ==================================================================
     # Process Unextracted Turns
@@ -353,8 +378,163 @@ class LifecycleManager:
     # Refresh MEMORY.md
     # ==================================================================
 
+    # ==================================================================
+    # LLM-driven Memory Review
+    # ==================================================================
+
+    MEMORY_REVIEW_PROMPT = """你是记忆质量审查专家。请逐条审查以下记忆，判断每条是否值得长期保留。
+
+## 审查标准
+
+**保留**（真正的长期信息）：
+- 用户身份：名字、称呼、职业
+- 用户长期偏好：沟通风格、语言习惯、通知渠道偏好
+- 持久行为规则：用户对 AI 行为的长期要求
+- 技术环境：OS、常用工具、技术栈
+- 可复用经验：特定类型问题的通用解决方法
+- 有价值的教训：需要长期避免的操作模式
+
+**删除**（不应存在的垃圾）：
+- 一次性任务请求：「需要XX照片」「下载XX」「帮我搜索XX」「整理XX新闻」
+- 任务产物细节：文件大小、分辨率、下载链接、具体文件路径
+- 任务执行报告：「成功完成: ...」「搞定老板...」等 AI 回复摘要
+- 过期的临时信息：特定时间点、一次性定时任务参数
+- 重复/冗余：与其他记忆语义重复的
+- 无上下文的碎片：缺乏主语、无法独立理解的短句
+
+**合并**：如果两条记忆说的是同一件事，标记为 merge 并给出合并后的内容。
+
+## 待审查记忆
+
+{memories_text}
+
+## 输出格式
+
+对每条记忆输出 JSON 数组：
+[
+  {{
+    "id": "记忆ID",
+    "action": "keep|delete|merge|update",
+    "reason": "简要理由（10字内）",
+    "merged_with": "合并目标ID（仅 merge 时）",
+    "new_content": "更新后的内容（仅 update/merge 时）",
+    "new_importance": 0.5-1.0
+  }}
+]
+
+只输出 JSON 数组，不要其他内容。"""
+
+    async def review_memories_with_llm(self) -> dict:
+        """
+        使用 LLM 审查所有记忆，清理垃圾、合并重复、更新过期内容。
+
+        Returns:
+            审查报告 {deleted, updated, merged, kept, errors}
+        """
+        import json
+        import re
+
+        all_memories = self.store.load_all_memories()
+        if not all_memories:
+            return {"deleted": 0, "updated": 0, "merged": 0, "kept": 0}
+
+        if not self.extractor or not self.extractor.brain:
+            logger.warning("[Lifecycle] No LLM available for memory review, skipping")
+            return {"deleted": 0, "updated": 0, "merged": 0, "kept": len(all_memories)}
+
+        report = {"deleted": 0, "updated": 0, "merged": 0, "kept": 0, "errors": 0}
+
+        batch_size = 15
+        for i in range(0, len(all_memories), batch_size):
+            batch = all_memories[i : i + batch_size]
+
+            memories_text = "\n".join(
+                f"- ID={m.id} | type={m.type.value} | score={m.importance_score:.2f} "
+                f"| subject={m.subject or ''} | content={m.content}"
+                for m in batch
+            )
+
+            prompt = self.MEMORY_REVIEW_PROMPT.format(memories_text=memories_text)
+
+            try:
+                response = await self.extractor._call_brain(
+                    prompt,
+                    system="你是记忆质量审查专家。只输出 JSON 数组。",
+                )
+                text = (getattr(response, "content", None) or str(response)).strip()
+
+                json_match = re.search(r"\[[\s\S]*\]", text)
+                if not json_match:
+                    logger.warning(f"[Lifecycle] LLM review batch {i // batch_size}: no JSON output")
+                    report["kept"] += len(batch)
+                    continue
+
+                decisions = json.loads(json_match.group())
+                if not isinstance(decisions, list):
+                    report["kept"] += len(batch)
+                    continue
+
+                decision_map = {d["id"]: d for d in decisions if isinstance(d, dict) and "id" in d}
+
+                for mem in batch:
+                    dec = decision_map.get(mem.id)
+                    if not dec:
+                        report["kept"] += 1
+                        continue
+
+                    action = dec.get("action", "keep")
+
+                    if action == "delete":
+                        self.store.delete_semantic(mem.id)
+                        report["deleted"] += 1
+                        logger.debug(
+                            f"[Lifecycle] Review DELETE: {mem.content[:50]} "
+                            f"({dec.get('reason', '')})"
+                        )
+
+                    elif action == "update":
+                        updates: dict = {}
+                        if dec.get("new_content"):
+                            updates["content"] = dec["new_content"]
+                        if dec.get("new_importance"):
+                            updates["importance_score"] = float(dec["new_importance"])
+                        if updates:
+                            self.store.update_semantic(mem.id, updates)
+                            report["updated"] += 1
+                        else:
+                            report["kept"] += 1
+
+                    elif action == "merge":
+                        target_id = dec.get("merged_with")
+                        new_content = dec.get("new_content")
+                        if target_id and new_content:
+                            self.store.update_semantic(target_id, {"content": new_content})
+                            self.store.delete_semantic(mem.id)
+                            report["merged"] += 1
+                        else:
+                            report["kept"] += 1
+
+                    else:
+                        report["kept"] += 1
+
+            except Exception as e:
+                logger.error(f"[Lifecycle] LLM review batch {i // batch_size} failed: {e}")
+                report["errors"] += 1
+                report["kept"] += len(batch)
+
+        logger.info(
+            f"[Lifecycle] Memory review complete: "
+            f"deleted={report['deleted']}, updated={report['updated']}, "
+            f"merged={report['merged']}, kept={report['kept']}"
+        )
+        return report
+
+    # ==================================================================
+    # Refresh MEMORY.md (post-review, no keyword filter needed)
+    # ==================================================================
+
     def refresh_memory_md(self, identity_dir: Path) -> None:
-        """刷新 MEMORY.md — 从语义记忆选取 top-K"""
+        """刷新 MEMORY.md — LLM 审查后直接选取 top-K（无需关键词过滤）"""
         memories = self.store.query_semantic(min_importance=0.5, limit=100)
 
         by_type: dict[str, list[SemanticMemory]] = defaultdict(list)
@@ -364,14 +544,14 @@ class LifecycleManager:
         lines: list[str] = ["# 核心记忆\n"]
         type_labels = {
             "preference": "偏好",
-            "fact": "事实",
             "rule": "规则",
-            "skill": "技能",
+            "fact": "事实",
             "error": "教训",
+            "skill": "技能",
         }
 
         total_chars = 0
-        max_chars = 1500
+        max_chars = 1200
 
         for type_key, label in type_labels.items():
             group = by_type.get(type_key, [])
@@ -379,7 +559,7 @@ class LifecycleManager:
                 continue
             group.sort(key=lambda m: m.importance_score, reverse=True)
             lines.append(f"\n## {label}")
-            for mem in group[:5]:
+            for mem in group[:4]:
                 line = f"- {mem.content}"
                 if total_chars + len(line) > max_chars:
                     break

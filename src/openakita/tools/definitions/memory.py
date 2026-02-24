@@ -13,18 +13,20 @@ MEMORY_TOOLS = [
     {
         "name": "consolidate_memories",
         "category": "Memory",
-        "description": "Manually trigger memory consolidation. Use when user explicitly asks to organize/consolidate/tidy up memories, or says '整理记忆'. This processes unextracted conversation turns, deduplicates, refreshes MEMORY.md and USER.md.",
-        "detail": """手动触发记忆整理。
+        "description": "Manually trigger memory consolidation and LLM-driven cleanup. Use when user asks to organize/clean/tidy memories, says '整理记忆', '清理垃圾记忆', '记忆太乱了'. Includes LLM review that removes task artifacts and outdated entries.",
+        "detail": """手动触发记忆整理与 LLM 清理。
 
 **适用场景**：
-- 用户说"整理一下记忆"、"帮我归纳一下"
+- 用户说"整理一下记忆"、"清理垃圾记忆"、"记忆太乱了"
 - 用户新安装后希望立即整理
-- 对话较多后主动整理
+- 发现记忆系统有垃圾数据时
 
 **执行内容**：
 - 处理未提取的对话
 - 去重清理
-- 刷新 MEMORY.md / USER.md""",
+- **LLM 智能审查**：逐条审查记忆质量，删除一次性任务、过期信息、垃圾数据
+- 刷新 MEMORY.md / USER.md
+- 同步向量库""",
         "input_schema": {"type": "object", "properties": {}},
     },
     {
