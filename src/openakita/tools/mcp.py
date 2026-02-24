@@ -343,19 +343,20 @@ class MCPClient:
         """断开服务器连接"""
         if server_name in self._connections:
             conn = self._connections.pop(server_name)
-            # 关闭连接（按进入的逆序退出）
-            try:
-                client_cm = conn.get("_client_cm")
-                stdio_cm = conn.get("_stdio_cm")
-                http_cm = conn.get("_http_cm")
-                if client_cm:
-                    await client_cm.__aexit__(None, None, None)
-                if stdio_cm:
-                    await stdio_cm.__aexit__(None, None, None)
-                if http_cm:
-                    await http_cm.__aexit__(None, None, None)
-            except Exception:
-                logger.debug("Failed to close MCP connection cleanly", exc_info=True)
+            # 逐个关闭，每个独立 try/except 防止一个失败阻塞后续清理
+            for cm_key in ("_client_cm", "_stdio_cm", "_http_cm"):
+                cm = conn.get(cm_key)
+                if cm is None:
+                    continue
+                try:
+                    await asyncio.wait_for(
+                        cm.__aexit__(None, None, None), timeout=5,
+                    )
+                except BaseException:
+                    logger.debug(
+                        "MCP %s cleanup failed for %s (ignored)",
+                        cm_key, server_name, exc_info=True,
+                    )
             # 清理该服务器的工具/资源/提示词
             self._tools = {
                 k: v for k, v in self._tools.items() if not k.startswith(f"{server_name}:")

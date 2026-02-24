@@ -137,6 +137,17 @@ async def connect_mcp_server(request: Request, body: MCPConnectRequest):
     success = await client.connect(body.server_name)
     if success:
         tools = client.list_tools(body.server_name)
+
+        catalog = _get_mcp_catalog(request)
+        if catalog and tools:
+            tool_dicts = [
+                {"name": t.name, "description": t.description,
+                 "input_schema": t.input_schema}
+                for t in tools
+            ]
+            catalog.sync_tools_from_client(body.server_name, tool_dicts)
+        _refresh_catalog_text(request)
+
         return {
             "status": "connected",
             "server": body.server_name,
