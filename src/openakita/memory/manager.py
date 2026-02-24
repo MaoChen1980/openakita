@@ -161,43 +161,24 @@ class MemoryManager:
         logger.info(f"Created default MEMORY.md at {self.memory_md_path}")
 
     def _load_memories(self) -> None:
-        if not self.memories_file.exists():
-            bak = self.memories_file.with_suffix(self.memories_file.suffix + ".bak")
-            tmp = self.memories_file.with_suffix(self.memories_file.suffix + ".tmp")
-            for candidate in [bak, tmp]:
-                if candidate.exists():
-                    logger.info(f"Recovering memories from {candidate.name}")
-                    candidate.rename(self.memories_file)
-                    break
+        """Load memories from SQLite (authoritative source) into in-memory cache.
 
-        if self.memories_file.exists():
-            try:
-                with open(self.memories_file, encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, list):
-                    with self._memories_lock:
-                        for item in data:
-                            memory = Memory.from_dict(item)
-                            self._memories[memory.id] = memory
-                    logger.info(f"Loaded {len(self._memories)} memories")
-            except Exception as e:
-                logger.error(f"Failed to load memories.json: {e}")
+        memories.json is kept as a secondary copy for backward compat,
+        but SQLite is the single source of truth — never restore from JSON.
+        """
+        try:
+            all_mems = self.store.load_all_memories()
+            with self._memories_lock:
+                for mem in all_mems:
+                    self._memories[mem.id] = mem
+            if all_mems:
+                logger.info(f"Loaded {len(all_mems)} memories from SQLite")
+        except Exception as e:
+            logger.warning(f"[Manager] Failed to load from SQLite: {e}")
 
-        # Sync v1 memories to v2 SQLite
-        self._sync_v1_to_v2()
-
-    def _sync_v1_to_v2(self) -> None:
-        """One-time migration: push v1 memories into SQLite if not already there."""
-        if not self._memories:
-            return
-        existing_count = self.store.count_memories()
-        if existing_count >= len(self._memories):
-            return
-        logger.info(f"[Manager] Syncing {len(self._memories)} v1 memories to SQLite...")
-        for mem in self._memories.values():
-            self.store.db.save_memory(mem.to_dict())
-        self.store.db.rebuild_fts_index()
-        logger.info("[Manager] v1→v2 sync complete")
+        # Sync in-memory cache → JSON (keep JSON in sync, not the other way around)
+        if self._memories:
+            self._save_memories()
 
     def _save_memories(self) -> None:
         """Save to memories.json (backward compat, dual-write)"""
@@ -735,7 +716,7 @@ class MemoryManager:
                 extractor=self.extractor,
                 identity_dir=settings.identity_path,
             )
-            return await lifecycle.consolidate_daily()
+            result = await lifecycle.consolidate_daily()
         except Exception as e:
             logger.error(f"[Manager] Daily consolidation failed, using legacy: {e}")
             from .daily_consolidator import DailyConsolidator
@@ -747,7 +728,24 @@ class MemoryManager:
                 brain=self.brain,
                 identity_dir=settings.identity_path,
             )
-            return await dc.consolidate_daily()
+            result = await dc.consolidate_daily()
+
+        # After consolidation, sync SQLite → in-memory cache → JSON
+        self._reload_from_sqlite()
+        return result
+
+    def _reload_from_sqlite(self) -> None:
+        """Reload in-memory cache from SQLite and flush to JSON."""
+        try:
+            all_mems = self.store.load_all_memories()
+            with self._memories_lock:
+                self._memories.clear()
+                for m in all_mems:
+                    self._memories[m.id] = m
+            self._save_memories()
+            logger.debug(f"[Manager] Synced {len(all_mems)} memories: SQLite → cache → JSON")
+        except Exception as e:
+            logger.warning(f"[Manager] SQLite→JSON sync failed: {e}")
 
     def _cleanup_expired_memories(self) -> int:
         now = datetime.now()

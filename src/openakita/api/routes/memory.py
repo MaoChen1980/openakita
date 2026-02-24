@@ -33,6 +33,26 @@ def _get_store(request: Request):
     return None
 
 
+def _get_manager(request: Request):
+    agent = getattr(request.app.state, "agent", None)
+    if agent is None:
+        return None
+    mm = getattr(agent, "memory_manager", None)
+    if mm:
+        return mm
+    local = getattr(agent, "_local_agent", None)
+    if local:
+        return getattr(local, "memory_manager", None)
+    return None
+
+
+def _sync_json(request: Request):
+    """After store mutations, reload manager's in-memory cache and flush to JSON."""
+    mm = _get_manager(request)
+    if mm and hasattr(mm, "_reload_from_sqlite"):
+        mm._reload_from_sqlite()
+
+
 def _get_lifecycle(request: Request):
     agent = getattr(request.app.state, "agent", None)
     if agent is None:
@@ -165,6 +185,7 @@ async def update_memory(request: Request, memory_id: str, body: MemoryUpdateRequ
     ok = store.update_semantic(memory_id, updates)
     if not ok:
         raise HTTPException(404, "Memory not found")
+    _sync_json(request)
     return {"ok": True}
 
 
@@ -177,6 +198,7 @@ async def delete_memory(request: Request, memory_id: str):
     ok = store.delete_semantic(memory_id)
     if not ok:
         raise HTTPException(404, "Memory not found")
+    _sync_json(request)
     return {"ok": True}
 
 
@@ -196,6 +218,7 @@ async def batch_delete(request: Request):
         if store.delete_semantic(mid):
             deleted += 1
 
+    _sync_json(request)
     return {"deleted": deleted, "total": len(ids)}
 
 
@@ -212,6 +235,7 @@ async def trigger_review(request: Request):
         lifecycle.refresh_memory_md(lifecycle.identity_dir)
 
     lifecycle._sync_vector_store()
+    _sync_json(request)
 
     return {
         "ok": True,
