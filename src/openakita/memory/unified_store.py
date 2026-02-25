@@ -174,6 +174,12 @@ class UnifiedStore:
     def get_recent_episodes(self, days: int = 7, limit: int = 10) -> list[Episode]:
         return self.search_episodes(days=days, limit=limit)
 
+    def update_episode(self, episode_id: str, updates: dict) -> bool:
+        return self.db.update_episode(episode_id, updates)
+
+    def link_turns_to_episode(self, session_id: str, episode_id: str) -> int:
+        return self.db.link_turns_to_episode(session_id, episode_id)
+
     # ======================================================================
     # Scratchpad
     # ======================================================================

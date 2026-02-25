@@ -339,6 +339,7 @@ def _build_runtime_section() -> str:
         can_pip_install,
         get_configured_venv_path,
         get_python_executable,
+        verify_python_executable,
     )
 
     current_time = _get_current_time(settings.scheduler_timezone)
@@ -400,9 +401,18 @@ def _build_runtime_section() -> str:
     shell_type = "PowerShell" if platform.system() == "Windows" else "bash"
 
     path_tools = []
+    _python_in_path_ok = False
     for cmd in ("git", "python", "node", "pip", "npm", "docker", "curl"):
-        if _shutil.which(cmd):
-            path_tools.append(cmd)
+        found = _shutil.which(cmd)
+        if not found:
+            continue
+        if cmd == "python" and _sys.platform == "win32":
+            if not verify_python_executable(found):
+                continue
+            _python_in_path_ok = True
+        if cmd == "pip" and _sys.platform == "win32" and not _python_in_path_ok:
+            continue
+        path_tools.append(cmd)
     path_tools_str = ", ".join(path_tools) if path_tools else "无"
 
     return f"""## 运行环境
@@ -649,46 +659,21 @@ def _build_catalogs_section(
 
 _MEMORY_SYSTEM_GUIDE = """## 你的记忆系统
 
-你有一个持久化记忆系统，能跨对话记住信息。系统后台自动从对话中提取有价值的信息，每天自动整理去重，不重要的记忆会随时间衰减清理。
+你有一个三层分层记忆网络，各层双向关联。
 
-### 记忆中存放了什么
-- **用户偏好/规则**：习惯、喜好、对你行为的要求
-- **事实信息**：用户身份、项目信息、配置路径
-- **技能经验/错误教训**：可复用的解决方案、需要避免的操作
-- **历史操作记录**：过去对话的摘要（目标、结果、使用的工具）
-- **原始对话存档**：完整的对话原文，包含工具调用的参数和返回值
+**第一层：核心档案**（下方已注入）— 用户偏好、规则、事实的精炼摘要
+**第二层：语义记忆 + 任务情节** — 经验教训、技能方法、每次任务的目标/结果/工具摘要
+**第三层：原始对话存档** — 完整的逐轮对话，含工具调用参数和返回值
 
-### 搜索工具（三级）
-需要回忆时，按需选择：
+三层通过 ID 双向关联，可以从任意层钻取到其他层。
 
-**`list_recent_tasks`** — 列出最近完成的任务
-→ 用户问"你做了什么/干了什么/之前做了哪些事" → **优先用这个**，一次调用直接获取任务列表
-→ 不需要猜关键词，比搜索快得多
+搜索工具：`search_memory`(知识) / `list_recent_tasks`(任务) / `trace_memory`(跨层导航) / `search_conversation_traces`(原始对话)
+首次使用时会返回详细的搜索策略指南。
 
-**`search_memory`** — 搜索提炼后的知识
-→ 用户偏好、规则、经验教训
-→ 适合：了解用户习惯、查找经验、确认项目信息
-
-**`search_conversation_traces`** — 搜索原始对话记录
-→ 完整的工具调用（名称、参数、返回值）、逐轮对话原文
-→ 仅当需要操作细节时才用（"上次用了什么命令"、"那次搜索的结果是什么"）
-
-### 何时搜索
-不需要每次都搜索。仅在以下情况按需使用：
-- 用户问"做了什么/干了什么" → `list_recent_tasks`
-- 用户提到"之前/上次/我说过" → `search_memory` 搜索确认
-- 任务涉及用户偏好或习惯 → 查记忆
-- 觉得之前做过类似任务 → 查可复用经验
-- 不确定时 → 不搜索，避免旧信息干扰当前判断
-
-### 何时主动写入
-后台自动提取已覆盖日常信息，你只需在以下情况用 `add_memory` 记录：
-- 完成复杂任务后总结可复用经验 → type=skill
-- 犯错后找到正确方法 → type=error
-- 发现用户深层需求或偏好 → type=preference/rule
+后台自动提取记忆，你只需在总结经验(experience/skill)、记录教训(error)、发现偏好(preference/rule)时用 `add_memory`。
 
 ### 当前注入的信息
-下方是用户核心档案和当前任务状态，仅供快速参考。更多记忆请按需搜索。"""
+下方是用户核心档案、当前任务状态和高权重历史经验，仅供快速参考。更多记忆请按需搜索。"""
 
 
 def _build_memory_section(

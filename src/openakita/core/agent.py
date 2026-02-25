@@ -680,6 +680,8 @@ class Agent:
         session_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + str(uuid.uuid4())[:8]
         self.memory_manager.start_session(session_id)
         self._current_session_id = session_id
+        if hasattr(self, "_memory_handler"):
+            self._memory_handler.reset_guide()
 
         # 启动定时任务调度器（定时任务执行时跳过，避免重复）
         if start_scheduler:
@@ -786,7 +788,8 @@ class Agent:
         self.handler_registry.register(
             "memory",
             create_memory_handler(self),
-            ["consolidate_memories", "add_memory", "search_memory", "get_memory_stats", "search_conversation_traces"],
+            ["consolidate_memories", "add_memory", "search_memory", "get_memory_stats",
+             "list_recent_tasks", "trace_memory", "search_conversation_traces"],
         )
 
         # 浏览器
@@ -2967,6 +2970,8 @@ search_github → install_skill → 使用
             conversation_safe_id = re.sub(r'[/\\+=%?*<>|"\x00-\x1f]', "_", conversation_safe_id)
             if getattr(self.memory_manager, "_current_session_id", None) != conversation_safe_id:
                 self.memory_manager.start_session(conversation_safe_id)
+                if hasattr(self, "_memory_handler"):
+                    self._memory_handler.reset_guide()
                 # 1.5 新会话时清空 Scratchpad 工作记忆，避免跨会话泄漏
                 try:
                     store = getattr(self.memory_manager, "store", None)

@@ -7,6 +7,7 @@ Memory 工具定义
 - get_memory_stats: 获取记忆统计
 - list_recent_tasks: 列出最近完成的任务
 - search_conversation_traces: 搜索完整对话历史（含工具调用和结果）
+- trace_memory: 跨层导航（记忆↔情节↔对话）
 """
 
 MEMORY_TOOLS = [
@@ -176,6 +177,33 @@ MEMORY_TOOLS = [
                 },
             },
             "required": ["keyword"],
+        },
+    },
+    {
+        "name": "trace_memory",
+        "category": "Memory",
+        "description": "Navigate across memory layers: given a memory_id, trace back to its source episode and conversation; given an episode_id, find linked memories and original conversation turns. Use when you see an interesting memory or episode and want more context.",
+        "detail": """跨层导航工具 — 在记忆、情节、对话三层之间跳转。
+
+**用法**：
+- 传入 memory_id → 返回该记忆的来源情节摘要 + 相关对话片段
+- 传入 episode_id → 返回该情节关联的记忆列表 + 对话原文
+
+**典型场景**：
+- search_memory 返回了一条经验，想看它产生的上下文 → trace_memory(memory_id=...)
+- list_recent_tasks 看到某个任务，想看关联记忆和对话 → trace_memory(episode_id=...)""",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "memory_id": {
+                    "type": "string",
+                    "description": "要溯源的记忆 ID（与 episode_id 二选一）",
+                },
+                "episode_id": {
+                    "type": "string",
+                    "description": "要展开的情节 ID（与 memory_id 二选一）",
+                },
+            },
         },
     },
 ]

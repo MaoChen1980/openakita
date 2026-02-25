@@ -340,8 +340,11 @@ class MemoryManager:
             logger.warning(f"[Memory] Topic-change extraction failed: {e}")
             return 0
 
-    async def _save_extracted_item(self, item: dict, episode_id: str | None = None) -> None:
-        """Save a v2 extracted item as SemanticMemory, with multi-layer dedup."""
+    async def _save_extracted_item(self, item: dict, episode_id: str | None = None) -> str | None:
+        """Save a v2 extracted item as SemanticMemory, with multi-layer dedup.
+
+        Returns the memory ID (new or evolved), or None on failure.
+        """
         type_map = {
             "PREFERENCE": MemoryType.PREFERENCE,
             "FACT": MemoryType.FACT,
@@ -370,7 +373,7 @@ class MemoryManager:
             if existing:
                 self._evolve_memory(existing, content, importance)
                 logger.debug(f"[Memory] Dedup L1: evolved {existing.id[:8]} (subject+predicate)")
-                return
+                return existing.id
 
         # Dedup layer 2: content similarity search
         if content and len(content) >= 10:
@@ -383,14 +386,14 @@ class MemoryManager:
                     if dup_level == "exact":
                         self._evolve_memory(s, content, importance)
                         logger.debug(f"[Memory] Dedup L2: exact match, evolved {s.id[:8]}")
-                        return
+                        return s.id
 
                     if dup_level == "likely":
                         is_dup = await self._check_duplicate_with_llm(content, existing_content)
                         if is_dup:
                             self._evolve_memory(s, content, importance)
                             logger.debug(f"[Memory] Dedup L2: LLM confirmed dup, evolved {s.id[:8]}")
-                            return
+                            return s.id
             except Exception as e:
                 logger.debug(f"[Memory] Dedup search failed: {e}")
 
@@ -411,6 +414,8 @@ class MemoryManager:
         with self._memories_lock:
             self._memories[mem.id] = mem
             self._save_memories()
+
+        return mem.id
 
     @staticmethod
     def _fast_dedup_check(new: str, existing: str) -> str:
@@ -504,6 +509,7 @@ class MemoryManager:
                     logger.warning(f"[Memory] Episode generation failed: {e}")
 
                 ep_id = episode.id if episode else None
+                saved_memory_ids: list[str] = []
 
                 # Track 1: User profile extraction (+ citation scoring in same LLM call)
                 try:
@@ -515,7 +521,9 @@ class MemoryManager:
                         logger.info(f"[Memory] Citation scores applied: {useful} useful")
                     saved = 0
                     for item in items:
-                        await self._save_extracted_item(item, episode_id=ep_id)
+                        mid = await self._save_extracted_item(item, episode_id=ep_id)
+                        if mid:
+                            saved_memory_ids.append(mid)
                         saved += 1
                     if saved:
                         logger.info(f"[Memory] Profile extraction: {saved}/{len(items)} items saved")
@@ -527,12 +535,27 @@ class MemoryManager:
                     exp_items = await self.extractor.extract_experience_from_conversation(turns)
                     exp_saved = 0
                     for item in exp_items:
-                        await self._save_extracted_item(item, episode_id=ep_id)
+                        mid = await self._save_extracted_item(item, episode_id=ep_id)
+                        if mid:
+                            saved_memory_ids.append(mid)
                         exp_saved += 1
                     if exp_saved:
                         logger.info(f"[Memory] Experience extraction: {exp_saved}/{len(exp_items)} items saved")
                 except Exception as e:
                     logger.warning(f"[Memory] Experience extraction failed: {e}")
+
+                # Back-fill bidirectional links between episode, memories, and turns
+                if ep_id:
+                    try:
+                        if saved_memory_ids:
+                            self.store.update_episode(ep_id, {"linked_memory_ids": saved_memory_ids})
+                        linked = self.store.link_turns_to_episode(session_id, ep_id)
+                        logger.info(
+                            f"[Memory] Episode links: {len(saved_memory_ids)} memories, "
+                            f"{linked} turns linked to {ep_id[:8]}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"[Memory] Failed to back-fill episode links: {e}")
 
                 self._pending_tasks.discard(task)
 

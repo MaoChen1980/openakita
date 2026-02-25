@@ -5,7 +5,9 @@
 - add_memory: 添加记忆
 - search_memory: 搜索记忆
 - get_memory_stats: 获取记忆统计
+- list_recent_tasks: 列出最近任务
 - search_conversation_traces: 搜索完整对话历史
+- trace_memory: 跨层导航（记忆↔情节↔对话）
 """
 
 import json
@@ -34,10 +36,48 @@ class MemoryHandler:
         "get_memory_stats",
         "list_recent_tasks",
         "search_conversation_traces",
+        "trace_memory",
     ]
+
+    _SEARCH_TOOLS = frozenset({
+        "search_memory", "list_recent_tasks", "trace_memory", "search_conversation_traces",
+    })
+
+    _NAVIGATION_GUIDE = (
+        "📖 记忆系统导航指南（仅显示一次）\n\n"
+        "## 三层关联机制\n"
+        "- 记忆 → 情节：每条记忆有 source_episode_id，指向产生它的任务情节\n"
+        "- 情节 → 记忆：每个情节有 linked_memory_ids，列出它产出的记忆\n"
+        "- 情节 → 对话：通过 session_id 关联到原始对话轮次\n\n"
+        "## 工具详解\n"
+        "- search_memory — 搜索提炼后的知识（偏好/规则/经验/技能），结果含来源情节 ID\n"
+        "- list_recent_tasks — 列出最近任务情节，含关联记忆数和工具列表\n"
+        "- trace_memory — 跨层导航电梯：\n"
+        "  · 传 memory_id → 返回源情节摘要 + 相关对话片段\n"
+        "  · 传 episode_id → 返回关联记忆列表 + 对话原文\n"
+        "- search_conversation_traces — 原始对话全文搜索（参数+返回值）\n"
+        "- add_memory — 主动记录经验(experience/skill)、教训(error)、偏好(preference/rule)\n\n"
+        "## 搜索策略：先概览，再深入\n"
+        "1. search_memory 查现成的经验/规则/事实\n"
+        "2. 需要上下文 → trace_memory(memory_id=...) 溯源到情节和对话\n"
+        "3. 对某个情节感兴趣 → trace_memory(episode_id=...) 查关联记忆和对话\n"
+        "4. 以上都没结果 → search_conversation_traces 全文搜索\n\n"
+        "## 何时搜索\n"
+        "- 用户问\"做了什么\" → list_recent_tasks\n"
+        "- 用户提到\"之前/上次\" → search_memory\n"
+        "- 需要操作细节/具体命令 → trace_memory 或 search_conversation_traces\n"
+        "- 做过类似任务 → 先 search_memory 查经验，需要细节再 trace_memory\n"
+        "- 不确定时 → 不搜索\n\n"
+        "---\n\n"
+    )
 
     def __init__(self, agent: "Agent"):
         self.agent = agent
+        self._guide_injected: bool = False
+
+    def reset_guide(self) -> None:
+        """Reset the one-shot guide flag (call on new session start)."""
+        self._guide_injected = False
 
     async def handle(self, tool_name: str, params: dict[str, Any]) -> str:
         """处理工具调用"""
@@ -46,15 +86,22 @@ class MemoryHandler:
         elif tool_name == "add_memory":
             return self._add_memory(params)
         elif tool_name == "search_memory":
-            return self._search_memory(params)
+            result = self._search_memory(params)
         elif tool_name == "get_memory_stats":
             return self._get_memory_stats(params)
         elif tool_name == "list_recent_tasks":
-            return self._list_recent_tasks(params)
+            result = self._list_recent_tasks(params)
         elif tool_name == "search_conversation_traces":
-            return self._search_conversation_traces(params)
+            result = self._search_conversation_traces(params)
+        elif tool_name == "trace_memory":
+            result = self._trace_memory(params)
         else:
             return f"❌ Unknown memory tool: {tool_name}"
+
+        if tool_name in self._SEARCH_TOOLS and not self._guide_injected:
+            self._guide_injected = True
+            return self._NAVIGATION_GUIDE + result
+        return result
 
     async def _consolidate_memories(self, params: dict) -> str:
         """手动触发记忆整理"""
@@ -167,7 +214,10 @@ class MemoryHandler:
                             mm.record_cited_memories(cited)
                         output = f"找到 {len(candidates)} 条相关记忆:\n\n"
                         for c in candidates[:10]:
-                            output += f"- [{c.source_type}] {c.content[:200]}\n\n"
+                            ep_hint = ""
+                            if hasattr(c, "episode_id") and c.episode_id:
+                                ep_hint = f", 来源情节: {c.episode_id[:12]}"
+                            output += f"- [{c.source_type}] {c.content[:200]}{ep_hint}\n\n"
                         return output
                 except Exception as e:
                     logger.warning(f"[search_memory] RetrievalEngine failed: {e}")
@@ -184,8 +234,9 @@ class MemoryHandler:
                     mm.record_cited_memories(cited)
                     output = f"找到 {len(memories)} 条相关记忆:\n\n"
                     for m in memories:
+                        ep_hint = f", 来源情节: {m.source_episode_id[:12]}" if m.source_episode_id else ""
                         output += f"- [{m.type.value}] {m.content}\n"
-                        output += f"  (重要性: {m.importance_score:.1f}, 访问次数: {m.access_count})\n\n"
+                        output += f"  (重要性: {m.importance_score:.1f}, 引用: {m.access_count}{ep_hint})\n\n"
                     return output
             except Exception as e:
                 logger.warning(f"[search_memory] SQLite search failed: {e}")
@@ -216,8 +267,9 @@ class MemoryHandler:
 
         output = f"找到 {len(memories)} 条相关记忆:\n\n"
         for m in memories:
+            ep_hint = f", 来源情节: {m.source_episode_id[:12]}" if m.source_episode_id else ""
             output += f"- [{m.type.value}] {m.content}\n"
-            output += f"  (重要性: {m.importance_score:.1f}, 访问次数: {m.access_count})\n\n"
+            output += f"  (重要性: {m.importance_score:.1f}, 引用: {m.access_count}{ep_hint})\n\n"
 
         return output
 
@@ -264,8 +316,10 @@ class MemoryHandler:
             tools = ", ".join(ep.tools_used[:5]) if ep.tools_used else "无工具调用"
             sa = ep.started_at
             started = sa.strftime("%Y-%m-%d %H:%M") if hasattr(sa, "strftime") else str(sa)[:16]
-            lines.append(f"{i}. [{started}] {goal}")
-            lines.append(f"   结果: {outcome} | 工具: {tools}")
+            mem_count = len(ep.linked_memory_ids) if ep.linked_memory_ids else 0
+            lines.append(f"{i}. [{started}] {goal}  (id: {ep.id[:12]})")
+            mem_hint = f"关联记忆: {mem_count}条 | " if mem_count else ""
+            lines.append(f"   结果: {outcome} | {mem_hint}工具: {tools}")
             if ep.summary:
                 lines.append(f"   摘要: {ep.summary[:120]}")
             lines.append("")
@@ -307,6 +361,7 @@ class MemoryHandler:
                     results.append({
                         "source": "sqlite_turns",
                         "session_id": row.get("session_id", ""),
+                        "episode_id": row.get("episode_id", ""),
                         "timestamp": row.get("timestamp", ""),
                         "role": row.get("role", ""),
                         "content": str(row.get("content", ""))[:500],
@@ -350,6 +405,115 @@ class MemoryHandler:
             return f"未找到包含 '{keyword}' 的对话记录（最近 {days_back} 天）"
 
         return self._format_trace_results(results, keyword)
+
+    def _trace_memory(self, params: dict) -> str:
+        """跨层导航：从记忆→情节→对话，或从情节→记忆+对话"""
+        memory_id = params.get("memory_id", "").strip()
+        episode_id = params.get("episode_id", "").strip()
+
+        if not memory_id and not episode_id:
+            return "请提供 memory_id 或 episode_id 其中一个"
+
+        mm = self.agent.memory_manager
+        store = getattr(mm, "store", None)
+        if not store:
+            return "记忆系统未初始化"
+
+        if memory_id:
+            return self._trace_from_memory(store, memory_id)
+        else:
+            return self._trace_from_episode(store, episode_id)
+
+    def _trace_from_memory(self, store, memory_id: str) -> str:
+        """memory_id → source episode → conversation turns"""
+        mem = store.get_semantic(memory_id)
+        if not mem:
+            return f"未找到记忆 {memory_id}"
+
+        lines = [f"## 记忆详情\n"]
+        lines.append(f"- [{mem.type.value}] {mem.content}")
+        lines.append(f"  重要性: {mem.importance_score:.1f}, 引用: {mem.access_count}, 置信度: {mem.confidence:.1f}")
+
+        ep_id = mem.source_episode_id
+        if not ep_id:
+            lines.append(f"\n该记忆没有关联情节（可能是手动添加或早期提取的）。")
+            return "\n".join(lines)
+
+        ep = store.get_episode(ep_id)
+        if not ep:
+            lines.append(f"\n关联情节 {ep_id} 已不存在。")
+            return "\n".join(lines)
+
+        lines.append(f"\n## 来源情节\n")
+        lines.append(f"- 目标: {ep.goal or '(未记录)'}")
+        lines.append(f"- 结果: {ep.outcome}")
+        lines.append(f"- 摘要: {ep.summary[:200]}")
+        sa = ep.started_at
+        started = sa.strftime("%Y-%m-%d %H:%M") if hasattr(sa, "strftime") else str(sa)[:16]
+        lines.append(f"- 时间: {started}")
+        if ep.tools_used:
+            lines.append(f"- 工具: {', '.join(ep.tools_used[:8])}")
+
+        turns = store.get_session_turns(ep.session_id)
+        if turns:
+            lines.append(f"\n## 相关对话（共 {len(turns)} 轮，显示前 6 轮）\n")
+            for t in turns[:6]:
+                role = t.get("role", "?")
+                content = str(t.get("content", ""))[:200]
+                lines.append(f"[{role}] {content}")
+                if t.get("tool_calls"):
+                    tc = t["tool_calls"]
+                    if isinstance(tc, list):
+                        names = [c.get("name", "?") for c in tc if isinstance(c, dict)]
+                        if names:
+                            lines.append(f"  → 工具调用: {', '.join(names)}")
+                lines.append("")
+
+        return "\n".join(lines)
+
+    def _trace_from_episode(self, store, episode_id: str) -> str:
+        """episode_id → linked memories + conversation turns"""
+        ep = store.get_episode(episode_id)
+        if not ep:
+            return f"未找到情节 {episode_id}"
+
+        lines = [f"## 情节详情\n"]
+        lines.append(f"- 目标: {ep.goal or '(未记录)'}")
+        lines.append(f"- 结果: {ep.outcome}")
+        lines.append(f"- 摘要: {ep.summary[:200]}")
+        sa = ep.started_at
+        started = sa.strftime("%Y-%m-%d %H:%M") if hasattr(sa, "strftime") else str(sa)[:16]
+        lines.append(f"- 时间: {started}")
+        if ep.tools_used:
+            lines.append(f"- 工具: {', '.join(ep.tools_used[:8])}")
+
+        if ep.linked_memory_ids:
+            lines.append(f"\n## 关联记忆（{len(ep.linked_memory_ids)} 条）\n")
+            for mid in ep.linked_memory_ids[:10]:
+                mem = store.get_semantic(mid)
+                if mem:
+                    lines.append(f"- [{mem.type.value}] {mem.content[:150]}")
+                else:
+                    lines.append(f"- (已删除) {mid[:12]}")
+        else:
+            lines.append(f"\n该情节尚无关联记忆。")
+
+        turns = store.get_session_turns(ep.session_id)
+        if turns:
+            lines.append(f"\n## 对话原文（共 {len(turns)} 轮，显示前 8 轮）\n")
+            for t in turns[:8]:
+                role = t.get("role", "?")
+                content = str(t.get("content", ""))[:300]
+                lines.append(f"[{role}] {content}")
+                if t.get("tool_calls"):
+                    tc = t["tool_calls"]
+                    if isinstance(tc, list):
+                        for c in tc[:3]:
+                            if isinstance(c, dict):
+                                lines.append(f"  → {c.get('name', '?')}: {json.dumps(c.get('input', {}), ensure_ascii=False, default=str)[:200]}")
+                lines.append("")
+
+        return "\n".join(lines)
 
     def _search_react_traces(
         self,
@@ -467,6 +631,8 @@ class MemoryHandler:
                     output += f"会话: {r['session_id']}\n"
                 elif r.get("file"):
                     output += f"文件: {r['file']}\n"
+                if r.get("episode_id"):
+                    output += f"关联情节: {r['episode_id'][:12]}\n"
                 output += f"时间: {r.get('timestamp', 'N/A')}\n"
                 output += f"角色: {r.get('role', 'N/A')}\n"
                 output += f"内容: {r.get('content', '')}\n"
@@ -498,4 +664,5 @@ class MemoryHandler:
 def create_handler(agent: "Agent"):
     """创建记忆处理器"""
     handler = MemoryHandler(agent)
+    agent._memory_handler = handler
     return handler.handle

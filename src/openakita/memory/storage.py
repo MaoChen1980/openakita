@@ -207,6 +207,8 @@ class MemoryStorage:
         c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_session ON episodes(session_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_time ON episodes(started_at)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_outcome ON episodes(outcome)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_memories_episode ON memories(source_episode_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_turns_episode ON conversation_turns(episode_id)")
 
         # --- scratchpad ---
         c.execute("""
@@ -744,6 +746,54 @@ class MemoryStorage:
                 logger.error(f"Failed to search episodes: {e}")
                 return []
 
+    def update_episode(self, episode_id: str, updates: dict) -> bool:
+        """Update specific fields of an episode."""
+        if not self._conn or not updates:
+            return False
+        allowed = {
+            "summary", "goal", "outcome", "importance_score",
+            "access_count", "linked_memory_ids", "tags",
+            "entities", "tools_used",
+        }
+        filtered = {k: v for k, v in updates.items() if k in allowed}
+        if not filtered:
+            return False
+
+        json_fields = {"linked_memory_ids", "tags", "entities", "tools_used"}
+        for k in json_fields:
+            if k in filtered and isinstance(filtered[k], list):
+                filtered[k] = json.dumps(filtered[k], ensure_ascii=False)
+
+        set_clause = ", ".join(f"{k} = ?" for k in filtered)
+        values = list(filtered.values()) + [episode_id]
+
+        with self._lock:
+            try:
+                self._conn.execute(
+                    f"UPDATE episodes SET {set_clause} WHERE id = ?", values
+                )
+                self._conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"Failed to update episode {episode_id}: {e}")
+                return False
+
+    def link_turns_to_episode(self, session_id: str, episode_id: str) -> int:
+        """Set episode_id on all conversation_turns for a given session."""
+        if not self._conn:
+            return 0
+        with self._lock:
+            try:
+                cur = self._conn.execute(
+                    "UPDATE conversation_turns SET episode_id = ? WHERE session_id = ?",
+                    (episode_id, session_id),
+                )
+                self._conn.commit()
+                return cur.rowcount
+            except Exception as e:
+                logger.error(f"Failed to link turns to episode: {e}")
+                return 0
+
     # ======================================================================
     # Scratchpad CRUD
     # ======================================================================
@@ -928,7 +978,7 @@ class MemoryStorage:
                 if session_id:
                     cur = self._conn.execute(
                         "SELECT session_id, turn_index, role, content, "
-                        "tool_calls, tool_results, timestamp "
+                        "tool_calls, tool_results, timestamp, episode_id "
                         "FROM conversation_turns "
                         "WHERE session_id = ? AND timestamp >= ? "
                         "AND (content LIKE ? OR tool_calls LIKE ? OR tool_results LIKE ?) "
@@ -938,7 +988,7 @@ class MemoryStorage:
                 else:
                     cur = self._conn.execute(
                         "SELECT session_id, turn_index, role, content, "
-                        "tool_calls, tool_results, timestamp "
+                        "tool_calls, tool_results, timestamp, episode_id "
                         "FROM conversation_turns "
                         "WHERE timestamp >= ? "
                         "AND (content LIKE ? OR tool_calls LIKE ? OR tool_results LIKE ?) "
