@@ -196,24 +196,29 @@ def main():
             "keywords": ["core"],
             "exclude": ["full", "uninstall"],
         },
-        "windows-full": {
-            "extensions": [".exe"],
-            "keywords": ["full"],
-            "exclude": ["uninstall"],
-        },
         "macos": {
             "extensions": [".dmg"],
             "keywords": [],
             "exclude": [],
         },
-        "linux-appimage": {
-            "extensions": [".appimage"],
-            "keywords": [],
+        "linux-deb-ubuntu22-amd64": {
+            "extensions": [".deb"],
+            "keywords": ["ubuntu22-amd64"],
             "exclude": [],
         },
-        "linux-deb": {
+        "linux-deb-ubuntu22-arm64": {
             "extensions": [".deb"],
-            "keywords": [],
+            "keywords": ["ubuntu22-arm64"],
+            "exclude": [],
+        },
+        "linux-deb-ubuntu24-amd64": {
+            "extensions": [".deb"],
+            "keywords": ["ubuntu24-amd64"],
+            "exclude": [],
+        },
+        "linux-deb-ubuntu24-arm64": {
+            "extensions": [".deb"],
+            "keywords": ["ubuntu24-arm64"],
             "exclude": [],
         },
     }
