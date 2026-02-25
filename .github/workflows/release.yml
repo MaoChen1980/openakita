@@ -235,6 +235,10 @@ jobs:
           rm -rf build/openakita-server
           rm -rf build/pyinstaller_work
           rm -rf build/modules
+          # macOS: clear stale PyInstaller temp dirs to avoid PYI-6038 symlink conflicts
+          if [ "$(uname)" = "Darwin" ]; then
+            find "${TMPDIR:-/tmp}" -maxdepth 1 -name "_MEI*" -type d -exec rm -rf {} + 2>/dev/null || true
+          fi
 
       - name: Package Python backend (PyInstaller)
         run: python build/build_backend.py --mode ${{ matrix.build_mode }}
@@ -307,13 +311,11 @@ jobs:
 
       - name: Build Tauri bundles
         working-directory: apps/setup-center
+        timeout-minutes: 150
         env:
-          # full 构建需要额外包含 modules 资源目录；core 构建不设置此变量（空字符串会导致 JSON 解析失败）
           TAURI_CONFIG: ${{ matrix.build_mode == 'full' && '{"bundle":{"resources":["resources/openakita-server/","resources/modules/"]}}' || '{}' }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS 代码签名 & 公证 (需要 Apple Developer 证书)
-          # 当 secrets 未配置时，Tauri 会跳过签名，使用 ad-hoc 签名
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -322,7 +324,28 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           NO_STRIP: true
           APPIMAGE_EXTRACT_AND_RUN: 1
-        run: npx tauri build --bundles "${{ matrix.bundles }}" ${{ matrix.args }}
+        shell: bash
+        run: |
+          set +e
+          MAX_ATTEMPTS=2
+          ATTEMPT=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "=== Build attempt $ATTEMPT/$MAX_ATTEMPTS ==="
+            npx tauri build --bundles "${{ matrix.bundles }}" ${{ matrix.args }}
+            EXIT_CODE=$?
+            if [ $EXIT_CODE -eq 0 ]; then
+              echo "Build succeeded on attempt $ATTEMPT"
+              exit 0
+            fi
+            echo "Build failed (exit $EXIT_CODE) on attempt $ATTEMPT"
+            ATTEMPT=$((ATTEMPT + 1))
+            if [ $ATTEMPT -le $MAX_ATTEMPTS ]; then
+              echo "Waiting 30s before retry..."
+              sleep 30
+            fi
+          done
+          echo "All $MAX_ATTEMPTS attempts failed"
+          exit 1
 
       - name: List bundle outputs
         shell: bash
