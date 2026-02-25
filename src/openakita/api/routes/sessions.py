@@ -1,5 +1,6 @@
 """
-Sessions route: GET /api/sessions, GET /api/sessions/{conversation_id}/history
+Sessions route: GET /api/sessions, GET /api/sessions/{conversation_id}/history,
+POST /api/sessions/generate-title
 
 提供桌面端 session 恢复能力：前端启动时可从后端加载对话列表和历史消息。
 """
@@ -9,10 +10,16 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Request
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+class GenerateTitleRequest(BaseModel):
+    message: str = Field(..., description="用户第一条消息")
+    reply: str = Field("", description="AI 回复摘要（可选）")
 
 
 @router.get("/api/sessions")
@@ -107,3 +114,42 @@ async def get_session_history(
         result.append(entry)
 
     return {"messages": result}
+
+
+@router.post("/api/sessions/generate-title")
+async def generate_title(request: Request, body: GenerateTitleRequest):
+    """Use LLM to generate a concise conversation title from the first message."""
+    agent = getattr(request.app.state, "agent", None)
+    if not agent:
+        return {"title": body.message[:20] or "新对话"}
+
+    from .chat import _resolve_agent
+    actual_agent = _resolve_agent(agent)
+    if not actual_agent or not actual_agent.brain:
+        return {"title": body.message[:20] or "新对话"}
+
+    brain = actual_agent.brain
+    prompt_parts = [f"用户: {body.message[:200]}"]
+    if body.reply:
+        prompt_parts.append(f"AI: {body.reply[:200]}")
+    conversation_text = "\n".join(prompt_parts)
+
+    prompt = (
+        "请根据以下对话内容生成一个简洁的会话标题。\n"
+        "要求：4-10个字，不加标点符号，不加引号，直接输出标题文字。\n\n"
+        f"{conversation_text}"
+    )
+
+    try:
+        response = await brain.think_lightweight(
+            prompt,
+            system="你是标题生成助手。只输出标题文字，不要任何额外内容。",
+            max_tokens=50,
+        )
+        title = response.content.strip().strip('"\'""''「」【】').strip()
+        if not title or len(title) > 30:
+            title = body.message[:20] or "新对话"
+        return {"title": title}
+    except Exception as e:
+        logger.warning(f"[Sessions] Title generation failed: {e}")
+        return {"title": body.message[:20] or "新对话"}

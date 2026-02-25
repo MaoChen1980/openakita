@@ -36,6 +36,7 @@ import {
   IconChevronDown, IconChevronUp, IconMessageCircle, IconChevronRight,
   IconImage, IconRefresh, IconClipboard, IconTrash, IconZap,
   IconMask, IconBot, IconUsers, IconHelp, IconEdit, IconDownload,
+  IconPin,
 } from "../icons";
 
 let _artifactClickTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1497,6 +1498,17 @@ export function ChatView({
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
 
+  // 会话右键菜单 & 重命名
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; convId: string } | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameText, setRenameText] = useState("");
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setCtxMenu(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [ctxMenu]);
+
   // 深度思考模式 & 深度（从 localStorage 恢复用户习惯）
   const [thinkingMode, setThinkingMode] = useState<"auto" | "on" | "off">(() => {
     try { const v = localStorage.getItem("chat_thinkingMode"); return (v === "on" || v === "off") ? v : "auto"; }
@@ -1921,6 +1933,26 @@ export function ChatView({
       setConversations((prev) => prev.filter((c) => c.id !== convId));
     }
   }, [activeConvId]);
+
+  // ── 置顶/取消置顶 ──
+  const togglePinConversation = useCallback((convId: string) => {
+    setConversations((prev) => prev.map((c) =>
+      c.id === convId ? { ...c, pinned: !c.pinned } : c
+    ));
+    setCtxMenu(null);
+  }, []);
+
+  // ── 重命名确认 ──
+  const confirmRename = useCallback((convId: string, newTitle: string) => {
+    const title = newTitle.trim();
+    if (title) {
+      setConversations((prev) => prev.map((c) =>
+        c.id === convId ? { ...c, title, titleGenerated: true } : c
+      ));
+    }
+    setRenamingId(null);
+    setRenameText("");
+  }, []);
 
   // ── 发送消息（overrideText 用于 ask_user 回复等场景，绕过 inputText） ──
   const sendMessage = useCallback(async (overrideText?: string) => {
@@ -2477,11 +2509,36 @@ export function ChatView({
 
       // 流式结束后更新对话摘要（lastMessage / messageCount）
       if (convId) {
-        setConversations((prev) => prev.map((c) =>
-          c.id === convId
-            ? { ...c, lastMessage: text.slice(0, 60), timestamp: Date.now(), messageCount: (c.messageCount || 0) + 2 }
-            : c
-        ));
+        setConversations((prev) => {
+          const updated = prev.map((c) =>
+            c.id === convId
+              ? { ...c, lastMessage: text.slice(0, 60), timestamp: Date.now(), messageCount: (c.messageCount || 0) + 2 }
+              : c
+          );
+          // AI 标题生成：第一轮对话完成后异步请求
+          const conv = updated.find((c) => c.id === convId);
+          if (conv && !conv.titleGenerated && (conv.messageCount || 0) <= 2) {
+            (async () => {
+              try {
+                const res = await fetch(`${apiBase}/api/sessions/generate-title`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ message: text }),
+                  signal: AbortSignal.timeout(15000),
+                });
+                if (res.ok) {
+                  const data = await res.json();
+                  if (data.title) {
+                    setConversations((p) => p.map((c) =>
+                      c.id === convId ? { ...c, title: data.title, titleGenerated: true } : c
+                    ));
+                  }
+                }
+              } catch { /* fallback: keep truncated title */ }
+            })();
+          }
+          return updated;
+        });
       }
     }
   }, [inputText, pendingAttachments, isStreaming, activeConvId, planMode, selectedEndpoint, apiBase, slashCommands, thinkingMode, thinkingDepth]);
@@ -2966,60 +3023,161 @@ export function ChatView({
             </button>
           </div>
           <div style={{ flex: 1, overflow: "auto", padding: "8px 6px" }}>
-            {conversations.map((conv) => (
-              <div
-                key={conv.id}
-                onClick={() => {
-                  setActiveConvId(conv.id);
-                }}
-                style={{
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  cursor: "pointer",
-                  marginBottom: 4,
-                  background: conv.id === activeConvId ? "rgba(14,165,233,0.08)" : "transparent",
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: 4,
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {conv.title}
-                  </div>
-                  <div style={{ fontSize: 11, opacity: 0.5, marginTop: 2 }}>
-                    {formatDate(conv.timestamp)} · {t("im.messageCount", { count: conv.messageCount })}
+            {(() => {
+              const pinned = conversations.filter((c) => c.pinned).sort((a, b) => b.timestamp - a.timestamp);
+              const unpinned = conversations.filter((c) => !c.pinned).sort((a, b) => b.timestamp - a.timestamp);
+
+              const renderItem = (conv: ChatConversation) => (
+                <div
+                  key={conv.id}
+                  onClick={() => { if (renamingId !== conv.id) setActiveConvId(conv.id); }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setCtxMenu({ x: e.clientX, y: e.clientY, convId: conv.id });
+                  }}
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    cursor: "pointer",
+                    marginBottom: 4,
+                    background: conv.id === activeConvId ? "rgba(14,165,233,0.08)" : "transparent",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 4,
+                  }}
+                >
+                  {conv.pinned && (
+                    <IconPin size={11} style={{ opacity: 0.35, flexShrink: 0, marginTop: 3 }} />
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {renamingId === conv.id ? (
+                      <input
+                        autoFocus
+                        value={renameText}
+                        onChange={(e) => setRenameText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") confirmRename(conv.id, renameText);
+                          if (e.key === "Escape") { setRenamingId(null); setRenameText(""); }
+                        }}
+                        onBlur={() => confirmRename(conv.id, renameText)}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          width: "100%",
+                          fontSize: 13,
+                          fontWeight: 700,
+                          border: "1px solid var(--brand)",
+                          borderRadius: 6,
+                          padding: "2px 6px",
+                          background: "var(--bg)",
+                          color: "inherit",
+                          outline: "none",
+                        }}
+                      />
+                    ) : (
+                      <div style={{ fontWeight: 700, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {conv.title}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 11, opacity: 0.5, marginTop: 2 }}>
+                      {formatDate(conv.timestamp)} · {t("im.messageCount", { count: conv.messageCount })}
+                    </div>
                   </div>
                 </div>
-                <button
-                  onClick={(e) => deleteConversation(conv.id, e)}
-                  title={t("chat.deleteConversation")}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    padding: 4,
-                    borderRadius: 6,
-                    opacity: 0.3,
-                    flexShrink: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    marginTop: 1,
-                    transition: "opacity 0.15s, background 0.15s",
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.8"; e.currentTarget.style.background = "rgba(239,68,68,0.1)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.3"; e.currentTarget.style.background = "none"; }}
-                >
-                  <IconTrash size={13} />
-                </button>
+              );
+
+              return (
+                <>
+                  {pinned.length > 0 && (
+                    <>
+                      <div style={{ padding: "6px 12px 4px", fontSize: 11, fontWeight: 600, opacity: 0.4, textTransform: "uppercase" }}>
+                        {t("chat.pinnedSection")}
+                      </div>
+                      {pinned.map(renderItem)}
+                      {unpinned.length > 0 && (
+                        <div style={{ height: 1, background: "var(--line)", margin: "6px 12px" }} />
+                      )}
+                    </>
+                  )}
+                  {unpinned.map(renderItem)}
+                  {conversations.length === 0 && (
+                    <div style={{ padding: 16, textAlign: "center", opacity: 0.4, fontSize: 13 }}>
+                      {t("common.noData")}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* 会话右键菜单 */}
+      {ctxMenu && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 9999 }}
+          onClick={() => setCtxMenu(null)}
+          onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "absolute",
+              left: ctxMenu.x,
+              top: ctxMenu.y,
+              background: "var(--panel)",
+              border: "1px solid var(--line)",
+              borderRadius: 10,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+              padding: "4px 0",
+              minWidth: 140,
+              fontSize: 13,
+              zIndex: 10000,
+            }}
+          >
+            {([
+              {
+                label: conversations.find((c) => c.id === ctxMenu.convId)?.pinned
+                  ? t("chat.unpinConversation") : t("chat.pinConversation"),
+                icon: <IconPin size={13} />,
+                danger: false,
+                action: () => togglePinConversation(ctxMenu.convId),
+              },
+              {
+                label: t("chat.renameConversation"),
+                icon: <IconEdit size={13} />,
+                danger: false,
+                action: () => {
+                  const conv = conversations.find((c) => c.id === ctxMenu.convId);
+                  if (conv) { setRenamingId(conv.id); setRenameText(conv.title); }
+                  setCtxMenu(null);
+                },
+              },
+              {
+                label: t("chat.deleteConversation"),
+                icon: <IconTrash size={13} />,
+                danger: true,
+                action: () => { deleteConversation(ctxMenu.convId); setCtxMenu(null); },
+              },
+            ]).map((item, i) => (
+              <div
+                key={i}
+                onClick={item.action}
+                style={{
+                  padding: "8px 14px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  color: item.danger ? "#ef4444" : "inherit",
+                  transition: "background 0.1s",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = item.danger ? "rgba(239,68,68,0.08)" : "rgba(14,165,233,0.08)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+              >
+                <span style={{ opacity: 0.6, display: "flex" }}>{item.icon}</span>
+                {item.label}
               </div>
             ))}
-            {conversations.length === 0 && (
-              <div style={{ padding: 16, textAlign: "center", opacity: 0.4, fontSize: 13 }}>
-                {t("common.noData")}
-              </div>
-            )}
           </div>
         </div>
       )}

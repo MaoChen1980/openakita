@@ -258,6 +258,8 @@ export type ChatConversation = {
   lastMessage: string;
   timestamp: number;
   messageCount: number;
+  pinned?: boolean;
+  titleGenerated?: boolean;
 };
 
 // ─── Slash commands ───
