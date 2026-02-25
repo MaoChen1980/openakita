@@ -822,7 +822,7 @@
     "images": "Screenshots",
     "imageDropHint": "Click or drag images here (max 10)",
     "uploadLogs": "Upload recent logs",
-    "uploadDebug": "Upload recent 20 LLM debug files",
+    "uploadDebug": "Upload recent 50 LLM debug files",
     "debugWarning": "Debug files may contain recent conversation content",
     "systemInfo": "System Information (auto-collected)",
     "submit": "Submit Report",

@@ -61,11 +61,14 @@ def _get_bug_report_endpoint() -> str:
 
 def _collect_system_info() -> dict:
     """Collect system environment information."""
+    import sys
+
     info: dict = {
         "os": f"{platform.system()} {platform.release()} {platform.machine()}",
         "os_detail": platform.platform(),
         "python": platform.python_version(),
         "python_impl": platform.python_implementation(),
+        "python_executable": sys.executable,
         "arch": platform.machine(),
     }
 
@@ -89,6 +92,17 @@ def _collect_system_info() -> dict:
         pass
     info["packages"] = packages
 
+    # pip list (all installed packages for full reproducibility)
+    try:
+        from importlib.metadata import distributions
+        info["pip_packages"] = {
+            d.metadata["Name"]: d.metadata["Version"]
+            for d in distributions()
+            if d.metadata["Name"]
+        }
+    except Exception:
+        pass
+
     # Memory
     try:
         import psutil
@@ -110,11 +124,43 @@ def _collect_system_info() -> dict:
         except Exception:
             pass
 
+    # Git availability (common cause of [WinError 2])
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["git", "--version"], capture_output=True, text=True, timeout=5,
+        )
+        info["git_version"] = result.stdout.strip() if result.returncode == 0 else f"error: {result.stderr.strip()}"
+    except FileNotFoundError:
+        info["git_version"] = "NOT FOUND (git not in PATH)"
+    except Exception as e:
+        info["git_version"] = f"error: {e}"
+
+    # Node/npm availability
+    for cmd in ["node", "npm"]:
+        try:
+            import subprocess
+            result = subprocess.run(
+                [cmd, "--version"], capture_output=True, text=True, timeout=5,
+            )
+            info[f"{cmd}_version"] = result.stdout.strip() if result.returncode == 0 else "error"
+        except FileNotFoundError:
+            info[f"{cmd}_version"] = "NOT FOUND"
+        except Exception:
+            info[f"{cmd}_version"] = "unknown"
+
     # Configured endpoints count
     try:
         from openakita.config import settings
         from openakita.llm.client import LLMClient
         info["endpoints_count"] = len(getattr(LLMClient, "_endpoints", []))
+    except Exception:
+        pass
+
+    # Project root path
+    try:
+        from openakita.config import settings
+        info["project_root"] = str(settings.project_root)
     except Exception:
         pass
 
@@ -137,6 +183,10 @@ def _collect_system_info() -> dict:
         info["im_channels"] = channels
     except Exception:
         pass
+
+    # PATH environment variable (useful for diagnosing "command not found")
+    import os
+    info["path_env"] = os.environ.get("PATH", "")
 
     return info
 
@@ -294,7 +344,7 @@ async def submit_bug_report(
                 zf.writestr("logs/error.log", err_data)
 
         if upload_debug:
-            for df in _get_recent_llm_debug_files(20):
+            for df in _get_recent_llm_debug_files(50):
                 try:
                     zf.write(df, f"llm_debug/{df.name}")
                 except Exception:
