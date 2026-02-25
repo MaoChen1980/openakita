@@ -22,7 +22,7 @@ import {
   IconEdit, IconTrash, IconEye, IconEyeOff, IconInfo, IconClipboard,
   DotGreen, DotGray, DotYellow, DotRed,
   IconBook, IconZap, IconGear, IconMoon, IconSun, IconLaptop, IconPlug, IconCalendar,
-  IconBug, IconBrain,
+  IconBug, IconBrain, IconGitHub, IconGitee,
   LogoTelegram, LogoFeishu, LogoWework, LogoDingtalk, LogoQQ,
 } from "./icons";
 import logoUrl from "./assets/logo.png";
@@ -9236,6 +9236,22 @@ export function App() {
                 </span>
               )}
             </div>
+            <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 10 }}>
+              <a
+                href="https://github.com/openakita/openakita"
+                title="GitHub"
+                style={{ color: "var(--accent, #5B8DEF)", opacity: 1, display: "inline-flex", alignItems: "center" }}
+              >
+                <IconGitHub size={13} />
+              </a>
+              <a
+                href="https://gitee.com/zacon365/openakita"
+                title="Gitee"
+                style={{ color: "var(--accent, #5B8DEF)", opacity: 1, display: "inline-flex", alignItems: "center" }}
+              >
+                <IconGitee size={13} />
+              </a>
+            </div>
           </div>
         )}
         {sidebarCollapsed && (
@@ -9244,25 +9260,44 @@ export function App() {
             borderTop: "1px solid var(--line)",
             flexShrink: 0,
             display: "flex",
-            justifyContent: "center",
-            gap: 8,
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 6,
           }}>
-            <a
-              href="https://openakita.ai"
-              title="openakita.ai"
-              style={{ color: "var(--accent, #5B8DEF)", opacity: 0.5, display: "flex" }}
-            >
-              <IconGlobe size={14} />
-            </a>
-            {serviceStatus?.running && (
-              <span
-                onClick={() => setBugReportOpen(true)}
-                title={t("feedback.trigger")}
-                style={{ color: "var(--accent, #5B8DEF)", opacity: 0.5, display: "flex", cursor: "pointer" }}
+            <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
+              <a
+                href="https://openakita.ai"
+                title="openakita.ai"
+                style={{ color: "var(--accent, #5B8DEF)", opacity: 0.5, display: "flex" }}
               >
-                <IconBug size={14} />
-              </span>
-            )}
+                <IconGlobe size={14} />
+              </a>
+              {serviceStatus?.running && (
+                <span
+                  onClick={() => setBugReportOpen(true)}
+                  title={t("feedback.trigger")}
+                  style={{ color: "var(--accent, #5B8DEF)", opacity: 0.5, display: "flex", cursor: "pointer" }}
+                >
+                  <IconBug size={14} />
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
+              <a
+                href="https://github.com/openakita/openakita"
+                title="GitHub"
+                style={{ color: "var(--accent, #5B8DEF)", opacity: 0.5, display: "flex" }}
+              >
+                <IconGitHub size={14} />
+              </a>
+              <a
+                href="https://gitee.com/zacon365/openakita"
+                title="Gitee"
+                style={{ color: "var(--accent, #5B8DEF)", opacity: 0.5, display: "flex" }}
+              >
+                <IconGitee size={14} />
+              </a>
+            </div>
           </div>
         )}
       </aside>
