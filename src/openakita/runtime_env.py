@@ -6,6 +6,7 @@ PyInstaller 打包后 sys.executable 指向 openakita-server.exe 而非 Python �
 """
 
 import logging
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -327,6 +328,92 @@ def get_pip_command(packages: list[str]) -> list[str] | None:
     if IS_FROZEN and py == sys.executable:
         return None
     return [py, "-m", "pip", "install", *packages]
+
+
+def inject_python_site_packages(python_executable: str | None = None) -> int:
+    """将指定 Python 解释器的 site-packages 目录追加注入到当前进程 sys.path。
+
+    典型场景：PyInstaller 进程通过外部 Python 执行 `pip install` 后，
+    需要在不重启服务的情况下立即 import 新装的包。
+
+    注意：
+    - 只做 append，不会覆盖 PyInstaller 内置依赖的优先级。
+    - 失败时仅记录日志并返回 0，不抛异常影响主流程。
+    """
+    import subprocess
+
+    py = python_executable or get_python_executable()
+    if not py:
+        return 0
+
+    code = (
+        "import json,site,sysconfig;"
+        "paths=[];"
+        "purelib=sysconfig.get_path('purelib');"
+        "platlib=sysconfig.get_path('platlib');"
+        "usersite=getattr(site,'getusersitepackages',lambda:None)();"
+        "getsites=getattr(site,'getsitepackages',lambda:[])();"
+        "paths.extend([purelib,platlib,usersite]);"
+        "paths.extend(getsites if isinstance(getsites,list) else [getsites]);"
+        "uniq=[];"
+        "seen=set();"
+        "import os;"
+        "for p in paths:"
+        "    if not p: continue;"
+        "    p=os.path.normpath(str(p));"
+        "    if p in seen: continue;"
+        "    seen.add(p);"
+        "    uniq.append(p);"
+        "print(json.dumps(uniq, ensure_ascii=False))"
+    )
+
+    try:
+        kwargs: dict = {
+            "capture_output": True,
+            "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
+            "timeout": 8,
+        }
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        result = subprocess.run([py, "-c", code], **kwargs)
+        if result.returncode != 0:
+            logger.warning(
+                "inject_python_site_packages: probe failed (exit %s): %s",
+                result.returncode,
+                (result.stderr or result.stdout or "").strip()[-300:],
+            )
+            return 0
+
+        raw = (result.stdout or "").strip()
+        if not raw:
+            return 0
+        candidates = json.loads(raw)
+        if not isinstance(candidates, list):
+            return 0
+    except Exception as e:
+        logger.warning("inject_python_site_packages: probe error: %s", e)
+        return 0
+
+    injected = 0
+    for p in candidates:
+        try:
+            p_str = str(p).strip()
+            if not p_str:
+                continue
+            p_path = Path(p_str)
+            if not p_path.is_dir():
+                continue
+            if p_str not in sys.path:
+                sys.path.append(p_str)
+                injected += 1
+        except Exception:
+            continue
+
+    if injected > 0:
+        logger.info("Injected %d external site-packages path(s) from: %s", injected, py)
+    return injected
 
 
 def ensure_ssl_certs() -> None:

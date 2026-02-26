@@ -189,6 +189,15 @@ def _ensure_channel_deps() -> None:
     if not enabled_channels:
         return
 
+    # 在打包环境下，先注入“外部 Python”的 site-packages，
+    # 避免已安装依赖因为路径未注入而被误判为缺失。
+    try:
+        from openakita.runtime_env import inject_python_site_packages
+
+        inject_python_site_packages()
+    except Exception as e:
+        logger.debug(f"Pre-inject python site-packages skipped: {e}")
+
     # 收集缺失的包
     missing: list[str] = []
     for channel in enabled_channels:
@@ -242,6 +251,14 @@ def _ensure_channel_deps() -> None:
             console.print(f"[green]✓[/green] 依赖安装成功: {pkg_list}")
             # 安装后清除 importlib 缓存，让后续 import 能找到新包
             importlib.invalidate_caches()
+            # 关键：把用于 pip install 的解释器 site-packages 注入当前进程，
+            # 确保本次启动内即可 import 新装依赖（无需等待重启）
+            try:
+                from openakita.runtime_env import inject_python_site_packages
+
+                inject_python_site_packages()
+            except Exception as e:
+                logger.debug(f"Post-install site-packages injection skipped: {e}")
         else:
             err_tail = (result.stderr or result.stdout or "").strip()[-500:]
             logger.error(f"依赖安装失败 (exit {result.returncode}): {err_tail}")
