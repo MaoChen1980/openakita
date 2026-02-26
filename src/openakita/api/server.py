@@ -188,6 +188,7 @@ async def start_api_server(
         port=port,
         log_level="warning",
         access_log=False,
+        http="h11",  # 避免外部环境中异常的 httptools 模块导致 API 连接不可用
         log_config=None,  # 关键：禁止 uvicorn 调用 dictConfig 覆盖根日志器
     )
     server = uvicorn.Server(config)
