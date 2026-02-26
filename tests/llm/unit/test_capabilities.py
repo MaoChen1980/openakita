@@ -182,7 +182,9 @@ class TestHelperFunctions:
                 if "pdf" in caps:
                     assert isinstance(caps["pdf"], bool)
 class TestAudioPdfInference:
-    """audio/pdf 能力推断测试"""    def test_ut_c13_audio_keyword_inference(self):
+    """audio/pdf 能力推断测试"""
+
+    def test_ut_c13_audio_keyword_inference(self):
         """UT-C13: audio 关键词推断"""
         # "audio" 关键词
         caps = infer_capabilities("some-audio-model")
