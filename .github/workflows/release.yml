@@ -232,7 +232,11 @@ jobs:
 
       - name: Install Python project and PyInstaller
         run: |
-          pip install -e ".[all]"
+          if [ "${{ matrix.build_mode }}" = "full" ]; then
+            pip install -e ".[all]"
+          else
+            pip install -e "."
+          fi
           pip install "pyinstaller>=6.18.0"
 
       - name: Clean previous PyInstaller output
