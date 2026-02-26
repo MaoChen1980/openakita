@@ -347,7 +347,7 @@ def inject_python_site_packages(python_executable: str | None = None) -> int:
         return 0
 
     code = (
-        "import json,site,sysconfig;"
+        "import json,os,site,sysconfig;"
         "paths=[];"
         "purelib=sysconfig.get_path('purelib');"
         "platlib=sysconfig.get_path('platlib');"
@@ -355,15 +355,8 @@ def inject_python_site_packages(python_executable: str | None = None) -> int:
         "getsites=getattr(site,'getsitepackages',lambda:[])();"
         "paths.extend([purelib,platlib,usersite]);"
         "paths.extend(getsites if isinstance(getsites,list) else [getsites]);"
-        "uniq=[];"
-        "seen=set();"
-        "import os;"
-        "for p in paths:"
-        "    if not p: continue;"
-        "    p=os.path.normpath(str(p));"
-        "    if p in seen: continue;"
-        "    seen.add(p);"
-        "    uniq.append(p);"
+        "norm=[os.path.normpath(str(p)) for p in paths if p];"
+        "uniq=list(dict.fromkeys(norm));"
         "print(json.dumps(uniq, ensure_ascii=False))"
     )
 
