@@ -77,7 +77,7 @@ OpenAkita provides a cross-platform **Desktop Terminal** (built with Tauri + Rea
 No command line. No config files. **From install to conversation in 3 minutes**:
 
 <p align="center">
-  <img src="docs/assets/desktop_quick_config.png" alt="OpenAkita Quick Setup vs Full Setup" width="800" />
+  <img src="docs/assets/desktop_quick_config.gif" alt="OpenAkita Quick Setup vs Full Setup" width="800" />
 </p>
 
 <table>
