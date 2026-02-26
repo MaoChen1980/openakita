@@ -179,7 +179,7 @@ jobs:
             build_mode: "core"
             suffix: "-macos-arm64"
           # macOS - Intel (x86_64)
-          - platform: macos-13
+          - platform: macos-15-intel
             bundles: "dmg"
             args: "--target x86_64-apple-darwin"
             rust_target: "x86_64-apple-darwin"
@@ -231,8 +231,13 @@ jobs:
             apps/setup-center/src-tauri -> target
 
       - name: Install Python project and PyInstaller
+        shell: bash
         run: |
-          pip install -e ".[all]"
+          if [ "${{ matrix.build_mode }}" = "full" ]; then
+            pip install -e ".[all]"
+          else
+            pip install -e "."
+          fi
           pip install "pyinstaller>=6.18.0"
 
       - name: Clean previous PyInstaller output
@@ -316,6 +321,31 @@ jobs:
         working-directory: apps/setup-center
         run: npm ci
 
+      - name: Preflight Rust dependency check
+        working-directory: apps/setup-center/src-tauri
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fetch --locked
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            cargo check --target "${{ matrix.rust_target }}"
+          else
+            cargo check
+          fi
+
+      - name: Clean Rust release intermediates for current target
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET_BASE="apps/setup-center/src-tauri/target"
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            RELEASE_DIR="${TARGET_BASE}/${{ matrix.rust_target }}/release"
+          else
+            RELEASE_DIR="${TARGET_BASE}/release"
+          fi
+          rm -rf "${RELEASE_DIR}/deps" "${RELEASE_DIR}/build" "${RELEASE_DIR}/.fingerprint"
+          mkdir -p "${RELEASE_DIR}"
+
       - name: Build Tauri bundles
         working-directory: apps/setup-center
         timeout-minutes: 150
@@ -367,7 +397,12 @@ jobs:
             exit 0
           fi
 
-          BUNDLE_DIR="apps/setup-center/src-tauri/target/release/bundle"
+          TARGET_BASE="apps/setup-center/src-tauri/target"
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            BUNDLE_DIR="${TARGET_BASE}/${{ matrix.rust_target }}/release/bundle"
+          else
+            BUNDLE_DIR="${TARGET_BASE}/release/bundle"
+          fi
           ARTIFACTS=()
           while IFS= read -r -d '' artifact; do
             ARTIFACTS+=("${artifact}")
@@ -451,19 +486,32 @@ jobs:
       - name: List bundle outputs
         shell: bash
         run: |
+          TARGET_BASE="apps/setup-center/src-tauri/target"
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            RELEASE_DIR="${TARGET_BASE}/${{ matrix.rust_target }}/release"
+            BUNDLE_DIR="${RELEASE_DIR}/bundle"
+          else
+            RELEASE_DIR="${TARGET_BASE}/release"
+            BUNDLE_DIR="${RELEASE_DIR}/bundle"
+          fi
           echo "== release dir =="
-          ls -la "apps/setup-center/src-tauri/target/release" || true
+          ls -la "${RELEASE_DIR}" || true
           echo "== bundle dir =="
-          ls -la "apps/setup-center/src-tauri/target/release/bundle" || true
+          ls -la "${BUNDLE_DIR}" || true
           echo "== bundle tree (depth 4) =="
-          find "apps/setup-center/src-tauri/target/release/bundle" -maxdepth 4 -type f -print || true
+          find "${BUNDLE_DIR}" -maxdepth 4 -type f -print || true
 
       - name: Collect installer bundles
         shell: bash
         run: |
           set -euo pipefail
 
-          BUNDLE_DIR="apps/setup-center/src-tauri/target/release/bundle"
+          TARGET_BASE="apps/setup-center/src-tauri/target"
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            BUNDLE_DIR="${TARGET_BASE}/${{ matrix.rust_target }}/release/bundle"
+          else
+            BUNDLE_DIR="${TARGET_BASE}/release/bundle"
+          fi
           OUT_DIR="${BUNDLE_DIR}/_upload"
           rm -rf "${OUT_DIR}"
           mkdir -p "${OUT_DIR}"
@@ -538,7 +586,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          BUNDLE_DIR="apps/setup-center/src-tauri/target/release/bundle"
+          TARGET_BASE="apps/setup-center/src-tauri/target"
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            BUNDLE_DIR="${TARGET_BASE}/${{ matrix.rust_target }}/release/bundle"
+          else
+            BUNDLE_DIR="${TARGET_BASE}/release/bundle"
+          fi
           OUT_DIR="${BUNDLE_DIR}/_upload"
           ls -la "${OUT_DIR}"
           gh release upload "${RELEASE_TAG}" "${OUT_DIR}"/* --clobber
@@ -548,7 +601,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: signatures-${{ matrix.platform }}-${{ matrix.build_mode }}
-          path: apps/setup-center/src-tauri/target/release/bundle/_upload/*.sig
+          path: apps/setup-center/src-tauri/target/**/bundle/_upload/*.sig
           if-no-files-found: ignore
           retention-days: 5
 
