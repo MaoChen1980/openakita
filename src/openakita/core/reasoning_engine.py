@@ -568,7 +568,20 @@ class ReasoningEngine:
                         tools=tools,
                     )
                 except _CtxCancelledError:
-                    raise UserCancelledError(reason=state.cancel_reason or "用户请求停止", source="context_compress")
+                    # 仅当任务状态明确为“用户取消”时，才把压缩取消升级为任务取消。
+                    # 否则按压缩失败降级处理，避免误报 "Context compression cancelled by user"。
+                    if state.cancelled or bool((state.cancel_reason or "").strip()):
+                        raise UserCancelledError(
+                            reason=state.cancel_reason or "用户请求停止",
+                            source="context_compress",
+                        )
+                    logger.warning(
+                        "[ReAct] Context compression cancelled without task cancellation "
+                        "(session=%s). Fallback to uncompressed context.",
+                        conversation_id or state.session_id,
+                    )
+                    state.cancel_event = asyncio.Event()
+                    self._context_manager.set_cancel_event(state.cancel_event)
                 _after_tokens = self._context_manager.estimate_messages_tokens(working_messages)
                 if _after_tokens < _before_tokens:
                     _ctx_compressed_info = {
@@ -1312,12 +1325,21 @@ class ReasoningEngine:
                             tools=tools,
                         )
                     except _CtxCancelledError:
-                        async for ev in self._stream_cancel_farewell(
-                            working_messages, effective_prompt, current_model, state
-                        ):
-                            yield ev
-                        yield {"type": "done"}
-                        return
+                        # 与 run() 保持一致：只在明确用户取消时终止。
+                        if state.cancelled or bool((state.cancel_reason or "").strip()):
+                            async for ev in self._stream_cancel_farewell(
+                                working_messages, effective_prompt, current_model, state
+                            ):
+                                yield ev
+                            yield {"type": "done"}
+                            return
+                        logger.warning(
+                            "[ReAct-Stream] Context compression cancelled without task cancellation "
+                            "(session=%s). Fallback to uncompressed context.",
+                            conversation_id or state.session_id,
+                        )
+                        state.cancel_event = asyncio.Event()
+                        self._context_manager.set_cancel_event(state.cancel_event)
                     _after_tokens = self._context_manager.estimate_messages_tokens(working_messages)
                     if _after_tokens < _before_tokens:
                         _ctx_compressed_info = {
