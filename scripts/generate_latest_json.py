@@ -238,10 +238,10 @@ def main():
         },
     }
     DOWNLOAD_NICKNAMES = {
-        "windows-core": "Windows · 标准版",
-        "windows-full": "Windows · 完整版",
-        "macos-arm64": "macOS (Apple Silicon)",
-        "macos-x64": "macOS (Intel)",
+        "windows-core": "Windows 10/11",
+        "windows-full": "Windows 10/11 完整版",
+        "macos-arm64": "macOS Apple Silicon (.dmg)",
+        "macos-x64": "macOS Intel (.dmg)",
         "linux-appimage-x64": "Linux AppImage x64",
         "linux-deb-ubuntu22-amd64": "Ubuntu 22 x64 (.deb)",
         "linux-deb-ubuntu22-arm64": "Ubuntu 22 ARM64 (.deb)",
@@ -264,16 +264,6 @@ def main():
                 dl_entry["github_url"] = github_url
             downloads[dl_key] = dl_entry
             print(f"  download.{dl_key}: {asset['name']} → {download_url} ✓")
-
-    # Backward compatibility aliases for existing website consumers.
-    if "windows-core" in downloads:
-        downloads["windows"] = downloads["windows-core"]
-
-    # Keep generic "macos" key pointing to arm64 first.
-    if "macos-arm64" in downloads:
-        downloads["macos"] = downloads["macos-arm64"]
-    elif "macos-x64" in downloads:
-        downloads["macos"] = downloads["macos-x64"]
 
     manifest = {
         "version": version,
