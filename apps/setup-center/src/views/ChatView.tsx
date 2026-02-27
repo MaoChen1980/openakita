@@ -1067,7 +1067,7 @@ function MessageBubble({
 
         {/* Main content (markdown) */}
         {msg.content && (
-          <div className="chatMdContent">
+          <div className={isUser ? "chatMdContent chatMdContentUser" : "chatMdContent"}>
             <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
               {msg.content}
             </ReactMarkdown>

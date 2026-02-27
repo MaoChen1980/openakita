@@ -4734,17 +4734,18 @@ export function App() {
               {endpointSummary.map((e) => {
                 const h = endpointHealth[e.name];
                 const dotClass = h ? (h.status === "healthy" ? "healthy" : h.status === "degraded" ? "degraded" : "unhealthy") : e.keyPresent ? "unknown" : "unhealthy";
+                const fullError = h && h.status !== "healthy" ? (h.error || "") : "";
                 const label = h
-                  ? h.status === "healthy" ? (h.latencyMs != null ? h.latencyMs + "ms" : "OK") : (h.error || "").slice(0, 30)
+                  ? h.status === "healthy" ? (h.latencyMs != null ? h.latencyMs + "ms" : "OK") : fullError.slice(0, 30) + (fullError.length > 30 ? "…" : "")
                   : e.keyPresent ? "—" : t("status.keyMissing");
                 return (
                   <div key={e.name} className="epTableRow">
                     <span className="epTableName">{e.name}</span>
                     <span className="epTableModel">{e.model}</span>
                     <span>{e.keyPresent ? <DotGreen /> : <DotGray />}</span>
-                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4 }} title={fullError || undefined}>
                       <span className={"healthDot " + dotClass} />
-                      <span className="epTableStatus">{label}</span>
+                      <span className="epTableStatus" style={fullError ? { cursor: "help" } : undefined}>{label}</span>
                     </span>
                     <button className="btnSmall" onClick={async () => {
                       setHealthChecking(e.name);
@@ -6119,7 +6120,7 @@ export function App() {
             <summary>{t("config.toolsMCP")}</summary>
             <div className="configDetailsBody">
               <FieldBool k="MCP_ENABLED" label={t("config.toolsMCPEnable")} help={t("config.toolsMCPEnableHelp")} />
-              <div className="grid3">
+              <div className="grid2">
                 <FieldBool k="MCP_BROWSER_ENABLED" label="Browser MCP" help={t("config.toolsMCPBrowserHelp")} />
                 <FieldText k="MCP_TIMEOUT" label="Timeout (s)" placeholder="60" />
               </div>
@@ -6372,21 +6373,21 @@ export function App() {
         {cliStatus && hasRegistered && (
           <div style={{ background: "rgba(34,197,94,0.08)", borderRadius: 8, padding: "10px 14px", marginBottom: 12 }}>
             <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>已注册命令</div>
-            <div style={{ fontSize: 13 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 13 }}>
               {cliStatus.registeredCommands.map(cmd => (
-                <code key={cmd} style={{ marginRight: 8, padding: "2px 6px", background: "rgba(0,0,0,0.1)", borderRadius: 4 }}>{cmd}</code>
+                <code key={cmd} style={{ padding: "2px 8px", background: "rgba(0,0,0,0.08)", borderRadius: 4, fontSize: 12 }}>{cmd}</code>
               ))}
               {cliStatus.inPath ? (
-                <span style={{ color: "#22c55e", fontSize: 12 }}> (已在 PATH 中)</span>
+                <span style={{ color: "#22c55e", fontSize: 12 }}>(已在 PATH 中)</span>
               ) : (
-                <span style={{ color: "#f59e0b", fontSize: 12 }}> (未在 PATH 中)</span>
+                <span style={{ color: "#f59e0b", fontSize: 12 }}>(未在 PATH 中)</span>
               )}
             </div>
-            <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>目录: {cliStatus.binDir}</div>
+            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>目录: {cliStatus.binDir}</div>
           </div>
         )}
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
           <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 }}>
             <input type="checkbox" checked={cliRegOpenakita} onChange={() => setCliRegOpenakita(!cliRegOpenakita)} />
             <span><strong>openakita</strong> — 完整命令</span>
