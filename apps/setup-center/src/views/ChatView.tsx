@@ -3330,7 +3330,7 @@ export function ChatView({
 
         {/* 附件预览栏 */}
         {pendingAttachments.length > 0 && (
-          <div style={{ padding: "12px 16px 8px", borderTop: "1px solid var(--line)", display: "flex", flexWrap: "wrap", gap: 12, background: "var(--panel)" }}>
+          <div style={{ padding: "12px 16px 8px", borderTop: "1px solid var(--line)", display: "flex", flexWrap: "wrap", gap: 12, background: "var(--panel)", maxHeight: 140, overflowY: "auto" }}>
             {pendingAttachments.map((att, idx) => (
               <AttachmentPreview
                 key={`${att.name}-${att.type}-${idx}`}
