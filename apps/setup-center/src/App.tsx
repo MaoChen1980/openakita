@@ -180,6 +180,13 @@ function isMiniMaxProvider(providerSlug: string | null, baseUrl: string): boolea
   return ["minimax", "minimax-cn", "minimax-int"].includes(slug) || base.includes("minimax") || base.includes("minimaxi");
 }
 
+function isVolcCodingPlanProvider(providerSlug: string | null, baseUrl: string): boolean {
+  const slug = (providerSlug || "").toLowerCase();
+  const base = (baseUrl || "").toLowerCase();
+  const isVolc = slug === "volcengine" || base.includes("volces.com");
+  return isVolc && base.includes("/api/coding");
+}
+
 function miniMaxFallbackModels(providerSlug: string | null): ListedModel[] {
   // MiniMax 兼容文档仅列出固定候选模型，且未提供 /models 列表接口。
   const ids = [
@@ -188,6 +195,22 @@ function miniMaxFallbackModels(providerSlug: string | null): ListedModel[] {
     "MiniMax-M2.1",
     "MiniMax-M2.1-highspeed",
     "MiniMax-M2",
+  ];
+  return ids.map((id) => ({
+    id,
+    name: id,
+    capabilities: inferCapabilities(id, providerSlug),
+  }));
+}
+
+function volcCodingPlanFallbackModels(providerSlug: string | null): ListedModel[] {
+  const ids = [
+    "doubao-seed-2.0-code",
+    "doubao-seed-code",
+    "glm-4.7",
+    "deepseek-v3.2",
+    "kimi-k2-thinking",
+    "kimi-k2.5",
   ];
   return ids.map((id) => ({
     id,
@@ -205,6 +228,10 @@ async function fetchModelsDirectly(params: {
 }): Promise<ListedModel[]> {
   const { apiType, baseUrl, providerSlug, apiKey } = params;
   const base = baseUrl.replace(/\/+$/, "");
+
+  if (isVolcCodingPlanProvider(providerSlug, baseUrl)) {
+    return volcCodingPlanFallbackModels(providerSlug);
+  }
 
   if (apiType === "anthropic") {
     if (isMiniMaxProvider(providerSlug, baseUrl)) {
@@ -2232,14 +2259,19 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerSlug]);
 
-  // MiniMax 不支持 /models：进入该服务商时直接提供内置候选模型，并允许继续手填。
+  // MiniMax / 火山 Coding Plan 不可靠提供 /models：进入时直接提供内置候选，并允许继续手填。
   useEffect(() => {
     if (!selectedProvider) return;
-    if (isMiniMaxProvider(selectedProvider.slug, selectedProvider.default_base_url || "")) {
+    const effectiveBaseUrl = (codingPlanMode ? selectedProvider.coding_plan_base_url : selectedProvider.default_base_url) || "";
+    if (isVolcCodingPlanProvider(selectedProvider.slug, effectiveBaseUrl)) {
+      setModels(volcCodingPlanFallbackModels(selectedProvider.slug));
+      return;
+    }
+    if (isMiniMaxProvider(selectedProvider.slug, effectiveBaseUrl)) {
       setModels(miniMaxFallbackModels(selectedProvider.slug));
       return;
     }
-  }, [selectedProvider]);
+  }, [selectedProvider, codingPlanMode]);
 
   async function doFetchModels() {
     setError(null);
