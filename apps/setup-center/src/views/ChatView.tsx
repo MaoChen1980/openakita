@@ -1546,6 +1546,22 @@ export function ChatView({
 
   // ── 持久化消息（流式结束后 debounce 写入，避免高频写入） ──
   const saveMessagesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestMessagesRef = useRef<ChatMessage[]>(messages);
+  const latestActiveConvIdRef = useRef<string | null>(activeConvId);
+  useEffect(() => { latestMessagesRef.current = messages; }, [messages]);
+  useEffect(() => { latestActiveConvIdRef.current = activeConvId; }, [activeConvId]);
+
+  const flushCurrentConversationToStorage = useCallback(() => {
+    const convId = latestActiveConvIdRef.current;
+    if (!convId) return;
+    try {
+      const toSave = latestMessagesRef.current.map(({ streaming, ...rest }) => rest);
+      localStorage.setItem(STORAGE_KEY_MSGS_PREFIX + convId, JSON.stringify(toSave));
+    } catch {
+      // ignore sync flush failures
+    }
+  }, [STORAGE_KEY_MSGS_PREFIX]);
+
   useEffect(() => {
     if (!activeConvId) return;
     // 流式传输中时延迟保存，减少写入频率
@@ -1569,6 +1585,26 @@ export function ChatView({
     }, delay);
     return () => { if (saveMessagesTimerRef.current) clearTimeout(saveMessagesTimerRef.current); };
   }, [messages, activeConvId, isStreaming]);
+
+  // 页面隐藏/关闭时立即落盘，降低“当天消息未及时写入 localStorage”的概率
+  useEffect(() => {
+    const flushNow = () => {
+      if (saveMessagesTimerRef.current) {
+        clearTimeout(saveMessagesTimerRef.current);
+        saveMessagesTimerRef.current = null;
+      }
+      flushCurrentConversationToStorage();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flushNow();
+    };
+    window.addEventListener("beforeunload", flushNow);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("beforeunload", flushNow);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [flushCurrentConversationToStorage]);
 
   // ── 切换对话时加载对应消息 ──
   const skipConvLoadRef = useRef(false); // sendMessage 创建新对话时跳过加载
@@ -1668,12 +1704,11 @@ export function ChatView({
     return () => { cancelled = true; };
   }, [serviceRunning, apiBaseUrl]);
 
-  // Restore conversations from backend when localStorage is empty (e.g. after Tauri restart)
+  // 启动后后台对账会话列表：本地先展示，后端异步增量合并，避免“今天新会话缺失”
   const sessionRestoreAttempted = useRef(false);
   useEffect(() => {
     if (!serviceRunning || sessionRestoreAttempted.current) return;
     sessionRestoreAttempted.current = true;
-    if (conversations.length > 0) return;
 
     let cancelled = false;
     (async () => {
@@ -1691,14 +1726,33 @@ export function ChatView({
           timestamp: s.timestamp,
           messageCount: s.messageCount || 0,
         }));
-        setConversations(restoredConvs);
 
-        const firstConvId = restoredConvs[0].id;
-        setActiveConvId(firstConvId);
+        setConversations((prev) => {
+          const prevMap = new Map(prev.map((c) => [c.id, c]));
+          const mergedFromBackend: ChatConversation[] = restoredConvs.map((b) => {
+            const local = prevMap.get(b.id);
+            if (!local) return b;
+            return {
+              ...local,
+              title: local.titleGenerated ? local.title : (b.title || local.title || "对话"),
+              lastMessage: b.lastMessage || local.lastMessage,
+              timestamp: Math.max(local.timestamp || 0, b.timestamp || 0),
+              messageCount: Math.max(local.messageCount || 0, b.messageCount || 0),
+            };
+          });
+          const backendIds = new Set(restoredConvs.map((c) => c.id));
+          const localOnly = prev.filter((c) => !backendIds.has(c.id));
+          return [...mergedFromBackend, ...localOnly];
+        });
+
+        // 没有活跃会话时，默认打开后端最新会话
+        if (!activeConvId) {
+          setActiveConvId(restoredConvs[0].id);
+        }
       } catch { /* backend not available yet, ignore */ }
     })();
     return () => { cancelled = true; };
-  }, [serviceRunning, apiBaseUrl, conversations.length]);
+  }, [serviceRunning, apiBaseUrl, activeConvId]);
 
   // ── 消息补全：用后端数据修复 localStorage 中不完整的消息（中断的流式传输等）──
   const patchedConvsRef = useRef<Set<string>>(new Set());
