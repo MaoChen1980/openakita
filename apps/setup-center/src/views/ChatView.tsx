@@ -1067,7 +1067,7 @@ function MessageBubble({
 
         {/* Main content (markdown) */}
         {msg.content && (
-          <div className="chatMdContent">
+          <div className={isUser ? "chatMdContent chatMdContentUser" : "chatMdContent"}>
             <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
               {msg.content}
             </ReactMarkdown>
@@ -1546,6 +1546,22 @@ export function ChatView({
 
   // ── 持久化消息（流式结束后 debounce 写入，避免高频写入） ──
   const saveMessagesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestMessagesRef = useRef<ChatMessage[]>(messages);
+  const latestActiveConvIdRef = useRef<string | null>(activeConvId);
+  useEffect(() => { latestMessagesRef.current = messages; }, [messages]);
+  useEffect(() => { latestActiveConvIdRef.current = activeConvId; }, [activeConvId]);
+
+  const flushCurrentConversationToStorage = useCallback(() => {
+    const convId = latestActiveConvIdRef.current;
+    if (!convId) return;
+    try {
+      const toSave = latestMessagesRef.current.map(({ streaming, ...rest }) => rest);
+      localStorage.setItem(STORAGE_KEY_MSGS_PREFIX + convId, JSON.stringify(toSave));
+    } catch {
+      // ignore sync flush failures
+    }
+  }, [STORAGE_KEY_MSGS_PREFIX]);
+
   useEffect(() => {
     if (!activeConvId) return;
     // 流式传输中时延迟保存，减少写入频率
@@ -1570,45 +1586,99 @@ export function ChatView({
     return () => { if (saveMessagesTimerRef.current) clearTimeout(saveMessagesTimerRef.current); };
   }, [messages, activeConvId, isStreaming]);
 
-  // ── 切换对话时加载对应消息 ──
-  const prevConvIdRef = useRef<string | null>(activeConvId);
-  const skipConvLoadRef = useRef(false); // sendMessage 创建新对话时跳过加载
+  // 页面隐藏/关闭时立即落盘，降低“当天消息未及时写入 localStorage”的概率
   useEffect(() => {
-    if (activeConvId && activeConvId !== prevConvIdRef.current) {
-      if (skipConvLoadRef.current) {
-        skipConvLoadRef.current = false;
-      } else {
-        try {
-          const raw = localStorage.getItem(STORAGE_KEY_MSGS_PREFIX + activeConvId);
-          if (raw) {
-            setMessages(JSON.parse(raw));
-          } else {
-            setMessages([]);
-            // localStorage empty — try to restore from backend session
-            if (serviceRunning) {
-              const convId = activeConvId;
-              fetch(`${apiBaseUrl}/api/sessions/${encodeURIComponent(convId)}/history`)
-                .then((r) => r.ok ? r.json() : null)
-                .then((data) => {
-                  if (!data?.messages?.length) return;
-                  const restored: ChatMessage[] = data.messages.map((m: { id: string; role: string; content: string; timestamp: number; chain_summary?: ChainSummaryItem[] }) => ({
-                    id: m.id,
-                    role: m.role as "user" | "assistant" | "system",
-                    content: m.content,
-                    timestamp: m.timestamp,
-                    ...(m.chain_summary?.length ? { thinkingChain: buildChainFromSummary(m.chain_summary) } : {}),
-                  }));
-                  setMessages(restored);
-                })
-                .catch(() => {});
-            }
-          }
-        } catch { setMessages([]); }
+    const flushNow = () => {
+      if (saveMessagesTimerRef.current) {
+        clearTimeout(saveMessagesTimerRef.current);
+        saveMessagesTimerRef.current = null;
       }
-      isInitialScrollRef.current = true;
+      flushCurrentConversationToStorage();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flushNow();
+    };
+    window.addEventListener("beforeunload", flushNow);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("beforeunload", flushNow);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [flushCurrentConversationToStorage]);
+
+  // ── 切换对话时加载对应消息 ──
+  const skipConvLoadRef = useRef(false); // sendMessage 创建新对话时跳过加载
+  const hydrateSeqRef = useRef(0);
+
+  const mapBackendHistoryToMessages = useCallback(
+    (rows: { id: string; role: string; content: string; timestamp: number; chain_summary?: ChainSummaryItem[] }[]): ChatMessage[] => {
+      return rows.map((m) => ({
+        id: m.id,
+        role: m.role as "user" | "assistant" | "system",
+        content: m.content,
+        timestamp: m.timestamp,
+        ...(m.chain_summary?.length ? { thinkingChain: buildChainFromSummary(m.chain_summary) } : {}),
+      }));
+    },
+    [],
+  );
+
+  const hydrateConversationMessages = useCallback(async (convId: string, expectedCount = 0) => {
+    // 统一恢复入口：localStorage 为缓存，后端 history 为真相源
+    const seq = ++hydrateSeqRef.current;
+    let localMsgs: ChatMessage[] = [];
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_MSGS_PREFIX + convId);
+      localMsgs = raw ? JSON.parse(raw) : [];
+    } catch {
+      localMsgs = [];
     }
-    prevConvIdRef.current = activeConvId;
-  }, [activeConvId, serviceRunning, apiBaseUrl]);
+
+    const localCount = Array.isArray(localMsgs) ? localMsgs.length : 0;
+    const shouldSyncBackend = serviceRunning && (localCount === 0 || (expectedCount > 0 && localCount < expectedCount));
+
+    if (!shouldSyncBackend) {
+      if (seq === hydrateSeqRef.current) setMessages(localMsgs);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/sessions/${encodeURIComponent(convId)}/history`);
+      const data = res.ok ? await res.json() : null;
+      const backendMsgs = Array.isArray(data?.messages) ? mapBackendHistoryToMessages(data.messages) : [];
+
+      // 后端历史更完整时优先采用，避免“计数有 22 但只显示 1 条”
+      const chosen = backendMsgs.length >= localCount ? backendMsgs : localMsgs;
+      if (seq === hydrateSeqRef.current) setMessages(chosen);
+
+      if (backendMsgs.length >= localCount) {
+        try {
+          const toSave = backendMsgs.map(({ streaming, ...rest }) => rest);
+          localStorage.setItem(STORAGE_KEY_MSGS_PREFIX + convId, JSON.stringify(toSave));
+        } catch {
+          // ignore localStorage write failures
+        }
+      }
+    } catch {
+      if (seq === hydrateSeqRef.current) setMessages(localMsgs);
+    }
+  }, [serviceRunning, apiBaseUrl, mapBackendHistoryToMessages, STORAGE_KEY_MSGS_PREFIX]);
+
+  useEffect(() => {
+    if (!activeConvId) {
+      setMessages([]);
+      return;
+    }
+    if (skipConvLoadRef.current) {
+      skipConvLoadRef.current = false;
+      return;
+    }
+
+    const activeMeta = conversations.find((c) => c.id === activeConvId);
+    const expectedCount = activeMeta?.messageCount || 0;
+    void hydrateConversationMessages(activeConvId, expectedCount);
+    isInitialScrollRef.current = true;
+  }, [activeConvId, conversations, hydrateConversationMessages]);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const isInitialScrollRef = useRef(true); // first scroll should be instant, not smooth
@@ -1634,12 +1704,11 @@ export function ChatView({
     return () => { cancelled = true; };
   }, [serviceRunning, apiBaseUrl]);
 
-  // Restore conversations from backend when localStorage is empty (e.g. after Tauri restart)
+  // 启动后后台对账会话列表：本地先展示，后端异步增量合并，避免“今天新会话缺失”
   const sessionRestoreAttempted = useRef(false);
   useEffect(() => {
     if (!serviceRunning || sessionRestoreAttempted.current) return;
     sessionRestoreAttempted.current = true;
-    if (conversations.length > 0) return;
 
     let cancelled = false;
     (async () => {
@@ -1657,29 +1726,33 @@ export function ChatView({
           timestamp: s.timestamp,
           messageCount: s.messageCount || 0,
         }));
-        setConversations(restoredConvs);
 
-        const firstConvId = restoredConvs[0].id;
-        setActiveConvId(firstConvId);
+        setConversations((prev) => {
+          const prevMap = new Map(prev.map((c) => [c.id, c]));
+          const mergedFromBackend: ChatConversation[] = restoredConvs.map((b) => {
+            const local = prevMap.get(b.id);
+            if (!local) return b;
+            return {
+              ...local,
+              title: local.titleGenerated ? local.title : (b.title || local.title || "对话"),
+              lastMessage: b.lastMessage || local.lastMessage,
+              timestamp: Math.max(local.timestamp || 0, b.timestamp || 0),
+              messageCount: Math.max(local.messageCount || 0, b.messageCount || 0),
+            };
+          });
+          const backendIds = new Set(restoredConvs.map((c) => c.id));
+          const localOnly = prev.filter((c) => !backendIds.has(c.id));
+          return [...mergedFromBackend, ...localOnly];
+        });
 
-        const histRes = await fetch(`${apiBaseUrl}/api/sessions/${encodeURIComponent(firstConvId)}/history`);
-        if (!histRes.ok || cancelled) return;
-        const histData = await histRes.json();
-        const restoredMsgs: ChatMessage[] = (histData.messages || []).map((m: { id: string; role: string; content: string; timestamp: number; chain_summary?: ChainSummaryItem[] }) => ({
-          id: m.id,
-          role: m.role as "user" | "assistant" | "system",
-          content: m.content,
-          timestamp: m.timestamp,
-          ...(m.chain_summary?.length ? { thinkingChain: buildChainFromSummary(m.chain_summary) } : {}),
-        }));
-        if (restoredMsgs.length > 0) {
-          skipConvLoadRef.current = true;
-          setMessages(restoredMsgs);
+        // 没有活跃会话时，默认打开后端最新会话
+        if (!activeConvId) {
+          setActiveConvId(restoredConvs[0].id);
         }
       } catch { /* backend not available yet, ignore */ }
     })();
     return () => { cancelled = true; };
-  }, [serviceRunning, apiBaseUrl, conversations.length]);
+  }, [serviceRunning, apiBaseUrl, activeConvId]);
 
   // ── 消息补全：用后端数据修复 localStorage 中不完整的消息（中断的流式传输等）──
   const patchedConvsRef = useRef<Set<string>>(new Set());
@@ -3257,7 +3330,7 @@ export function ChatView({
 
         {/* 附件预览栏 */}
         {pendingAttachments.length > 0 && (
-          <div style={{ padding: "12px 16px 8px", borderTop: "1px solid var(--line)", display: "flex", flexWrap: "wrap", gap: 12, background: "var(--panel)" }}>
+          <div style={{ padding: "12px 16px 8px", borderTop: "1px solid var(--line)", display: "flex", flexWrap: "wrap", gap: 12, background: "var(--panel)", maxHeight: 140, overflowY: "auto" }}>
             {pendingAttachments.map((att, idx) => (
               <AttachmentPreview
                 key={`${att.name}-${att.type}-${idx}`}
