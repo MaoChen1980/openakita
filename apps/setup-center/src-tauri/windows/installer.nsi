@@ -459,7 +459,6 @@ Function PageRiskAck
  ${NSD_CreateLabel} 0 102u 100% 10u "点击“下一步”即表示你已阅读并理解上述内容。"
  Pop $0
  SetCtlColors $0 "" "transparent"
-
  nsDialogs::Show
 FunctionEnd
 
