@@ -147,7 +147,9 @@
     "manualInstallTitle": "Install from URL",
     "manualInstallPlaceholder": "Enter GitHub/Gitee URL or owner/repo format",
     "manualInstallHint": "Formats: owner/repo, owner/repo@skill-name, GitHub/Gitee HTTPS URL",
-    "envNotReady": "Environment not ready: please complete Python env and workspace setup first"
+    "envNotReady": "Environment not ready: please complete Python env and workspace setup first",
+    "reload": "Reload",
+    "reloadHint": "Rescan and reload all skills from backend"
   },
   "status": {
     "title": "System Status",
@@ -220,7 +222,8 @@
       "agentDesc": "Memory / Session / Scheduling",
       "imDesc": "IM channel config",
       "advanced": "Advanced",
-      "advancedDesc": "Diagnostics / Logs / Cleanup"
+      "advancedDesc": "Diagnostics / Logs / Cleanup",
+      "workspace": "Workspace"
     },
     "prev": "Previous",
     "next": "Next",

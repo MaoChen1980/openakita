@@ -147,7 +147,9 @@
     "manualInstallTitle": "通过链接安装",
     "manualInstallPlaceholder": "输入 GitHub/Gitee 链接或 owner/repo 格式",
     "manualInstallHint": "支持格式: owner/repo、owner/repo@skill-name、GitHub/Gitee HTTPS 链接",
-    "envNotReady": "环境未就绪：请先完成 Python 环境和工作区配置"
+    "envNotReady": "环境未就绪：请先完成 Python 环境和工作区配置",
+    "reload": "刷新",
+    "reloadHint": "让后端重新扫描加载所有技能"
   },
   "status": {
     "title": "系统状态",
@@ -220,7 +222,8 @@
       "agentDesc": "记忆 / 会话 / 调度",
       "imDesc": "IM 通道配置",
       "advanced": "高级配置",
-      "advancedDesc": "诊断 / 日志 / 清理"
+      "advancedDesc": "诊断 / 日志 / 清理",
+      "workspace": "工作区"
     },
     "prev": "上一步",
     "next": "下一步",

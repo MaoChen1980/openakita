@@ -8735,7 +8735,7 @@ export function App() {
             <div>Desktop v{desktopVersion}</div>
             {backendVersion && <div>Backend v{backendVersion}</div>}
             {!backendVersion && serviceStatus?.running && <div>Backend: -</div>}
-            <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 10 }}>
               <a
                 href="https://openakita.ai"
                 style={{ color: "var(--accent, #5B8DEF)", textDecoration: "none", opacity: 1 }}
@@ -8757,8 +8757,6 @@ export function App() {
                   {t("feedback.trigger")}
                 </span>
               )}
-            </div>
-            <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 10 }}>
               <a
                 href="https://github.com/openakita/openakita"
                 title="GitHub"
