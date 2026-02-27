@@ -187,6 +187,12 @@ function isVolcCodingPlanProvider(providerSlug: string | null, baseUrl: string):
   return isVolc && base.includes("/api/coding");
 }
 
+function isLongCatProvider(providerSlug: string | null, baseUrl: string): boolean {
+  const slug = (providerSlug || "").toLowerCase();
+  const base = (baseUrl || "").toLowerCase();
+  return slug === "longcat" || base.includes("longcat.chat");
+}
+
 function miniMaxFallbackModels(providerSlug: string | null): ListedModel[] {
   // MiniMax 兼容文档仅列出固定候选模型，且未提供 /models 列表接口。
   const ids = [
@@ -219,6 +225,20 @@ function volcCodingPlanFallbackModels(providerSlug: string | null): ListedModel[
   }));
 }
 
+function longCatFallbackModels(providerSlug: string | null): ListedModel[] {
+  const ids = [
+    "LongCat-Flash-Chat",
+    "LongCat-Flash-Thinking",
+    "LongCat-Flash-Thinking-2601",
+    "LongCat-Flash-Lite",
+  ];
+  return ids.map((id) => ({
+    id,
+    name: id,
+    capabilities: inferCapabilities(id, providerSlug),
+  }));
+}
+
 /**
  * 前端直连服务商 API 拉取模型列表。
  * 通过 Rust http_proxy_request 命令代理发送，绕过 WebView CORS 限制。
@@ -231,6 +251,9 @@ async function fetchModelsDirectly(params: {
 
   if (isVolcCodingPlanProvider(providerSlug, baseUrl)) {
     return volcCodingPlanFallbackModels(providerSlug);
+  }
+  if (isLongCatProvider(providerSlug, baseUrl)) {
+    return longCatFallbackModels(providerSlug);
   }
 
   if (apiType === "anthropic") {
@@ -2259,12 +2282,16 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerSlug]);
 
-  // MiniMax / 火山 Coding Plan 不可靠提供 /models：进入时直接提供内置候选，并允许继续手填。
+  // MiniMax / 火山 Coding Plan / LongCat 不可靠提供 /models：进入时直接提供内置候选，并允许继续手填。
   useEffect(() => {
     if (!selectedProvider) return;
     const effectiveBaseUrl = (codingPlanMode ? selectedProvider.coding_plan_base_url : selectedProvider.default_base_url) || "";
     if (isVolcCodingPlanProvider(selectedProvider.slug, effectiveBaseUrl)) {
       setModels(volcCodingPlanFallbackModels(selectedProvider.slug));
+      return;
+    }
+    if (isLongCatProvider(selectedProvider.slug, effectiveBaseUrl)) {
+      setModels(longCatFallbackModels(selectedProvider.slug));
       return;
     }
     if (isMiniMaxProvider(selectedProvider.slug, effectiveBaseUrl)) {
