@@ -68,6 +68,12 @@ async def _list_models_openai(api_key: str, base_url: str, provider_slug: str | 
         b = (base_url or "").strip().lower()
         return slug == "longcat" or "longcat.chat" in b
 
+    def _is_dashscope_coding_plan_provider() -> bool:
+        slug = (provider_slug or "").strip().lower()
+        b = (base_url or "").strip().lower()
+        is_dashscope = slug in {"dashscope", "dashscope-intl"} or "dashscope.aliyuncs.com" in b
+        return is_dashscope and "coding" in b
+
     def _minimax_fallback_models() -> list[dict]:
         # MiniMax Anthropic/OpenAI 兼容文档仅列出固定模型，且未提供 /models 列表接口。
         ids = [
@@ -124,8 +130,32 @@ async def _list_models_openai(api_key: str, base_url: str, provider_slug: str | 
         out.sort(key=lambda x: x["id"])
         return out
 
+    def _dashscope_coding_plan_fallback_models() -> list[dict]:
+        ids = [
+            "qwen3.5-plus",
+            "kimi-k2.5",
+            "glm-5",
+            "MiniMax-M2.5",
+            "qwen3-max-2026-01-23",
+            "qwen3-coder-next",
+            "qwen3-coder-plus",
+            "glm-4.7",
+        ]
+        out = [
+            {
+                "id": mid,
+                "name": mid,
+                "capabilities": infer_capabilities(mid, provider_slug="dashscope"),
+            }
+            for mid in ids
+        ]
+        out.sort(key=lambda x: x["id"])
+        return out
+
     if _is_volc_coding_plan_provider():
         return _volc_coding_plan_fallback_models()
+    if _is_dashscope_coding_plan_provider():
+        return _dashscope_coding_plan_fallback_models()
     if _is_longcat_provider():
         return _longcat_fallback_models()
 
@@ -181,6 +211,12 @@ async def _list_models_anthropic(api_key: str, base_url: str, provider_slug: str
         b = (base_url or "").strip().lower()
         return slug == "longcat" or "longcat.chat" in b
 
+    def _is_dashscope_coding_plan_provider() -> bool:
+        slug = (provider_slug or "").strip().lower()
+        b = (base_url or "").strip().lower()
+        is_dashscope = slug in {"dashscope", "dashscope-intl"} or "dashscope.aliyuncs.com" in b
+        return is_dashscope and "coding" in b
+
     def _minimax_fallback_models() -> list[dict]:
         ids = [
             "MiniMax-M2.5",
@@ -232,8 +268,30 @@ async def _list_models_anthropic(api_key: str, base_url: str, provider_slug: str
             for mid in ids
         ]
 
+    def _dashscope_coding_plan_fallback_models() -> list[dict]:
+        ids = [
+            "qwen3.5-plus",
+            "kimi-k2.5",
+            "glm-5",
+            "MiniMax-M2.5",
+            "qwen3-max-2026-01-23",
+            "qwen3-coder-next",
+            "qwen3-coder-plus",
+            "glm-4.7",
+        ]
+        return [
+            {
+                "id": mid,
+                "name": mid,
+                "capabilities": infer_capabilities(mid, provider_slug="dashscope"),
+            }
+            for mid in ids
+        ]
+
     if _is_volc_coding_plan_provider():
         return _volc_coding_plan_fallback_models()
+    if _is_dashscope_coding_plan_provider():
+        return _dashscope_coding_plan_fallback_models()
     if _is_longcat_provider():
         return _longcat_fallback_models()
 

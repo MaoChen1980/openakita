@@ -193,6 +193,13 @@ function isLongCatProvider(providerSlug: string | null, baseUrl: string): boolea
   return slug === "longcat" || base.includes("longcat.chat");
 }
 
+function isDashScopeCodingPlanProvider(providerSlug: string | null, baseUrl: string): boolean {
+  const slug = (providerSlug || "").toLowerCase();
+  const base = (baseUrl || "").toLowerCase();
+  const isDash = slug === "dashscope" || slug === "dashscope-intl" || base.includes("dashscope.aliyuncs.com");
+  return isDash && base.includes("coding");
+}
+
 function miniMaxFallbackModels(providerSlug: string | null): ListedModel[] {
   // MiniMax 兼容文档仅列出固定候选模型，且未提供 /models 列表接口。
   const ids = [
@@ -239,6 +246,24 @@ function longCatFallbackModels(providerSlug: string | null): ListedModel[] {
   }));
 }
 
+function dashScopeCodingPlanFallbackModels(providerSlug: string | null): ListedModel[] {
+  const ids = [
+    "qwen3.5-plus",
+    "kimi-k2.5",
+    "glm-5",
+    "MiniMax-M2.5",
+    "qwen3-max-2026-01-23",
+    "qwen3-coder-next",
+    "qwen3-coder-plus",
+    "glm-4.7",
+  ];
+  return ids.map((id) => ({
+    id,
+    name: id,
+    capabilities: inferCapabilities(id, providerSlug),
+  }));
+}
+
 /**
  * 前端直连服务商 API 拉取模型列表。
  * 通过 Rust http_proxy_request 命令代理发送，绕过 WebView CORS 限制。
@@ -251,6 +276,9 @@ async function fetchModelsDirectly(params: {
 
   if (isVolcCodingPlanProvider(providerSlug, baseUrl)) {
     return volcCodingPlanFallbackModels(providerSlug);
+  }
+  if (isDashScopeCodingPlanProvider(providerSlug, baseUrl)) {
+    return dashScopeCodingPlanFallbackModels(providerSlug);
   }
   if (isLongCatProvider(providerSlug, baseUrl)) {
     return longCatFallbackModels(providerSlug);
@@ -428,18 +456,10 @@ function envSet(env: EnvMap, key: string, value: string): EnvMap {
 }
 
 type StepId =
-  | "welcome"
-  | "workspace"
-  | "python"
-  | "install"
   | "llm"
   | "im"
   | "tools"
-  | "agent"
-  | "finish"
-  | "quick-form"
-  | "quick-setup"
-  | "quick-finish";
+  | "agent";
 
 type Step = {
   id: StepId;
@@ -988,38 +1008,15 @@ export function App() {
     }
   }, []);
 
-  // ── Quick / Full config mode ──
-  const [configMode, setConfigMode] = useState<"quick" | "full" | null>(null);
-
   const steps: Step[] = useMemo(
-    () => {
-      if (configMode === "quick") {
-        return [
-          { id: "welcome", title: t("welcome.quickTitle"), desc: t("welcome.modeTitle") },
-          { id: "quick-form", title: t("config.step.quickForm"), desc: t("config.step.quickFormDesc") },
-          { id: "quick-setup", title: t("config.step.quickSetup"), desc: t("config.step.quickSetupDesc") },
-          { id: "quick-finish", title: t("config.step.quickFinish"), desc: t("config.step.quickFinishDesc") },
-        ];
-      }
-      if (configMode === "full") {
-        return [
-          { id: "workspace", title: t("config.step.workspace"), desc: t("config.step.workspaceDesc") },
-          { id: "python", title: "Python", desc: t("config.step.pythonDesc") },
-          { id: "install", title: t("config.step.install"), desc: t("config.step.installDesc") },
-          { id: "llm", title: t("config.step.endpoints"), desc: t("config.step.endpointsDesc") },
-          { id: "im", title: t("config.imTitle"), desc: t("config.step.imDesc") },
-          { id: "tools", title: t("config.step.tools"), desc: t("config.step.toolsDesc") },
-          { id: "agent", title: t("config.step.agent"), desc: t("config.step.agentDesc") },
-          { id: "finish", title: t("config.step.finish"), desc: t("config.step.finishDesc") },
-        ];
-      }
-      // configMode === null: show welcome only
-      return [
-        { id: "welcome", title: t("config.step.welcome"), desc: t("config.step.welcomeDesc") },
-      ];
-    },
+    () => [
+      { id: "llm" as StepId, title: t("config.step.endpoints"), desc: t("config.step.endpointsDesc") },
+      { id: "im" as StepId, title: t("config.imTitle"), desc: t("config.step.imDesc") },
+      { id: "tools" as StepId, title: t("config.step.tools"), desc: t("config.step.toolsDesc") },
+      { id: "agent" as StepId, title: t("config.step.agent"), desc: t("config.step.agentDesc") },
+    ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [configMode, t],
+    [t],
   );
 
   const [view, setView] = useState<"wizard" | "status" | "chat" | "skills" | "im" | "onboarding" | "modules" | "token_stats" | "mcp" | "scheduler" | "memory">("wizard");
@@ -1034,34 +1031,11 @@ export function App() {
   const [apiBaseUrl, setApiBaseUrl] = useState(() => localStorage.getItem("openakita_apiBaseUrl") || "http://127.0.0.1:18900");
   const [connectDialogOpen, setConnectDialogOpen] = useState(false);
   const [connectAddress, setConnectAddress] = useState("");
-  const [stepId, setStepId] = useState<StepId>("welcome");
+  const [stepId, setStepId] = useState<StepId>("llm");
   const currentStepIdxRaw = useMemo(() => steps.findIndex((s) => s.id === stepId), [steps, stepId]);
   const currentStepIdx = currentStepIdxRaw < 0 ? 0 : currentStepIdxRaw;
   const isFirst = currentStepIdx <= 0;
   const isLast = currentStepIdx >= steps.length - 1;
-
-  // 记录用户历史最远到达的步骤索引，回退后依然允许点击已到达的步骤
-  // 使用 localStorage 持久化，重启后恢复
-  const [maxReachedStepIdx, setMaxReachedStepIdx] = useState(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("openakita_maxStep");
-      return saved ? parseInt(saved, 10) || 0 : 0;
-    }
-    return 0;
-  });
-  useEffect(() => {
-    setMaxReachedStepIdx((prev) => {
-      const next = Math.max(prev, currentStepIdx);
-      localStorage.setItem("openakita_maxStep", String(next));
-      return next;
-    });
-  }, [currentStepIdx]);
-
-  // 切换工作区时重置最远步骤记录
-  useEffect(() => {
-    const saved = localStorage.getItem("openakita_maxStep");
-    setMaxReachedStepIdx(saved ? parseInt(saved, 10) || 0 : 0);
-  }, [currentWorkspaceId]);
 
   // ── Onboarding Wizard (首次安装引导) ──
   type OnboardingStep = "ob-welcome" | "ob-agreement" | "ob-llm" | "ob-im" | "ob-modules" | "ob-cli" | "ob-progress" | "ob-done";
@@ -1725,55 +1699,9 @@ export function App() {
 
   const done = useMemo(() => {
     const d = new Set<StepId>();
-    if (info) d.add("welcome");
-    if (currentWorkspaceId) d.add("workspace");
-    if (canUsePython) d.add("python");
-    if (openakitaInstalled) d.add("install");
-    // LLM 步骤：只要工作区已有端点，就视为完成（允许用户跳过“拉模型/选模型/新增端点”）
     if (savedEndpoints.length > 0) d.add("llm");
-    // Quick mode steps
-    if (configMode === "quick") {
-      if (savedEndpoints.length > 0) d.add("quick-form");
-      if (currentWorkspaceId && canUsePython && openakitaInstalled) d.add("quick-setup");
-    }
-    // integrations/finish are completion-oriented; keep manual.
     return d;
-  }, [info, currentWorkspaceId, canUsePython, openakitaInstalled, savedEndpoints.length, configMode]);
-
-  // 当 done 集合更新时，自动推进 maxReachedStepIdx
-  // 核心步骤（welcome ~ llm）全完成后，解锁所有后续步骤（IM/工具/Agent/完成都是可选的）
-  useEffect(() => {
-    const coreSteps: StepId[] = configMode === "quick"
-      ? ["welcome", "quick-form", "quick-setup"]
-      : ["workspace", "python", "install", "llm"];
-    const allCoreDone = coreSteps.every((id) => done.has(id));
-    if (allCoreDone) {
-      // 所有核心步骤完成 -> 解锁全部步骤
-      setMaxReachedStepIdx((prev) => {
-        const next = Math.max(prev, steps.length - 1);
-        localStorage.setItem("openakita_maxStep", String(next));
-        return next;
-      });
-    } else {
-      // 否则，推进到最后一个连续完成步骤的下一步
-      let maxDoneIdx = -1;
-      for (let i = 0; i < steps.length; i++) {
-        if (done.has(steps[i].id)) {
-          maxDoneIdx = i;
-        } else {
-          break;
-        }
-      }
-      if (maxDoneIdx >= 0) {
-        const target = Math.min(maxDoneIdx + 1, steps.length - 1);
-        setMaxReachedStepIdx((prev) => {
-          const next = Math.max(prev, target);
-          localStorage.setItem("openakita_maxStep", String(next));
-          return next;
-        });
-      }
-    }
-  }, [done, steps]);
+  }, [savedEndpoints.length]);
 
   // Keep boolean flags in sync with the visible status string (best-effort).
   useEffect(() => {
@@ -2282,12 +2210,16 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerSlug]);
 
-  // MiniMax / 火山 Coding Plan / LongCat 不可靠提供 /models：进入时直接提供内置候选，并允许继续手填。
+  // MiniMax / 火山 Coding Plan / DashScope Coding Plan / LongCat 不可靠提供 /models：进入时直接提供内置候选，并允许继续手填。
   useEffect(() => {
     if (!selectedProvider) return;
     const effectiveBaseUrl = (codingPlanMode ? selectedProvider.coding_plan_base_url : selectedProvider.default_base_url) || "";
     if (isVolcCodingPlanProvider(selectedProvider.slug, effectiveBaseUrl)) {
       setModels(volcCodingPlanFallbackModels(selectedProvider.slug));
+      return;
+    }
+    if (isDashScopeCodingPlanProvider(selectedProvider.slug, effectiveBaseUrl)) {
+      setModels(dashScopeCodingPlanFallbackModels(selectedProvider.slug));
       return;
     }
     if (isLongCatProvider(selectedProvider.slug, effectiveBaseUrl)) {
@@ -3597,27 +3529,10 @@ export function App() {
   async function goNext() {
     setNotice(null);
     setError(null);
-    // lightweight guardrails
-    if (stepId === "workspace" && !currentWorkspaceId) {
-      setError("请先创建或选择一个当前工作区。");
-      return;
-    }
-    if (stepId === "python" && !canUsePython) {
-      setError("请先安装/检测到 Python，并在下拉框选择一个可用 Python（3.11+）。");
-      return;
-    }
-    if (stepId === "install" && !openakitaInstalled) {
-      setError("请先创建 venv 并完成 pip 安装 openakita。");
-      return;
-    }
     if (stepId === "llm" && savedEndpoints.length === 0) {
-      // 只有“没有任何端点”才硬拦截
       setError("当前工作区还没有任何 LLM 端点。请先新增至少 1 个端点，再进入下一步。");
       return;
     }
-    // If endpoints already exist, allow proceeding regardless of add-dialog state
-
-    // 自动保存当前页面填写的配置到 .env（避免用户忘记点"保存"导致配置丢失）
     if (currentWorkspaceId) {
       try {
         const autoSaveKeys = getAutoSaveKeysForStep(stepId);
@@ -3627,11 +3542,9 @@ export function App() {
           setBusy(null);
         }
       } catch {
-        // 自动保存失败不阻塞跳转
         setBusy(null);
       }
     }
-
     setStepId(steps[Math.min(currentStepIdx + 1, steps.length - 1)].id);
   }
 
@@ -3718,25 +3631,6 @@ export function App() {
   function goPrev() {
     setNotice(null);
     setError(null);
-    // In quick mode, going back from quick-form should return to welcome (mode selection)
-    if (stepId === "quick-form") {
-      quickSetupStarted.current = false;
-      setQuickSetupPhase(0);
-      setQuickSetupError(null);
-      setConfigMode(null);
-      setStepId("welcome");
-      setMaxReachedStepIdx(0);
-      localStorage.setItem("openakita_maxStep", "0");
-      return;
-    }
-    // Full 模式在 workspace（第一步）按后退，返回模式选择页
-    if (configMode === "full" && stepId === "workspace") {
-      setConfigMode(null);
-      setStepId("welcome");
-      setMaxReachedStepIdx(0);
-      localStorage.setItem("openakita_maxStep", "0");
-      return;
-    }
     setStepId(steps[Math.max(currentStepIdx - 1, 0)].id);
   }
 
@@ -4952,934 +4846,6 @@ export function App() {
             <pre ref={serviceLogRef} className="logPre">{(serviceLog?.content || "").trim() || t("status.noLog")}</pre>
           </div>
         )}
-      </>
-    );
-  }
-
-  function renderWelcome() {
-    const quickFeatures = [
-      t("welcome.quickFeature1"),
-      t("welcome.quickFeature2"),
-      t("welcome.quickFeature3"),
-      t("welcome.quickFeature4"),
-    ];
-    const fullSteps = [
-      { icon: "1", title: t("config.step.workspace"), desc: t("welcome.step1") },
-      { icon: "2", title: "Python", desc: t("welcome.step2") },
-      { icon: "3", title: t("welcome.installTitle"), desc: t("welcome.step3") },
-      { icon: "4", title: t("config.step.endpoints"), desc: t("welcome.step4") },
-      { icon: "5", title: t("welcome.configTitle"), desc: t("welcome.step5") },
-    ];
-    return (
-      <>
-        {/* Platform info bar */}
-        <div className="card" style={{ padding: "12px 16px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            {info && (
-              <>
-                <span className="welcomeInfoTag">OS: {info.os}</span>
-                <span className="welcomeInfoTag">Arch: {info.arch}</span>
-                <span className="welcomeInfoTag">Home: {info.homeDir}</span>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Mode selection */}
-        <div className="card" style={{ marginTop: 12 }}>
-          <div className="cardTitle">{t("welcome.modeTitle")}</div>
-          <div className="cardHint" style={{ marginBottom: 20 }}>{t("welcome.modeSubtitle")}</div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            {/* Quick Setup Card */}
-            <div
-              className="card"
-              style={{
-                marginTop: 0, cursor: "pointer", border: "2px solid var(--brand)",
-                background: "var(--nav-active)",
-                transition: "box-shadow 0.2s, transform 0.15s",
-              }}
-              onClick={async () => {
-                // Quick 模式需要工作区才能保存端点配置，若无工作区则先自动创建
-                if (!currentWorkspaceId) {
-                  try {
-                    const wsList = await invoke<WorkspaceSummary[]>("list_workspaces");
-                    if (!wsList.length) {
-                      const ws = await invoke<WorkspaceSummary>("create_workspace", {
-                        id: "default", name: t("onboarding.defaultWorkspace") || "默认工作区", setCurrent: true,
-                      });
-                      await refreshAll();
-                      setCurrentWorkspaceId(ws.id);
-                      envLoadedForWs.current = null;
-                    } else {
-                      const cur = wsList.find((w) => w.isCurrent) || wsList[0];
-                      await invoke("set_current_workspace", { id: cur.id });
-                      await refreshAll();
-                      setCurrentWorkspaceId(cur.id);
-                      envLoadedForWs.current = null;
-                    }
-                  } catch (e) {
-                    console.warn("Quick mode: auto-create workspace failed:", e);
-                  }
-                }
-                setConfigMode("quick");
-                setStepId("quick-form");
-                setMaxReachedStepIdx(1);
-                localStorage.setItem("openakita_maxStep", "1");
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = "var(--glow-shadow)"; (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = ""; (e.currentTarget as HTMLElement).style.transform = ""; }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <div style={{
-                  width: 40, height: 40, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: "var(--brand)", color: "#fff", flexShrink: 0,
-                }}><IconZap size={22} /></div>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 16, color: "var(--brand)" }}>{t("welcome.quickTitle")}</div>
-                  <div style={{ fontSize: 11, opacity: 0.6 }}>{t("welcome.quickTime")}</div>
-                </div>
-              </div>
-              <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 12 }}>{t("welcome.quickDesc")}</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {quickFeatures.map((f, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, opacity: 0.7 }}>
-                    <IconCheck size={14} style={{ color: "var(--brand)", flexShrink: 0 }} />
-                    <span>{f}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Full Setup Card */}
-            <div
-              className="card"
-              style={{ marginTop: 0, cursor: "pointer", border: "2px solid transparent", transition: "box-shadow 0.2s, transform 0.15s, border-color 0.2s" }}
-              onClick={async () => {
-                // Full 模式也需确保工作区存在（与 Quick 模式行为统一）
-                if (!currentWorkspaceId) {
-                  try {
-                    const wsList = await invoke<WorkspaceSummary[]>("list_workspaces");
-                    if (!wsList.length) {
-                      const ws = await invoke<WorkspaceSummary>("create_workspace", {
-                        id: "default", name: t("onboarding.defaultWorkspace") || "默认工作区", setCurrent: true,
-                      });
-                      await refreshAll();
-                      setCurrentWorkspaceId(ws.id);
-                      envLoadedForWs.current = null;
-                    } else {
-                      const cur = wsList.find((w) => w.isCurrent) || wsList[0];
-                      await invoke("set_current_workspace", { id: cur.id });
-                      await refreshAll();
-                      setCurrentWorkspaceId(cur.id);
-                      envLoadedForWs.current = null;
-                    }
-                  } catch (e) {
-                    console.warn("Full mode: auto-ensure workspace failed:", e);
-                  }
-                }
-                setConfigMode("full");
-                setStepId("workspace");
-                setMaxReachedStepIdx(0);
-                localStorage.setItem("openakita_maxStep", "0");
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = "var(--shadow)"; (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--line)"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = ""; (e.currentTarget as HTMLElement).style.transform = ""; (e.currentTarget as HTMLElement).style.borderColor = "transparent"; }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <div style={{
-                  width: 40, height: 40, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: "var(--muted)", color: "#fff", flexShrink: 0,
-                }}><IconGear size={22} /></div>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 16 }}>{t("welcome.fullTitle")}</div>
-                  <div style={{ fontSize: 11, opacity: 0.6 }}>{t("welcome.fullTime")}</div>
-                </div>
-              </div>
-              <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 12 }}>{t("welcome.fullDesc")}</div>
-              <div className="welcomeSteps" style={{ gap: 6 }}>
-                {fullSteps.map((s, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, opacity: 0.7 }}>
-                    <div style={{
-                      width: 20, height: 20, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                      background: "var(--line)", color: "var(--text)", fontSize: 10, fontWeight: 700, flexShrink: 0,
-                    }}>{s.icon}</div>
-                    <span>{s.title}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  // ── Quick Auto Setup: runs workspace creation, Python install, venv, pip, and default .env in one go ──
-  const [quickSetupPhase, setQuickSetupPhase] = useState<number>(0);
-  const [quickSetupError, setQuickSetupError] = useState<string | null>(null);
-  const quickSetupStarted = useRef(false);
-  const [quickImExpanded, setQuickImExpanded] = useState(false);
-
-  const QUICK_ENV_DEFAULTS: Record<string, string> = {
-    // ── Agent (aligned with config.py Settings defaults) ──
-    AGENT_NAME: "OpenAkita",
-    MAX_ITERATIONS: "300",
-    THINKING_MODE: "auto",
-    AUTO_CONFIRM: "false",
-    SELFCHECK_AUTOFIX: "true",
-    FORCE_TOOL_CALL_MAX_RETRIES: "1",
-    TOOL_MAX_PARALLEL: "1",
-    DATABASE_PATH: "data/agent.db",
-    // ── Timeout ──
-    PROGRESS_TIMEOUT_SECONDS: "600",
-    HARD_TIMEOUT_SECONDS: "0",
-    // ── Persona & Proactive ──
-    PERSONA_NAME: "default",
-    PROACTIVE_ENABLED: "true",
-    PROACTIVE_MAX_DAILY_MESSAGES: "3",
-    PROACTIVE_QUIET_HOURS_START: "23",
-    PROACTIVE_QUIET_HOURS_END: "7",
-    PROACTIVE_MIN_INTERVAL_MINUTES: "120",
-    PROACTIVE_IDLE_THRESHOLD_HOURS: "24",
-    STICKER_ENABLED: "true",
-    STICKER_DATA_DIR: "data/sticker",
-    // ── Desktop Notification ──
-    DESKTOP_NOTIFY_ENABLED: "true",
-    DESKTOP_NOTIFY_SOUND: "true",
-    // ── Tools ──
-    MCP_ENABLED: "true",
-    MCP_BROWSER_ENABLED: "true",
-    DESKTOP_ENABLED: "true",
-    // ── Voice ──
-    WHISPER_MODEL: "base",
-    WHISPER_LANGUAGE: "zh",
-    // ── Logging ──
-    LOG_LEVEL: "INFO",
-    LOG_DIR: "logs",
-    LOG_FILE_PREFIX: "openakita",
-    LOG_MAX_SIZE_MB: "10",
-    LOG_BACKUP_COUNT: "30",
-    LOG_RETENTION_DAYS: "30",
-    LOG_TO_CONSOLE: "true",
-    LOG_TO_FILE: "true",
-    // ── Memory ──
-    EMBEDDING_MODEL: "shibing624/text2vec-base-chinese",
-    EMBEDDING_DEVICE: "cpu",
-    MODEL_DOWNLOAD_SOURCE: "auto",
-    MEMORY_HISTORY_DAYS: "30",
-    MEMORY_MAX_HISTORY_FILES: "1000",
-    MEMORY_MAX_HISTORY_SIZE_MB: "500",
-    // ── Scheduler ──
-    SCHEDULER_ENABLED: "true",
-    SCHEDULER_TIMEZONE: "Asia/Shanghai",
-    SCHEDULER_MAX_CONCURRENT: "5",
-    SCHEDULER_TASK_TIMEOUT: "600",
-    // ── Session ──
-    SESSION_TIMEOUT_MINUTES: "30",
-    SESSION_MAX_HISTORY: "50",
-    SESSION_STORAGE_PATH: "data/sessions",
-    // ── Multi-Agent ──
-    ORCHESTRATION_ENABLED: "false",
-    ORCHESTRATION_MODE: "single",
-    // ── IM Channels ──
-    TELEGRAM_ENABLED: "false",
-    FEISHU_ENABLED: "false",
-    WEWORK_ENABLED: "false",
-    DINGTALK_ENABLED: "false",
-    ONEBOT_ENABLED: "false",
-    QQBOT_ENABLED: "false",
-  };
-
-  // ── Quick auto-setup effect: MUST be at component top level (not inside renderQuickAutoSetup) ──
-  useEffect(() => {
-    if (stepId !== "quick-setup" || configMode !== "quick") return;
-    if (quickSetupStarted.current) return;
-    if (!info) return; // wait for platform info
-    quickSetupStarted.current = true;
-
-    (async () => {
-      try {
-        // Phase 0: Create workspace
-        setQuickSetupPhase(0);
-        setQuickSetupError(null);
-        try {
-          const ws = await invoke<WorkspaceSummary>("create_workspace", {
-            id: "default",
-            name: "默认工作区",
-            setCurrent: true,
-          });
-          await refreshAll();
-          setCurrentWorkspaceId(ws.id);
-          envLoadedForWs.current = null;
-        } catch {
-          // workspace may already exist, try to set it as current
-          const wsList = await invoke<WorkspaceSummary[]>("list_workspaces");
-          const existing = wsList.find((w) => w.id === "default");
-          if (existing) {
-            await invoke("set_current_workspace", { id: "default" });
-            await refreshAll();
-            setCurrentWorkspaceId("default");
-            envLoadedForWs.current = null;
-          } else {
-            throw new Error("创建工作区失败");
-          }
-        }
-
-        // Phase 1: Install embedded Python
-        setQuickSetupPhase(1);
-        const r = await invoke<EmbeddedPythonInstallResult>("install_embedded_python", { pythonSeries: "3.11" });
-        const cand: PythonCandidate = {
-          command: r.pythonCommand,
-          versionText: `embedded (${r.tag}): ${r.assetName}`,
-          isUsable: true,
-        };
-        setPythonCandidates((prev) => [cand, ...prev.filter((p) => p.command.join(" ") !== cand.command.join(" "))]);
-        setSelectedPythonIdx(0);
-
-        // Phase 2: Create venv + pip install
-        setQuickSetupPhase(2);
-        const curVenvDir = joinPath(info.openakitaRootDir, "venv");
-        await invoke<string>("create_venv", { pythonCommand: r.pythonCommand, venvDir: curVenvDir });
-        setVenvReady(true);
-        setInstallLog("");
-        const spec = `openakita[all]`;
-        await invoke<string>("pip_install", {
-          venvDir: curVenvDir,
-          packageSpec: spec,
-          indexUrl: null,
-        });
-        setOpenakitaInstalled(true);
-
-        // Phase 2.5: Persist Python venv path
-        try {
-          await invoke("workspace_update_env", {
-            workspaceId: "default",
-            entries: [{ key: "PYTHON_VENV_PATH", value: curVenvDir }],
-          });
-        } catch { /* best-effort */ }
-
-        // Phase 3: Write default .env
-        setQuickSetupPhase(3);
-        const tauriEntries = Object.entries(QUICK_ENV_DEFAULTS).map(([key, value]) => ({ key, value }));
-        await invoke("workspace_update_env", { workspaceId: "default", entries: tauriEntries });
-        // Also update envDraft in memory
-        setEnvDraft((prev) => {
-          const next = { ...prev };
-          for (const [k, v] of Object.entries(QUICK_ENV_DEFAULTS)) {
-            next[k] = v;
-          }
-          return next;
-        });
-
-        // Phase 4: Save IM config (from envDraft filled on quick-form)
-        setQuickSetupPhase(4);
-        try {
-          const imKeys = [
-            "TELEGRAM_ENABLED", "TELEGRAM_BOT_TOKEN", "TELEGRAM_PROXY",
-            "TELEGRAM_REQUIRE_PAIRING", "TELEGRAM_PAIRING_CODE", "TELEGRAM_WEBHOOK_URL",
-            "FEISHU_ENABLED", "FEISHU_APP_ID", "FEISHU_APP_SECRET",
-            "WEWORK_ENABLED", "WEWORK_CORP_ID",
-            "WEWORK_TOKEN", "WEWORK_ENCODING_AES_KEY", "WEWORK_CALLBACK_PORT", "WEWORK_CALLBACK_HOST",
-            "DINGTALK_ENABLED", "DINGTALK_CLIENT_ID", "DINGTALK_CLIENT_SECRET",
-            "ONEBOT_ENABLED", "ONEBOT_WS_URL", "ONEBOT_ACCESS_TOKEN",
-            "QQBOT_ENABLED", "QQBOT_APP_ID", "QQBOT_APP_SECRET", "QQBOT_SANDBOX", "QQBOT_MODE", "QQBOT_WEBHOOK_PORT", "QQBOT_WEBHOOK_PATH",
-          ];
-          const imEntries = imKeys
-            .filter((k) => envDraft[k] !== undefined && envDraft[k] !== "")
-            .map((k) => ({ key: k, value: envDraft[k] }));
-          if (imEntries.length > 0) {
-            await invoke("workspace_update_env", { workspaceId: "default", entries: imEntries });
-          }
-        } catch { /* ignore IM save errors */ }
-
-        // Done — advance to quick-finish
-        setQuickSetupPhase(5);
-
-        setTimeout(() => {
-          setStepId("quick-finish");
-          setMaxReachedStepIdx((prev) => {
-            const next = Math.max(prev, steps.length - 1);
-            localStorage.setItem("openakita_maxStep", String(next));
-            return next;
-          });
-        }, 800);
-      } catch (e) {
-        setQuickSetupError(String(e));
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepId, configMode, info]);
-
-  function renderQuickAutoSetup() {
-    const phases = [
-      t("welcome.quickStep1"),
-      t("welcome.quickStep2"),
-      t("welcome.quickStep3"),
-      t("welcome.quickStep4"),
-      t("welcome.quickStep5"),
-    ];
-
-    return (
-      <>
-        <div className="card">
-          <div className="cardTitle">{t("welcome.quickSetupTitle")}</div>
-          <div className="cardHint" style={{ marginBottom: 20 }}>{t("welcome.quickSetupSubtitle")}</div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {phases.map((label, idx) => {
-              const isActive = quickSetupPhase === idx && !quickSetupError;
-              const isDone = quickSetupPhase > idx;
-              const isFailed = quickSetupPhase === idx && !!quickSetupError;
-              return (
-                <div key={idx} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{
-                    width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                    flexShrink: 0, fontSize: 14, fontWeight: 700,
-                    background: isDone ? "var(--primary, #1976d2)" : isFailed ? "#e53935" : isActive ? "#e3f2fd" : "#f5f5f5",
-                    color: isDone ? "#fff" : isFailed ? "#fff" : isActive ? "var(--primary, #1976d2)" : "#999",
-                    transition: "all 0.3s",
-                  }}>
-                    {isDone ? <IconCheck size={16} /> : isFailed ? <IconX size={16} /> : idx + 1}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14, color: isDone ? "var(--primary, #1976d2)" : isFailed ? "#e53935" : undefined }}>
-                      {label}
-                    </div>
-                    {isActive && !quickSetupError && (
-                      <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>
-                        <span className="loadingDots">...</span>
-                      </div>
-                    )}
-                  </div>
-                  {isActive && !quickSetupError && (
-                    <div className="spinner" style={{ width: 18, height: 18 }} />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {quickSetupPhase >= 5 && !quickSetupError && (
-            <div style={{ marginTop: 16, padding: "12px 16px", background: "#e8f5e9", borderRadius: 8, fontSize: 13, color: "#2e7d32" }}>
-              <IconCheckCircle size={16} style={{ verticalAlign: "middle", marginRight: 6 }} />
-              {t("welcome.quickStepDone")}
-            </div>
-          )}
-
-          {quickSetupError && (
-            <div style={{ marginTop: 16 }}>
-              <div style={{ padding: "12px 16px", background: "#ffebee", borderRadius: 8, fontSize: 13, color: "#c62828", marginBottom: 12 }}>
-                {t("welcome.quickStepFail")}
-                <div style={{ marginTop: 6, fontSize: 11, opacity: 0.8, whiteSpace: "pre-wrap" }}>{quickSetupError}</div>
-              </div>
-              <button className="btnPrimary" onClick={() => {
-                quickSetupStarted.current = false;
-                setQuickSetupPhase(0);
-                setQuickSetupError(null);
-                setConfigMode(null);
-                setStepId("welcome");
-                setMaxReachedStepIdx(0);
-                localStorage.setItem("openakita_maxStep", "0");
-              }}>
-                {t("welcome.quickSwitchFull")}
-              </button>
-            </div>
-          )}
-        </div>
-      </>
-    );
-  }
-
-  function renderQuickForm() {
-    const canStart = savedEndpoints.length > 0;
-    return (
-      <>
-        {/* ── Intro hint ── */}
-        <div className="card">
-          <div className="cardTitle">{t("welcome.quickFormTitle")}</div>
-          <div className="cardHint">{t("welcome.quickFormHint")}</div>
-        </div>
-
-        {/* ── LLM Endpoint section (reuse renderLLM content) ── */}
-        {renderLLM()}
-
-        {/* ── Optional IM section (collapsible) ── */}
-        <div className="card" style={{ marginTop: 16 }}>
-          <div
-            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
-            onClick={() => setQuickImExpanded((v) => !v)}
-            role="button" tabIndex={0}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div className="cardTitle" style={{ marginBottom: 0 }}>{t("config.imTitle")}</div>
-              <span className="pill" style={{ fontSize: 10, padding: "2px 8px", background: "#f1f5f9", color: "#64748b" }}>{t("welcome.quickFormOptional")}</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, opacity: 0.6 }}>
-              <span>{quickImExpanded ? t("welcome.quickFormCollapse") : t("welcome.quickFormExpand")}</span>
-              {quickImExpanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
-            </div>
-          </div>
-          <div className="cardHint" style={{ marginTop: 4 }}>{t("welcome.quickFormImHint")}</div>
-        </div>
-        {quickImExpanded && renderIM()}
-
-        {/* ── Start button ── */}
-        <div style={{ marginTop: 24, textAlign: "center" }}>
-          <button
-            className="btnPrimary"
-            style={{ padding: "12px 48px", fontSize: 16, fontWeight: 700, borderRadius: 10 }}
-            disabled={!canStart || !!busy}
-            onClick={() => {
-              setStepId("quick-setup");
-              setMaxReachedStepIdx((prev) => {
-                const next = Math.max(prev, 2);
-                localStorage.setItem("openakita_maxStep", String(next));
-                return next;
-              });
-            }}
-          >
-            {t("welcome.quickFormStart")}
-          </button>
-          {!canStart && (
-            <div style={{ marginTop: 8, fontSize: 12, opacity: 0.6, color: "#e53935" }}>
-              {t("welcome.quickFormNeedEndpoint")}
-            </div>
-          )}
-        </div>
-      </>
-    );
-  }
-
-    function renderWorkspace() {
-    return (
-      <>
-        <div className="card">
-          <div className="cardTitle">{t("config.wsTitle")}</div>
-          <div className="cardHint">
-            工作区会生成并维护：`.env`、`data/llm_endpoints.json`、`identity/SOUL.md`。你可以为“生产/测试/不同客户”分别建立工作区。
-          </div>
-          <div className="divider" />
-          <div className="row">
-            <div className="field" style={{ minWidth: 320, flex: "1 1 auto" }}>
-              <div className="labelRow">
-                <div className="label">{t("config.wsName")}</div>
-                <div className="help">{t("config.wsIdHint")}</div>
-              </div>
-              <input value={newWsName} onChange={(e) => setNewWsName(e.target.value)} placeholder={t("config.wsPlaceholder")} />
-              <div className="help">
-                {t("config.wsGenId")}: <b>{newWsId}</b>
-              </div>
-            </div>
-            <button className="btnPrimary" onClick={doCreateWorkspace} disabled={!!busy || !newWsName.trim()}>
-              {t("config.wsCreate")}
-            </button>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="cardTitle">{t("config.wsExisting")}</div>
-          {workspaces.length === 0 ? (
-            <div className="cardHint">{t("config.wsEmpty")}</div>
-          ) : (
-            <div style={{ display: "grid", gap: 10 }}>
-              {workspaces.map((w) => (
-                <div
-                  key={w.id}
-                  className="card"
-                  style={{
-                    marginTop: 0,
-                    borderColor: w.isCurrent ? "rgba(14, 165, 233, 0.22)" : "var(--line)",
-                    background: w.isCurrent ? "rgba(14, 165, 233, 0.06)" : "rgba(255, 255, 255, 0.72)",
-                  }}
-                >
-                  <div className="row" style={{ justifyContent: "space-between" }}>
-                    <div>
-                      <div style={{ fontWeight: 800 }}>
-                        {w.name} <span style={{ color: "var(--muted)", fontWeight: 500 }}>({w.id})</span>
-                        {w.isCurrent ? <span style={{ marginLeft: 8, color: "var(--brand)" }}>{t("config.wsCurrent")}</span> : null}
-                      </div>
-                      <div className="help" style={{ marginTop: 6 }}>
-                        {w.path}
-                      </div>
-                    </div>
-                    <div className="btnRow">
-                      <button onClick={() => doSetCurrentWorkspace(w.id)} disabled={!!busy || w.isCurrent}>
-                        {t("config.wsSetCurrent")}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="okBox">
-            下一步建议：进入“Python”，优先使用“内置 Python”以实现真正的一键安装（尤其是 Windows）。
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  function renderPython() {
-    return (
-      <>
-        <div className="card">
-          <div className="cardTitle">{t("config.pyTitle")}</div>
-          <div className="cardHint">{t("config.pyHint")}</div>
-          <div className="divider" />
-          <div className="btnRow">
-            <button className="btnPrimary" onClick={doInstallEmbeddedPython} disabled={!!busy}>
-              {t("config.pyEmbed")}
-            </button>
-            <button onClick={doDetectPython} disabled={!!busy}>
-              {t("config.pyDetect")}
-            </button>
-          </div>
-          {pythonCandidates.length > 0 && (
-            <div style={{ marginTop: 12 }}>
-              <div className="row" style={{ alignItems: "center", gap: 10 }}>
-                <span className="label" style={{ marginBottom: 0, whiteSpace: "nowrap" }}>{t("config.pySelect")}</span>
-                <select style={{ flex: 1, maxWidth: 420, textOverflow: "ellipsis" }} value={selectedPythonIdx} onChange={(e) => setSelectedPythonIdx(Number(e.target.value))}
-                  title={selectedPythonIdx >= 0 ? pythonCandidates[selectedPythonIdx]?.command.join(" ") : ""}>
-                  <option value={-1}>--</option>
-                  {pythonCandidates.map((c, idx) => {
-                    const full = c.command.join(" ");
-                    const short = full.length > 60 ? "..." + full.slice(-55) : full;
-                    return (
-                      <option key={idx} value={idx} title={full}>
-                        {short} — {c.versionText}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-            </div>
-          )}
-
-          {/* One-click create venv from selected Python */}
-          {canUsePython && (
-            <div style={{ marginTop: 12 }}>
-              <button className="btnPrimary" onClick={doCreateVenvFromPython} disabled={!!busy}>
-                {t("config.pyCreateVenv")}
-              </button>
-              <span className="help" style={{ marginLeft: 8 }}>venv: {venvDir}</span>
-            </div>
-          )}
-
-          {venvStatus && <div className="okBox" style={{ marginTop: 10 }}>{venvStatus}</div>}
-          {canUsePython && <div className="okBox" style={{ marginTop: 10 }}>{t("config.pyReady")}</div>}
-        </div>
-
-        {/* Custom Python path */}
-        <div className="card" style={{ marginTop: 12 }}>
-          <div className="cardTitle" style={{ fontSize: 14 }}>{t("config.pyCustomPath")}</div>
-          <div className="cardHint">{t("config.pyCustomPathHint")}</div>
-          <div className="row" style={{ gap: 8, marginTop: 8, alignItems: "center" }}>
-            <input
-              style={{ flex: 1 }}
-              placeholder={
-                navigator.platform.startsWith("Win")
-                  ? "C:\\Python313\\python.exe"
-                  : "/usr/bin/python3"
-              }
-              value={customPythonPath}
-              onChange={(e) => setCustomPythonPath(e.target.value)}
-              disabled={!!busy}
-            />
-            <button onClick={doValidateCustomPython} disabled={!!busy || !customPythonPath.trim()}>
-              {t("config.pyValidate")}
-            </button>
-          </div>
-          {customPathStatus && (
-            <div className={customPathStatus.includes(t("config.pyValidateOk")) ? "okBox" : "errBox"} style={{ marginTop: 8 }}>
-              {customPathStatus}
-            </div>
-          )}
-        </div>
-
-        {/* Custom venv path */}
-        <div className="card" style={{ marginTop: 12 }}>
-          <div className="cardTitle" style={{ fontSize: 14 }}>{t("config.pyCustomVenv")}</div>
-          <div className="cardHint">{t("config.pyCustomVenvHint")}</div>
-          <div className="row" style={{ gap: 8, marginTop: 8, alignItems: "center" }}>
-            <input
-              style={{ flex: 1 }}
-              placeholder={
-                navigator.platform.startsWith("Win")
-                  ? "C:\\myproject\\.venv"
-                  : "/home/user/myproject/.venv"
-              }
-              value={customVenvPath}
-              onChange={(e) => setCustomVenvPath(e.target.value)}
-              disabled={!!busy}
-            />
-            <button onClick={doValidateCustomVenv} disabled={!!busy || !customVenvPath.trim()}>
-              {t("config.pyValidate")}
-            </button>
-          </div>
-          {customVenvStatus && (
-            <div className={customVenvStatus.includes(t("config.pyVenvValidateOk")) ? "okBox" : "errBox"} style={{ marginTop: 8 }}>
-              {customVenvStatus}
-            </div>
-          )}
-          {customVenvPath.trim() && customVenvStatus.includes(t("config.pyVenvValidateOk")) && (
-            <div style={{ marginTop: 8 }}>
-              <button className="btnPrimary" onClick={doUseCustomVenvAsActive} disabled={!!busy}>
-                {t("config.pyUseAsActive")}
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Active env summary */}
-        {envDraft["PYTHON_VENV_PATH"] && (
-          <div className="card" style={{ marginTop: 12 }}>
-            <div className="cardTitle" style={{ fontSize: 14 }}>{t("config.pyActiveEnv")}</div>
-            <div className="okBox">
-              PYTHON_VENV_PATH = {envDraft["PYTHON_VENV_PATH"]}
-            </div>
-          </div>
-        )}
-
-        {/* Diagnostic & One-Click Repair */}
-        <div className="card" style={{ marginTop: 16 }}>
-          <div className="cardTitle" style={{ fontSize: 14 }}>{t("config.pyDiagnose")}</div>
-          <div className="cardHint">{t("config.pyRepairHint")}</div>
-          <div className="divider" />
-          <div className="btnRow">
-            <button onClick={doDiagnosePython} disabled={!!busy}>
-              {t("config.pyDiagnose")}
-            </button>
-            <button className="btnPrimary" onClick={doRepairPython} disabled={!!busy}>
-              {t("config.pyRepair")}
-            </button>
-          </div>
-
-          {/* Repair progress */}
-          {repairStage && (
-            <div style={{ marginTop: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                <span style={{ fontWeight: 600 }}>{repairStage}</span>
-                <span style={{ color: "var(--muted)" }}>{repairPercent}%</span>
-              </div>
-              <div style={{ height: 4, borderRadius: 2, background: "var(--line)", marginTop: 4, overflow: "hidden" }}>
-                <div style={{ width: `${repairPercent}%`, height: "100%", borderRadius: 2, background: "var(--primary)", transition: "width 0.3s" }} />
-              </div>
-              {repairDetail && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>{repairDetail}</div>}
-            </div>
-          )}
-
-          {/* Diagnostic report */}
-          {pyDiag && (
-            <div style={{ marginTop: 12 }}>
-              <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
-                <tbody>
-                  <tr>
-                    <td style={{ padding: "4px 8px", fontWeight: 600 }}>{t("config.pyDiagEmbedded")}</td>
-                    <td style={{ padding: "4px 8px" }}>
-                      <span style={{ color: pyDiag.embeddedPythonOk ? "var(--success)" : "var(--error)" }}>
-                        {pyDiag.embeddedPythonOk ? t("config.pyDiagOk") : t("config.pyDiagFail")}
-                      </span>
-                      {pyDiag.embeddedPythonPath && (
-                        <span style={{ color: "var(--muted)", marginLeft: 8, fontSize: 12 }}>{pyDiag.embeddedPythonPath}</span>
-                      )}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "4px 8px", fontWeight: 600 }}>{t("config.pyDiagVenv")}</td>
-                    <td style={{ padding: "4px 8px" }}>
-                      <span style={{ color: pyDiag.venvOk ? "var(--success)" : "var(--error)" }}>
-                        {pyDiag.venvOk ? t("config.pyDiagOk") : t("config.pyDiagFail")}
-                      </span>
-                      {pyDiag.venvPythonVersion && (
-                        <span style={{ color: "var(--muted)", marginLeft: 8, fontSize: 12 }}>{pyDiag.venvPythonVersion}</span>
-                      )}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "4px 8px", fontWeight: 600 }}>{t("config.pyDiagOpenakita")}</td>
-                    <td style={{ padding: "4px 8px" }}>
-                      <span style={{ color: pyDiag.openakitaInstalled ? "var(--success)" : "var(--error)" }}>
-                        {pyDiag.openakitaInstalled ? t("config.pyDiagOk") : t("config.pyDiagFail")}
-                      </span>
-                      {pyDiag.openakitaVersion && (
-                        <span style={{ color: "var(--muted)", marginLeft: 8, fontSize: 12 }}>v{pyDiag.openakitaVersion}</span>
-                      )}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: "4px 8px", fontWeight: 600 }}>{t("config.pyDiagSystem")}</td>
-                    <td style={{ padding: "4px 8px" }}>
-                      <span style={{ color: pyDiag.systemPythonOk ? "var(--success)" : "var(--muted)" }}>
-                        {pyDiag.systemPythonOk ? t("config.pyDiagOk") : "-"}
-                      </span>
-                      {pyDiag.systemPythonPath && (
-                        <span style={{ color: "var(--muted)", marginLeft: 8, fontSize: 12 }}>{pyDiag.systemPythonPath}</span>
-                      )}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-              {pyDiag.issues.length > 0 ? (
-                <div className="errBox" style={{ marginTop: 8 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>{t("config.pyDiagIssues")} ({pyDiag.issues.length})</div>
-                  {pyDiag.issues.map((issue, i) => (
-                    <div key={i} style={{ fontSize: 12, marginTop: 2 }}>• {issue}</div>
-                  ))}
-                </div>
-              ) : (
-                <div className="okBox" style={{ marginTop: 8 }}>{t("config.pyDiagNoIssues")}</div>
-              )}
-            </div>
-          )}
-        </div>
-      </>
-    );
-  }
-
-  function renderInstall() {
-    const venvPath = venvDir;
-    const installReadyText = openakitaInstalled
-      ? t("config.installDone")
-      : venvReady
-        ? t("config.installVenvReady")
-        : t("config.installReady");
-    return (
-      <>
-        <div className="card">
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-            <div className="cardTitle" style={{ marginBottom: 0 }}>{t("config.installTitle")}</div>
-            <div className="pill" style={{ gap: 6 }}>
-              <span className="help">venv</span>
-              <span style={{ fontWeight: 700 }}>{venvPath}</span>
-            </div>
-          </div>
-          <div className="divider" />
-
-          {/* Source / Version / Mirror in one row */}
-          <div className="grid3" style={{ alignItems: "flex-start" }}>
-            <div className="field">
-              <div className="label">{t("config.installSource")}</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {(["pypi", "github", "local"] as const).map((s) => (
-                  <button key={s} className={installSource === s ? "capChipActive" : "capChip"}
-                    onClick={() => setInstallSource(s)} disabled={!!busy}>
-                    {s === "pypi" ? t("config.installPypi") : s === "github" ? "GitHub" : t("config.installLocal")}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {installSource === "pypi" && (
-              <div className="field">
-                <div className="label">{t("config.installVersion")}</div>
-                <div className="row" style={{ gap: 6 }}>
-                  <button className="btnSmall" onClick={doFetchPypiVersions}
-                    disabled={!!busy || pypiVersionsLoading} style={{ whiteSpace: "nowrap" }}>
-                    {pypiVersionsLoading ? "..." : t("config.installFetchVer")}
-                  </button>
-                  {pypiVersions.length > 0 ? (
-                    <select value={selectedPypiVersion} onChange={(e) => setSelectedPypiVersion(e.target.value)}
-                      disabled={!!busy} style={{ flex: 1 }}>
-                      {pypiVersions.map((v) => (
-                        <option key={v} value={v}>
-                          {v}{v === appVersion ? ` (${t("config.installRecommended")})` : v === pypiVersions[0] ? ` (${t("config.installLatest")})` : ""}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input value={selectedPypiVersion} onChange={(e) => setSelectedPypiVersion(e.target.value)}
-                      placeholder={appVersion || ""} disabled={!!busy} style={{ flex: 1 }} />
-                  )}
-                </div>
-              </div>
-            )}
-
-            {installSource === "github" && (
-              <div className="field">
-                <div className="label">GitHub</div>
-                <input value={githubRepo} onChange={(e) => setGithubRepo(e.target.value)} placeholder="openakita/openakita" />
-                <div className="row" style={{ gap: 6, marginTop: 6 }}>
-                  <select value={githubRefType} onChange={(e) => setGithubRefType(e.target.value as any)} style={{ width: 100 }}>
-                    <option value="branch">branch</option>
-                    <option value="tag">tag</option>
-                  </select>
-                  <input value={githubRef} onChange={(e) => setGithubRef(e.target.value)} placeholder="main" style={{ flex: 1 }} />
-                </div>
-              </div>
-            )}
-
-            {installSource === "local" && (
-              <div className="field">
-                <div className="label">{t("config.installLocal")}</div>
-                <input value={localSourcePath} onChange={(e) => setLocalSourcePath(e.target.value)} placeholder="D:\\coder\\myagent" />
-              </div>
-            )}
-
-            <div className="field">
-              <div className="label">{t("config.installMirror")}</div>
-              <select value={pipIndexPresetId}
-                onChange={(e) => {
-                  const id = e.target.value as "official" | "tuna" | "aliyun" | "custom";
-                  setPipIndexPresetId(id);
-                  const preset = PIP_INDEX_PRESETS.find((p) => p.id === id);
-                  if (!preset) return;
-                  if (id === "custom") { setIndexUrl(customIndexUrl); return; }
-                  setIndexUrl(preset.url);
-                }}>
-                {PIP_INDEX_PRESETS.map((p) => (
-                  <option key={p.id} value={p.id}>{p.label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Extras chips */}
-          <div style={{ marginTop: 12 }}>
-            <div className="label">extras</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
-              {["all", "windows", "browser", "whisper", "feishu", "dingtalk", "wework", "onebot", "qqbot"].map((x) => (
-                <button key={x} className={extras === x ? "capChipActive" : "capChip"}
-                  onClick={() => setExtras(x)} disabled={!!busy}>{x}</button>
-              ))}
-            </div>
-          </div>
-
-          <div className="divider" />
-
-          {/* Action button */}
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <div className="cardHint" style={{ marginTop: 0 }}><b>{installReadyText}</b></div>
-            <button className="btnPrimary" onClick={doSetupVenvAndInstallOpenAkita} disabled={!canUsePython || !!busy}>
-              {openakitaInstalled ? t("config.installUpgrade") : t("config.installAction")}
-            </button>
-          </div>
-          {venvStatus && <div className="okBox" style={{ marginTop: 8 }}>{venvStatus}</div>}
-
-          {/* Progress bar during install */}
-          {!!busy && (busy || "").includes("venv") && (
-            <div style={{ marginTop: 12 }}>
-              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                <div className="help">{installProgress ? `${installProgress.stage} (${installProgress.percent}%)` : t("common.loading")}</div>
-                <button className="btnSmall" onClick={() => setInstallLiveLog("")} disabled={!!busy}>{t("config.installClearLog")}</button>
-              </div>
-              <div style={{ marginTop: 6, height: 8, borderRadius: 999, background: "var(--bg1)", overflow: "hidden" }}>
-                <div style={{ width: `${installProgress?.percent ?? 5}%`, height: "100%", background: "var(--brand)", transition: "width 180ms ease" }} />
-              </div>
-              <pre className="logPre" style={{ marginTop: 8, maxHeight: 180 }}>{installLiveLog || t("config.installWaiting")}</pre>
-            </div>
-          )}
-
-          {installLog && (
-            <details style={{ marginTop: 10 }}>
-              <summary className="dialogDetails" style={{ cursor: "pointer", fontWeight: 700, fontSize: 13 }}>{t("config.installShowLog")}</summary>
-              <pre className="logPre" style={{ marginTop: 6, maxHeight: 200 }}>{installLog}</pre>
-            </details>
-          )}
-
-          {openakitaInstalled && <div className="okBox" style={{ marginTop: 10 }}>{t("config.installDoneNext")}</div>}
-        </div>
       </>
     );
   }
@@ -8191,157 +7157,6 @@ export function App() {
     );
   }
 
-  function renderQuickFinish() {
-    const ws = workspaces.find((w) => w.id === currentWorkspaceId) || null;
-    const epCount = savedEndpoints.length;
-    const imEnabled = ["TELEGRAM_ENABLED", "FEISHU_ENABLED", "WEWORK_ENABLED", "DINGTALK_ENABLED", "ONEBOT_ENABLED", "QQBOT_ENABLED"]
-      .filter((k) => (envDraft[k] || "").toLowerCase() === "true");
-    return (
-      <>
-        <div className="card">
-          <div className="cardTitle">{t("config.quickFinishTitle")}</div>
-          <div className="cardHint" style={{ marginBottom: 16 }}>{t("config.quickFinishHint")}</div>
-          <div className="divider" />
-          <div className="grid2" style={{ marginTop: 12 }}>
-            <div className="card" style={{ marginTop: 0 }}>
-              <div className="label">{t("config.step.workspace")}</div>
-              <div className="cardHint" style={{ marginTop: 4 }}>{ws?.name || "default"} ({ws?.path || "-"})</div>
-            </div>
-            <div className="card" style={{ marginTop: 0 }}>
-              <div className="label">{t("config.step.endpoints")}</div>
-              <div className="cardHint" style={{ marginTop: 4 }}>{epCount} {t("topbar.endpoints", { count: epCount })}</div>
-            </div>
-          </div>
-          {imEnabled.length > 0 && (
-            <div className="card" style={{ marginTop: 12 }}>
-              <div className="label">{t("config.imTitle")}</div>
-              <div className="cardHint" style={{ marginTop: 4 }}>
-                {imEnabled.map((k) => k.replace("_ENABLED", "")).join(", ")}
-              </div>
-            </div>
-          )}
-          <div style={{ marginTop: 20, display: "flex", justifyContent: "center", gap: 12 }}>
-            <button
-              className="btnPrimary"
-              style={{ padding: "10px 32px", fontSize: 15 }}
-              onClick={async () => {
-                const effectiveWsId = currentWorkspaceId || workspaces[0]?.id || null;
-                if (!effectiveWsId) { setError(t("common.error")); return; }
-                setError(null);
-                setView("status");
-                await startLocalServiceWithConflictCheck(effectiveWsId);
-                try { await refreshServiceLog(effectiveWsId); } catch { /* ignore */ }
-              }}
-              disabled={!!busy}
-            >
-              {t("config.quickFinishLaunch")}
-            </button>
-            <button
-              style={{ padding: "10px 24px", fontSize: 14 }}
-              onClick={() => { setView("status"); }}
-            >
-              {t("config.quickFinishToStatus")}
-            </button>
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  function renderFinish() {
-    const ws = workspaces.find((w) => w.id === currentWorkspaceId) || null;
-
-    async function uninstallOpenAkita() {
-      setError(null);
-      setNotice(null);
-      setBusy("卸载 openakita（venv）...");
-      try {
-        await invoke("pip_uninstall", { venvDir, packageName: "openakita" });
-        setNotice("已卸载 openakita（venv）。你可以重新安装或删除 venv。");
-      } catch (e) {
-        setError(String(e));
-      } finally {
-        setBusy(null);
-      }
-    }
-
-    async function removeRuntime() {
-      setError(null);
-      setNotice(null);
-      setBusy("删除运行环境目录...");
-      try {
-        await invoke("remove_openakita_runtime", { removeVenv: true, removeEmbeddedPython: true });
-        setNotice("已删除 ~/.openakita/venv 与 ~/.openakita/runtime（工作区配置保留）。");
-      } catch (e) {
-        setError(String(e));
-      } finally {
-        setBusy(null);
-      }
-    }
-
-    return (
-      <>
-        <div className="card">
-          <div className="cardTitle">完成：收尾与检查</div>
-          <div className="cardHint">你已经完成安装与配置。这里是收尾步骤：检查配置、（可选）卸载与清理。</div>
-          <div className="divider" />
-          <div className="grid2">
-            <div className="card" style={{ marginTop: 0 }}>
-              <div className="label">检查配置文件</div>
-              <div className="cardHint" style={{ marginTop: 8 }}>
-                工作区目录：<b>{ws?.path || "（未选择）"}</b>
-                <br />
-                - `.env`（已写入你的 key/开关）
-                <br />
-                - `data/llm_endpoints.json`（端点列表）
-                <br />
-                - `data/skills.json`（外部技能启用状态）
-                <br />- `identity/SOUL.md`（Agent 设定）
-              </div>
-            </div>
-            <div className="card" style={{ marginTop: 0 }}>
-              <div className="label">运行/验证（建议）</div>
-              <div className="cardHint" style={{ marginTop: 8 }}>
-                - 点击右上角“状态面板”，检查服务/端点/skills 是否正常
-                <br />- 浏览器自动化 (Playwright) 已内置，无需额外安装
-                <br />- 如启用 Windows 桌面工具：确保安装 `openakita[windows]`
-              </div>
-            </div>
-          </div>
-
-          <div className="divider" />
-          <div className="card">
-            <div className="label">卸载（可选）</div>
-            <div className="cardHint" style={{ marginTop: 8 }}>卸载模块是独立的：只卸载 venv 内的 `openakita` 包，不影响工作区配置文件。</div>
-            <div className="btnRow" style={{ marginTop: 10 }}>
-              <button onClick={uninstallOpenAkita} disabled={!!busy}>
-                卸载 openakita（venv）
-              </button>
-            </div>
-          </div>
-
-          <div className="divider" />
-          <div className="card">
-            <div className="label">清理运行环境（可选）</div>
-            <div className="cardHint" style={{ marginTop: 8 }}>
-              删除 `~/.openakita/venv` 与 `~/.openakita/runtime`（会丢失已安装依赖与内置 Python），但**保留 workspaces 配置**。
-            </div>
-            <div className="divider" />
-            <label className="pill" style={{ cursor: "pointer" }}>
-              <input style={{ width: 16, height: 16 }} type="checkbox" checked={dangerAck} onChange={(e) => setDangerAck(e.target.checked)} />
-              我已了解：删除运行环境是不可逆操作
-            </label>
-            <div className="btnRow" style={{ marginTop: 10 }}>
-              <button className="btnDanger" onClick={removeRuntime} disabled={!dangerAck || !!busy}>
-                删除运行环境（venv + runtime）
-              </button>
-            </div>
-          </div>
-        </div>
-      </>
-    );
-  }
-
   // 构造端点摘要（供 ChatView 使用）
   const chatEndpoints: EndpointSummaryType[] = useMemo(() =>
     endpointSummary.map((e) => {
@@ -8893,10 +7708,7 @@ export function App() {
                     }
                   }
                   setView("wizard");
-                  setConfigMode("full");
-                  setStepId("workspace");
-                  setMaxReachedStepIdx(0);
-                  localStorage.setItem("openakita_maxStep", "0");
+                  setStepId("llm");
                 }}
               >
                 {t("onboarding.welcome.advancedLink")}
@@ -9579,14 +8391,6 @@ export function App() {
       );
     }
     switch (stepId) {
-      case "welcome":
-        return renderWelcome();
-      case "workspace":
-        return renderWorkspace();
-      case "python":
-        return renderPython();
-      case "install":
-        return renderInstall();
       case "llm":
         return renderLLM();
       case "im":
@@ -9595,16 +8399,8 @@ export function App() {
         return renderTools();
       case "agent":
         return renderAgentSystem();
-      case "finish":
-        return renderFinish();
-      case "quick-form":
-        return renderQuickForm();
-      case "quick-setup":
-        return renderQuickAutoSetup();
-      case "quick-finish":
-        return renderQuickFinish();
       default:
-        return renderWelcome();
+        return renderLLM();
     }
   }
 
@@ -9706,54 +8502,28 @@ export function App() {
 
         {/* Collapsible Config section */}
         <div className="configSection">
-          <div className="configHeader" onClick={() => { if (sidebarCollapsed || configMode === null) { setView("wizard"); setStepId("welcome"); setConfigExpanded(true); } else if (view !== "wizard") { setView("wizard"); setConfigExpanded(true); } else { setConfigExpanded((v) => !v); } }} role="button" tabIndex={0} title={t("sidebar.config")}>
+          <div className="configHeader" onClick={() => { if (sidebarCollapsed) { setView("wizard"); setConfigExpanded(true); } else if (view !== "wizard") { setView("wizard"); setConfigExpanded(true); } else { setConfigExpanded((v) => !v); } }} role="button" tabIndex={0} title={t("sidebar.config")}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <IconConfig size={16} />
               {!sidebarCollapsed && <span>{t("sidebar.config")}</span>}
             </div>
-            {!sidebarCollapsed && configMode !== null && (
+            {!sidebarCollapsed && (
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span className="configProgress">{t("sidebar.configProgress", { done: doneCount, total: totalSteps })}</span>
                 {configExpanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
               </div>
             )}
           </div>
-          {!sidebarCollapsed && configExpanded && configMode !== null && (
+          {!sidebarCollapsed && configExpanded && (
             <div className="stepList">
-              {/* Mode selection entry - always visible when a mode has been chosen */}
-              {configMode !== null && (
-                <div
-                  className={`stepItem ${view === "wizard" && stepId === "welcome" && configMode === null ? "stepItemActive" : ""}`}
-                  style={{ opacity: 0.7, borderBottom: "1px solid var(--line, #e0e0e0)", paddingBottom: 8, marginBottom: 4 }}
-                  onClick={() => {
-                    quickSetupStarted.current = false;
-                    setQuickSetupPhase(0);
-                    setQuickSetupError(null);
-                    setConfigMode(null);
-                    setStepId("welcome");
-                    setMaxReachedStepIdx(0);
-                    localStorage.setItem("openakita_maxStep", "0");
-                    setView("wizard");
-                  }}
-                  role="button" tabIndex={0}
-                >
-                  <div className="stepDot" style={{ width: 20, height: 20, fontSize: 10 }}>
-                    <IconChevronRight size={12} style={{ transform: "rotate(180deg)" }} />
-                  </div>
-                  <div className="stepMeta"><div className="stepTitle" style={{ fontSize: 11 }}>{t("welcome.backToModeSelect")}</div></div>
-                </div>
-              )}
-              {steps.filter((s) => s.id !== "welcome" || configMode === null).map((s, idx) => {
+              {steps.map((s, idx) => {
                 const isActive = view === "wizard" && s.id === stepId;
                 const isDone = done.has(s.id);
-                // quick-setup is non-interactive, don't allow clicking it
-                const canJump = s.id === "quick-setup" ? false : (idx <= maxReachedStepIdx || isDone);
                 return (
                   <div
                     key={s.id}
-                    className={`stepItem ${isActive ? "stepItemActive" : ""} ${canJump ? "" : "stepItemDisabled"}`}
-                    onClick={() => { if (!canJump) return; setView("wizard"); setStepId(s.id); }}
-                    role="button" tabIndex={0} aria-disabled={!canJump}
+                    className={`stepItem ${isActive ? "stepItemActive" : ""}`}
+                    onClick={() => { setView("wizard"); setStepId(s.id); }}
+                    role="button" tabIndex={0}
                   >
                     <StepDot idx={idx} isDone={isDone} />
                     <div className="stepMeta"><div className="stepTitle">{s.title}</div></div>
@@ -10212,8 +8982,6 @@ export function App() {
         )}
 
         {view === "wizard" ? (() => {
-          // Hide footer on welcome (mode selection), quick-form (has own start button), quick-setup (auto-running) and quick-finish (has own launch button)
-          if (stepId === "welcome" || stepId === "quick-form" || stepId === "quick-setup" || stepId === "quick-finish") return null;
           const saveConfig = getFooterSaveConfig();
           return (
             <div className="footer">
@@ -10236,23 +9004,8 @@ export function App() {
                 )}
               </div>
               <div className="btnRow">
-                <button onClick={goPrev} disabled={(isFirst && !(configMode === "full" && stepId === "workspace")) || !!busy}>{t("config.prev")}</button>
-                {stepId === "finish" ? (
-                  <button
-                    className="btnPrimary"
-                    onClick={async () => {
-                      const effectiveWsId = currentWorkspaceId || workspaces[0]?.id || null;
-                      if (!effectiveWsId) { setError(t("common.error")); return; }
-                      setError(null);
-                      setView("status");
-                      await startLocalServiceWithConflictCheck(effectiveWsId);
-                      try { await refreshServiceLog(effectiveWsId); } catch { /* ignore */ }
-                    }}
-                    disabled={!!busy}
-                  >{t("config.finish")}</button>
-                ) : (
-                  <button className="btnPrimary" onClick={goNext} disabled={isLast || !!busy}>{t("config.next")}</button>
-                )}
+                <button onClick={goPrev} disabled={isFirst || !!busy}>{t("config.prev")}</button>
+                <button className="btnPrimary" onClick={goNext} disabled={isLast || !!busy}>{t("config.next")}</button>
               </div>
             </div>
           );
